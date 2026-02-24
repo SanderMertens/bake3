@@ -648,7 +648,7 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
     return 0;
 }
 
-int bake_run_command(const char *cmd) {
+static int bake_run_command_impl(const char *cmd, bool log_command) {
     if (!cmd || !cmd[0]) {
         return -1;
     }
@@ -659,7 +659,9 @@ int bake_run_command(const char *cmd) {
         return -1;
     }
 
-    B2_LOG("$ %s", cmd);
+    if (log_command) {
+        B2_LOG("$ %s", cmd);
+    }
 
     bake_process_result_t result = {0};
     int rc = bake_proc_run(
@@ -692,4 +694,12 @@ int bake_run_command(const char *cmd) {
 
     bake_cmd_line_fini(&parsed);
     return 0;
+}
+
+int bake_run_command(const char *cmd) {
+    return bake_run_command_impl(cmd, true);
+}
+
+int bake_run_command_quiet(const char *cmd) {
+    return bake_run_command_impl(cmd, false);
 }

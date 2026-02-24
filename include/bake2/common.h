@@ -53,5 +53,6 @@ char* bake_getcwd(void);
 int bake_remove_tree(const char *path);
 int bake_copy_file(const char *src, const char *dst);
 int bake_run_command(const char *cmd);
+int bake_run_command_quiet(const char *cmd);
 
 #endif
