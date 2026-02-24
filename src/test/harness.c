@@ -2,20 +2,20 @@
 
 #include "../config/jsmn.h"
 
-typedef struct b2_suite_spec_t {
+typedef struct bake_suite_spec_t {
     char *id;
     bool setup;
     bool teardown;
-    b2_strlist_t testcases;
-} b2_suite_spec_t;
+    bake_strlist_t testcases;
+} bake_suite_spec_t;
 
-typedef struct b2_suite_list_t {
-    b2_suite_spec_t *items;
+typedef struct bake_suite_list_t {
+    bake_suite_spec_t *items;
     int32_t count;
     int32_t capacity;
-} b2_suite_list_t;
+} bake_suite_list_t;
 
-static int b2_json_skip(const jsmntok_t *toks, int count, int index) {
+static int bake_json_skip(const jsmntok_t *toks, int count, int index) {
     int next = index + 1;
     if (index < 0 || index >= count) {
         return next;
@@ -23,20 +23,20 @@ static int b2_json_skip(const jsmntok_t *toks, int count, int index) {
 
     if (toks[index].type == JSMN_OBJECT || toks[index].type == JSMN_ARRAY) {
         for (int i = 0; i < toks[index].size; i++) {
-            next = b2_json_skip(toks, count, next);
+            next = bake_json_skip(toks, count, next);
         }
     }
 
     return next;
 }
 
-static int b2_json_eq(const char *json, const jsmntok_t *tok, const char *str) {
+static int bake_json_eq(const char *json, const jsmntok_t *tok, const char *str) {
     size_t len = strlen(str);
     size_t tok_len = (size_t)(tok->end - tok->start);
     return tok_len == len && strncmp(json + tok->start, str, len) == 0;
 }
 
-static char* b2_json_strdup(const char *json, const jsmntok_t *tok) {
+static char* bake_json_strdup(const char *json, const jsmntok_t *tok) {
     size_t len = (size_t)(tok->end - tok->start);
     char *str = ecs_os_malloc(len + 1);
     if (!str) {
@@ -47,32 +47,32 @@ static char* b2_json_strdup(const char *json, const jsmntok_t *tok) {
     return str;
 }
 
-static int b2_json_find_object_key(const char *json, const jsmntok_t *toks, int count, int object, const char *key) {
+static int bake_json_find_object_key(const char *json, const jsmntok_t *toks, int count, int object, const char *key) {
     if (object < 0 || object >= count || toks[object].type != JSMN_OBJECT) {
         return -1;
     }
 
     int i = object + 1;
-    int end = b2_json_skip(toks, count, object);
+    int end = bake_json_skip(toks, count, object);
     while (i < end) {
         int key_tok = i;
         int val_tok = i + 1;
 
-        if (toks[key_tok].type == JSMN_STRING && b2_json_eq(json, &toks[key_tok], key)) {
+        if (toks[key_tok].type == JSMN_STRING && bake_json_eq(json, &toks[key_tok], key)) {
             return val_tok;
         }
 
-        i = b2_json_skip(toks, count, val_tok);
+        i = bake_json_skip(toks, count, val_tok);
     }
 
     return -1;
 }
 
-static void b2_suite_list_fini(b2_suite_list_t *list) {
+static void bake_suite_list_fini(bake_suite_list_t *list) {
     for (int32_t i = 0; i < list->count; i++) {
-        b2_suite_spec_t *suite = &list->items[i];
+        bake_suite_spec_t *suite = &list->items[i];
         ecs_os_free(suite->id);
-        b2_strlist_fini(&suite->testcases);
+        bake_strlist_fini(&suite->testcases);
     }
     ecs_os_free(list->items);
     list->items = NULL;
@@ -80,10 +80,10 @@ static void b2_suite_list_fini(b2_suite_list_t *list) {
     list->capacity = 0;
 }
 
-static int b2_suite_list_append(b2_suite_list_t *list, b2_suite_spec_t *suite) {
+static int bake_suite_list_append(bake_suite_list_t *list, bake_suite_spec_t *suite) {
     if (list->count == list->capacity) {
         int32_t next = list->capacity ? list->capacity * 2 : 8;
-        b2_suite_spec_t *items = ecs_os_realloc_n(list->items, b2_suite_spec_t, next);
+        bake_suite_spec_t *items = ecs_os_realloc_n(list->items, bake_suite_spec_t, next);
         if (!items) {
             return -1;
         }
@@ -95,9 +95,9 @@ static int b2_suite_list_append(b2_suite_list_t *list, b2_suite_spec_t *suite) {
     return 0;
 }
 
-static int b2_parse_tests_json(const char *path, b2_suite_list_t *out) {
+static int bake_parse_tests_json(const char *path, bake_suite_list_t *out) {
     size_t len = 0;
-    char *json = b2_read_file(path, &len);
+    char *json = bake_read_file(path, &len);
     if (!json) {
         return -1;
     }
@@ -126,7 +126,7 @@ static int b2_parse_tests_json(const char *path, b2_suite_list_t *out) {
         return -1;
     }
 
-    int suites_tok = b2_json_find_object_key(json, tokens, parsed, 0, "suites");
+    int suites_tok = bake_json_find_object_key(json, tokens, parsed, 0, "suites");
     if (suites_tok < 0 || tokens[suites_tok].type != JSMN_ARRAY) {
         ecs_os_free(tokens);
         ecs_os_free(json);
@@ -141,48 +141,48 @@ static int b2_parse_tests_json(const char *path, b2_suite_list_t *out) {
             return -1;
         }
 
-        b2_suite_spec_t suite = {0};
-        b2_strlist_init(&suite.testcases);
+        bake_suite_spec_t suite = {0};
+        bake_strlist_init(&suite.testcases);
 
-        int id_tok = b2_json_find_object_key(json, tokens, parsed, i, "id");
-        int setup_tok = b2_json_find_object_key(json, tokens, parsed, i, "setup");
-        int teardown_tok = b2_json_find_object_key(json, tokens, parsed, i, "teardown");
-        int tests_tok = b2_json_find_object_key(json, tokens, parsed, i, "testcases");
+        int id_tok = bake_json_find_object_key(json, tokens, parsed, i, "id");
+        int setup_tok = bake_json_find_object_key(json, tokens, parsed, i, "setup");
+        int teardown_tok = bake_json_find_object_key(json, tokens, parsed, i, "teardown");
+        int tests_tok = bake_json_find_object_key(json, tokens, parsed, i, "testcases");
 
         if (id_tok < 0 || tests_tok < 0 || tokens[tests_tok].type != JSMN_ARRAY) {
-            b2_strlist_fini(&suite.testcases);
+            bake_strlist_fini(&suite.testcases);
             ecs_os_free(tokens);
             ecs_os_free(json);
             return -1;
         }
 
-        suite.id = b2_json_strdup(json, &tokens[id_tok]);
-        suite.setup = setup_tok >= 0 && b2_json_eq(json, &tokens[setup_tok], "true");
-        suite.teardown = teardown_tok >= 0 && b2_json_eq(json, &tokens[teardown_tok], "true");
+        suite.id = bake_json_strdup(json, &tokens[id_tok]);
+        suite.setup = setup_tok >= 0 && bake_json_eq(json, &tokens[setup_tok], "true");
+        suite.teardown = teardown_tok >= 0 && bake_json_eq(json, &tokens[teardown_tok], "true");
 
         int t = tests_tok + 1;
         for (int32_t tc = 0; tc < tokens[tests_tok].size; tc++) {
-            char *name = b2_json_strdup(json, &tokens[t]);
-            if (!name || b2_strlist_append_owned(&suite.testcases, name) != 0) {
+            char *name = bake_json_strdup(json, &tokens[t]);
+            if (!name || bake_strlist_append_owned(&suite.testcases, name) != 0) {
                 ecs_os_free(name);
-                b2_strlist_fini(&suite.testcases);
+                bake_strlist_fini(&suite.testcases);
                 ecs_os_free(suite.id);
                 ecs_os_free(tokens);
                 ecs_os_free(json);
                 return -1;
             }
-            t = b2_json_skip(tokens, parsed, t);
+            t = bake_json_skip(tokens, parsed, t);
         }
 
-        if (b2_suite_list_append(out, &suite) != 0) {
-            b2_strlist_fini(&suite.testcases);
+        if (bake_suite_list_append(out, &suite) != 0) {
+            bake_strlist_fini(&suite.testcases);
             ecs_os_free(suite.id);
             ecs_os_free(tokens);
             ecs_os_free(json);
             return -1;
         }
 
-        i = b2_json_skip(tokens, parsed, i);
+        i = bake_json_skip(tokens, parsed, i);
     }
 
     ecs_os_free(tokens);
@@ -190,13 +190,13 @@ static int b2_parse_tests_json(const char *path, b2_suite_list_t *out) {
     return 0;
 }
 
-static int b2_text_contains_function(const char *text, const char *suite, const char *testcase) {
+static int bake_text_contains_function(const char *text, const char *suite, const char *testcase) {
     char signature[512];
     ecs_os_snprintf(signature, sizeof(signature), "void %s_%s(void)", suite, testcase);
     return strstr(text, signature) != NULL;
 }
 
-static char* b2_text_replace(const char *input, const char *needle, const char *replacement) {
+static char* bake_text_replace(const char *input, const char *needle, const char *replacement) {
     size_t needle_len = strlen(needle);
     size_t repl_len = strlen(replacement);
     size_t total = 1;
@@ -233,15 +233,15 @@ static char* b2_text_replace(const char *input, const char *needle, const char *
     return out;
 }
 
-static int b2_generate_suite_file(const b2_project_cfg_t *cfg, const b2_suite_spec_t *suite) {
-    char *test_dir = b2_join_path(cfg->path, "test");
-    char *file_name = b2_asprintf("%s_suite.c", suite->id);
-    char *suite_file = b2_join_path(test_dir, file_name);
+static int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_suite_spec_t *suite) {
+    char *test_dir = bake_join_path(cfg->path, "test");
+    char *file_name = bake_asprintf("%s_suite.c", suite->id);
+    char *suite_file = bake_join_path(test_dir, file_name);
     ecs_os_free(file_name);
 
     char *existing = NULL;
-    if (b2_path_exists(suite_file)) {
-        existing = b2_read_file(suite_file, NULL);
+    if (bake_path_exists(suite_file)) {
+        existing = bake_read_file(suite_file, NULL);
     }
 
     ecs_strbuf_t out = ECS_STRBUF_INIT;
@@ -254,12 +254,12 @@ static int b2_generate_suite_file(const b2_project_cfg_t *cfg, const b2_suite_sp
             ecs_strbuf_append(&out, "void %s_teardown(void) { }\n\n", suite->id);
         }
     } else {
-        char *normalized = b2_text_replace(
+        char *normalized = bake_text_replace(
             existing,
             "test/generated/bake_test_runtime.h",
             "generated/bake_test_runtime.h");
         if (!normalized) {
-            normalized = b2_strdup(existing);
+            normalized = bake_strdup(existing);
         }
 
         ecs_strbuf_appendstr(&out, normalized);
@@ -273,7 +273,7 @@ static int b2_generate_suite_file(const b2_project_cfg_t *cfg, const b2_suite_sp
 
     for (int32_t i = 0; i < suite->testcases.count; i++) {
         const char *testcase = suite->testcases.items[i];
-        if (existing && b2_text_contains_function(existing, suite->id, testcase)) {
+        if (existing && bake_text_contains_function(existing, suite->id, testcase)) {
             continue;
         }
 
@@ -286,7 +286,7 @@ static int b2_generate_suite_file(const b2_project_cfg_t *cfg, const b2_suite_sp
     }
 
     char *content = ecs_strbuf_get(&out);
-    int rc = b2_write_file(suite_file, content);
+    int rc = bake_write_file(suite_file, content);
 
     ecs_os_free(content);
     ecs_os_free(existing);
@@ -296,9 +296,9 @@ static int b2_generate_suite_file(const b2_project_cfg_t *cfg, const b2_suite_sp
     return rc;
 }
 
-static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
-    char *hdr = b2_join3_path(cfg->path, "test/generated", "bake_test_runtime.h");
-    char *src = b2_join3_path(cfg->path, "test/generated", "bake_test_runtime.c");
+static int bake_generate_runtime(const bake_project_cfg_t *cfg) {
+    char *hdr = bake_join3_path(cfg->path, "test/generated", "bake_test_runtime.h");
+    char *src = bake_join3_path(cfg->path, "test/generated", "bake_test_runtime.c");
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -312,23 +312,23 @@ static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
         "#include <stdbool.h>\n"
         "#include <stdint.h>\n"
         "\n"
-        "typedef struct b2_test_case_t {\n"
+        "typedef struct bake_test_case_t {\n"
         "    const char *id;\n"
         "    void (*fn)(void);\n"
-        "} b2_test_case_t;\n"
+        "} bake_test_case_t;\n"
         "\n"
-        "typedef struct b2_test_suite_t {\n"
+        "typedef struct bake_test_suite_t {\n"
         "    const char *id;\n"
         "    void (*setup)(void);\n"
         "    void (*teardown)(void);\n"
         "    int32_t testcase_count;\n"
-        "    b2_test_case_t *testcases;\n"
-        "} b2_test_suite_t;\n"
+        "    bake_test_case_t *testcases;\n"
+        "} bake_test_suite_t;\n"
         "\n"
-        "int b2_test_run(b2_test_suite_t *suites, int32_t suite_count, int32_t workers);\n"
-        "void b2_test_fail(const char *file, int32_t line, const char *expr);\n"
+        "int bake_test_run(bake_test_suite_t *suites, int32_t suite_count, int32_t workers);\n"
+        "void bake_test_fail(const char *file, int32_t line, const char *expr);\n"
         "\n"
-        "#define test_assert(expr) do { if (!(expr)) { b2_test_fail(__FILE__, __LINE__, #expr); return; } } while (0)\n"
+        "#define test_assert(expr) do { if (!(expr)) { bake_test_fail(__FILE__, __LINE__, #expr); return; } } while (0)\n"
         "\n"
         "#endif\n";
 
@@ -340,16 +340,16 @@ static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
         "#if defined(_WIN32)\n"
         "static int g_fail = 0;\n"
         "\n"
-        "void b2_test_fail(const char *file, int32_t line, const char *expr) {\n"
+        "void bake_test_fail(const char *file, int32_t line, const char *expr) {\n"
         "    printf(\"FAIL %s:%d %s\\n\", file, line, expr);\n"
         "    g_fail ++;\n"
         "}\n"
         "\n"
-        "int b2_test_run(b2_test_suite_t *suites, int32_t suite_count, int32_t workers) {\n"
+        "int bake_test_run(bake_test_suite_t *suites, int32_t suite_count, int32_t workers) {\n"
         "    (void)workers;\n"
         "    g_fail = 0;\n"
         "    for (int32_t s = 0; s < suite_count; s++) {\n"
-        "        b2_test_suite_t *suite = &suites[s];\n"
+        "        bake_test_suite_t *suite = &suites[s];\n"
         "        for (int32_t t = 0; t < suite->testcase_count; t++) {\n"
         "            if (suite->setup) { suite->setup(); }\n"
         "            suite->testcases[t].fn();\n"
@@ -361,21 +361,21 @@ static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
         "}\n"
         "#else\n"
         "#include <pthread.h>\n"
-        "typedef struct b2_test_ctx_t {\n"
-        "    b2_test_suite_t *suites;\n"
+        "typedef struct bake_test_ctx_t {\n"
+        "    bake_test_suite_t *suites;\n"
         "    int32_t suite_count;\n"
         "    int32_t total;\n"
         "    int32_t cursor;\n"
         "    int32_t fail;\n"
         "    pthread_mutex_t cursor_lock;\n"
         "    pthread_mutex_t lock;\n"
-        "} b2_test_ctx_t;\n"
+        "} bake_test_ctx_t;\n"
         "\n"
-        "static b2_test_ctx_t *g_ctx;\n"
+        "static bake_test_ctx_t *g_ctx;\n"
         "\n"
-        "static void b2_test_case_from_index(b2_test_ctx_t *ctx, int32_t index, b2_test_suite_t **suite_out, b2_test_case_t **case_out) {\n"
+        "static void bake_test_case_from_index(bake_test_ctx_t *ctx, int32_t index, bake_test_suite_t **suite_out, bake_test_case_t **case_out) {\n"
         "    for (int32_t s = 0; s < ctx->suite_count; s++) {\n"
-        "        b2_test_suite_t *suite = &ctx->suites[s];\n"
+        "        bake_test_suite_t *suite = &ctx->suites[s];\n"
         "        if (index < suite->testcase_count) {\n"
         "            *suite_out = suite;\n"
         "            *case_out = &suite->testcases[index];\n"
@@ -387,7 +387,7 @@ static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
         "    *case_out = NULL;\n"
         "}\n"
         "\n"
-        "void b2_test_fail(const char *file, int32_t line, const char *expr) {\n"
+        "void bake_test_fail(const char *file, int32_t line, const char *expr) {\n"
         "    printf(\"FAIL %s:%d %s\\n\", file, line, expr);\n"
         "    if (g_ctx) {\n"
         "        pthread_mutex_lock(&g_ctx->lock);\n"
@@ -396,8 +396,8 @@ static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
         "    }\n"
         "}\n"
         "\n"
-        "static void* b2_test_worker(void *arg) {\n"
-        "    b2_test_ctx_t *ctx = arg;\n"
+        "static void* bake_test_worker(void *arg) {\n"
+        "    bake_test_ctx_t *ctx = arg;\n"
         "    for (;;) {\n"
         "        pthread_mutex_lock(&ctx->cursor_lock);\n"
         "        int32_t index = ctx->cursor ++;\n"
@@ -406,9 +406,9 @@ static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
         "            break;\n"
         "        }\n"
         "\n"
-        "        b2_test_suite_t *suite = NULL;\n"
-        "        b2_test_case_t *tc = NULL;\n"
-        "        b2_test_case_from_index(ctx, index, &suite, &tc);\n"
+        "        bake_test_suite_t *suite = NULL;\n"
+        "        bake_test_case_t *tc = NULL;\n"
+        "        bake_test_case_from_index(ctx, index, &suite, &tc);\n"
         "        if (!suite || !tc) {\n"
         "            continue;\n"
         "        }\n"
@@ -424,8 +424,8 @@ static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
         "    return NULL;\n"
         "}\n"
         "\n"
-        "int b2_test_run(b2_test_suite_t *suites, int32_t suite_count, int32_t workers) {\n"
-        "    b2_test_ctx_t ctx = {0};\n"
+        "int bake_test_run(bake_test_suite_t *suites, int32_t suite_count, int32_t workers) {\n"
+        "    bake_test_ctx_t ctx = {0};\n"
         "    ctx.suites = suites;\n"
         "    ctx.suite_count = suite_count;\n"
         "    ctx.total = 0;\n"
@@ -446,7 +446,7 @@ static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
         "\n"
         "    g_ctx = &ctx;\n"
         "    for (int32_t i = 0; i < workers; i++) {\n"
-        "        pthread_create(&threads[i], NULL, b2_test_worker, &ctx);\n"
+        "        pthread_create(&threads[i], NULL, bake_test_worker, &ctx);\n"
         "    }\n"
         "\n"
         "    for (int32_t i = 0; i < workers; i++) {\n"
@@ -462,9 +462,9 @@ static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
         "}\n"
         "#endif\n";
 
-    int rc = b2_write_file(hdr, header);
+    int rc = bake_write_file(hdr, header);
     if (rc == 0) {
-        rc = b2_write_file(src, source);
+        rc = bake_write_file(src, source);
     }
 
     ecs_os_free(hdr);
@@ -472,15 +472,15 @@ static int b2_generate_runtime(const b2_project_cfg_t *cfg) {
     return rc;
 }
 
-static int b2_generate_main(const b2_project_cfg_t *cfg, const b2_suite_list_t *suites) {
-    char *main_path = b2_join3_path(cfg->path, "test/generated", "main.c");
+static int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *suites) {
+    char *main_path = bake_join3_path(cfg->path, "test/generated", "main.c");
 
     ecs_strbuf_t out = ECS_STRBUF_INIT;
     ecs_strbuf_appendstr(&out, "#include \"bake_test_runtime.h\"\n");
     ecs_strbuf_appendstr(&out, "#include <stdlib.h>\n\n");
 
     for (int32_t i = 0; i < suites->count; i++) {
-        const b2_suite_spec_t *suite = &suites->items[i];
+        const bake_suite_spec_t *suite = &suites->items[i];
         if (suite->setup) {
             ecs_strbuf_append(&out, "void %s_setup(void);\n", suite->id);
         }
@@ -494,17 +494,17 @@ static int b2_generate_main(const b2_project_cfg_t *cfg, const b2_suite_list_t *
     }
 
     for (int32_t i = 0; i < suites->count; i++) {
-        const b2_suite_spec_t *suite = &suites->items[i];
-        ecs_strbuf_append(&out, "static b2_test_case_t %s_cases[] = {\n", suite->id);
+        const bake_suite_spec_t *suite = &suites->items[i];
+        ecs_strbuf_append(&out, "static bake_test_case_t %s_cases[] = {\n", suite->id);
         for (int32_t t = 0; t < suite->testcases.count; t++) {
             ecs_strbuf_append(&out, "    {\"%s\", %s_%s},\n", suite->testcases.items[t], suite->id, suite->testcases.items[t]);
         }
         ecs_strbuf_appendstr(&out, "};\n\n");
     }
 
-    ecs_strbuf_appendstr(&out, "static b2_test_suite_t suites[] = {\n");
+    ecs_strbuf_appendstr(&out, "static bake_test_suite_t suites[] = {\n");
     for (int32_t i = 0; i < suites->count; i++) {
-        const b2_suite_spec_t *suite = &suites->items[i];
+        const bake_suite_spec_t *suite = &suites->items[i];
         if (suite->setup && suite->teardown) {
             ecs_strbuf_append(&out,
                 "    {\"%s\", %s_setup, %s_teardown, %d, %s_cases},\n",
@@ -529,61 +529,61 @@ static int b2_generate_main(const b2_project_cfg_t *cfg, const b2_suite_list_t *
         "int main(void) {\n"
         "    const char *threads_env = getenv(\"BAKE_TEST_THREADS\");\n"
         "    int workers = threads_env ? atoi(threads_env) : 4;\n"
-        "    return b2_test_run(suites, (int)(sizeof(suites) / sizeof(suites[0])), workers);\n"
+        "    return bake_test_run(suites, (int)(sizeof(suites) / sizeof(suites[0])), workers);\n"
         "}\n");
 
     char *content = ecs_strbuf_get(&out);
-    int rc = b2_write_file(main_path, content);
+    int rc = bake_write_file(main_path, content);
 
     ecs_os_free(content);
     ecs_os_free(main_path);
     return rc;
 }
 
-int b2_test_generate_harness(const b2_project_cfg_t *cfg) {
-    char *tests_json = b2_join3_path(cfg->path, "test", "tests.json");
+int bake_test_generate_harness(const bake_project_cfg_t *cfg) {
+    char *tests_json = bake_join3_path(cfg->path, "test", "tests.json");
     if (!tests_json) {
         return -1;
     }
 
-    if (!b2_path_exists(tests_json)) {
+    if (!bake_path_exists(tests_json)) {
         ecs_os_free(tests_json);
         return 0;
     }
 
-    b2_suite_list_t suites = {0};
-    if (b2_parse_tests_json(tests_json, &suites) != 0) {
+    bake_suite_list_t suites = {0};
+    if (bake_parse_tests_json(tests_json, &suites) != 0) {
         ecs_os_free(tests_json);
-        b2_suite_list_fini(&suites);
+        bake_suite_list_fini(&suites);
         return -1;
     }
 
     for (int32_t i = 0; i < suites.count; i++) {
-        if (b2_generate_suite_file(cfg, &suites.items[i]) != 0) {
-            b2_suite_list_fini(&suites);
+        if (bake_generate_suite_file(cfg, &suites.items[i]) != 0) {
+            bake_suite_list_fini(&suites);
             ecs_os_free(tests_json);
             return -1;
         }
     }
 
-    int rc = b2_generate_runtime(cfg);
+    int rc = bake_generate_runtime(cfg);
     if (rc == 0) {
-        rc = b2_generate_main(cfg, &suites);
+        rc = bake_generate_main(cfg, &suites);
     }
 
-    b2_suite_list_fini(&suites);
+    bake_suite_list_fini(&suites);
     ecs_os_free(tests_json);
     return rc;
 }
 
-int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_dir, char **src_out) {
+int bake_test_generate_builtin_api(const bake_project_cfg_t *cfg, const char *gen_dir, char **src_out) {
     B2_UNUSED(cfg);
     if (!gen_dir || !src_out) {
         return -1;
     }
 
-    char *hdr_path = b2_join_path(gen_dir, "bake_test.h");
-    char *src_path = b2_join_path(gen_dir, "bake_test.c");
+    char *hdr_path = bake_join_path(gen_dir, "bake_test.h");
+    char *src_path = bake_join_path(gen_dir, "bake_test.c");
     if (!hdr_path || !src_path) {
         ecs_os_free(hdr_path);
         ecs_os_free(src_path);
@@ -683,17 +683,27 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
     const char *source =
         "#include \"bake_test.h\"\n"
         "\n"
+        "#include <errno.h>\n"
         "#include <math.h>\n"
         "#include <signal.h>\n"
         "#include <setjmp.h>\n"
         "#include <stdio.h>\n"
         "#include <stdlib.h>\n"
         "#include <string.h>\n"
+        "#if !defined(_WIN32)\n"
+        "#include <pthread.h>\n"
+        "#include <sys/wait.h>\n"
+        "#include <unistd.h>\n"
+        "#else\n"
+        "#include <windows.h>\n"
+        "#endif\n"
         "\n"
         "#define B2_TEST_PARAM_MAX (128)\n"
         "#define B2_JMP_FAIL (1)\n"
         "#define B2_JMP_ABORT (2)\n"
         "#define B2_JMP_QUARANTINE (3)\n"
+        "#define B2_TEST_EMPTY (2)\n"
+        "#define B2_TEST_QUARANTINED (3)\n"
         "\n"
         "static bake_test_suite *g_current_suite = NULL;\n"
         "static bake_test_case *g_current_case = NULL;\n"
@@ -706,21 +716,308 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "static jmp_buf g_jmp;\n"
         "static const char *g_cli_params[B2_TEST_PARAM_MAX];\n"
         "static int g_cli_param_count = 0;\n"
-        "static void b2_abort_handler(int sig);\n"
+        "static volatile sig_atomic_t g_interrupted = 0;\n"
+        "static void bake_abort_handler(int sig);\n"
+        "static void bake_interrupt_handler(int sig);\n"
         "\n"
-        "static void b2_set_failure(const char *file, int line, const char *msg, bool jump) {\n"
+        "static void bake_interrupt_handler(int sig) {\n"
+        "    (void)sig;\n"
+        "    g_interrupted = 1;\n"
+        "}\n"
+        "\n"
+        "static const char* bake_debug_exec(const char *exec) {\n"
+        "    const char *test_path = strstr(exec, \"/test/\");\n"
+        "    if (test_path) {\n"
+        "        return test_path + 1;\n"
+        "    }\n"
+        "    test_path = strstr(exec, \"\\\\test\\\\\");\n"
+        "    if (test_path) {\n"
+        "        return test_path + 1;\n"
+        "    }\n"
+        "    return exec;\n"
+        "}\n"
+        "\n"
+        "static void bake_append_suite_params(char *buf, size_t size, bake_test_suite *suite) {\n"
+        "    if (!suite || !suite->param_count || !size) {\n"
+        "        return;\n"
+        "    }\n"
+        "\n"
+        "    size_t off = 0;\n"
+        "    int n = snprintf(buf + off, size - off, \" [ \");\n"
+        "    if (n < 0 || (size_t)n >= (size - off)) {\n"
+        "        return;\n"
+        "    }\n"
+        "    off += (size_t)n;\n"
+        "\n"
+        "    for (uint32_t i = 0; i < suite->param_count; i++) {\n"
+        "        bake_test_param *param = &suite->params[i];\n"
+        "        const char *value = \"\";\n"
+        "        if (param->value_cur >= 0 && param->value_cur < param->value_count) {\n"
+        "            value = param->values[param->value_cur];\n"
+        "        }\n"
+        "        n = snprintf(buf + off, size - off, \"%s%s: %s\",\n"
+        "            i ? \", \" : \"\", param->name ? param->name : \"\", value ? value : \"\");\n"
+        "        if (n < 0 || (size_t)n >= (size - off)) {\n"
+        "            return;\n"
+        "        }\n"
+        "        off += (size_t)n;\n"
+        "    }\n"
+        "\n"
+        "    snprintf(buf + off, size - off, \" ]\");\n"
+        "}\n"
+        "\n"
+        "static void bake_print_debug_command(const char *exec, bake_test_suite *suite, bake_test_case *tc) {\n"
+        "    printf(\"To run/debug your test, do:\\n\");\n"
+        "    printf(\"export $(bake env)\\n\");\n"
+        "    printf(\"%s %s.%s\", bake_debug_exec(exec), suite->id, tc->id);\n"
+        "    for (int p = 0; p < g_cli_param_count; p++) {\n"
+        "        printf(\" --param %s\", g_cli_params[p]);\n"
+        "    }\n"
+        "    for (uint32_t p = 0; p < suite->param_count; p++) {\n"
+        "        bake_test_param *param = &suite->params[p];\n"
+        "        bool cli_override = false;\n"
+        "        for (int i = 0; i < g_cli_param_count; i++) {\n"
+        "            size_t len = strlen(param->name);\n"
+        "            if (!strncmp(g_cli_params[i], param->name, len) && g_cli_params[i][len] == '=') {\n"
+        "                cli_override = true;\n"
+        "                break;\n"
+        "            }\n"
+        "        }\n"
+        "        if (cli_override) {\n"
+        "            continue;\n"
+        "        }\n"
+        "        if (param->value_cur < 0 || param->value_cur >= param->value_count) {\n"
+        "            continue;\n"
+        "        }\n"
+        "        printf(\" --param %s=%s\", param->name, param->values[param->value_cur]);\n"
+        "    }\n"
+        "    printf(\"\\n\\n\");\n"
+        "}\n"
+        "\n"
+        "static void bake_print_report(const char *test_id, const char *suite_id, const char *param_str, int pass, int fail, int empty) {\n"
+        "    printf(\"PASS:%3d, FAIL:%3d, EMPTY:%3d (%s.%s%s)\\n\", pass, fail, empty, test_id, suite_id, param_str ? param_str : \"\");\n"
+        "}\n"
+        "\n"
+        "static bool bake_char_is_space(char ch) {\n"
+        "    return ch == ' ' || ch == '\\t' || ch == '\\r' || ch == '\\n';\n"
+        "}\n"
+        "\n"
+        "static void bake_free_argv(char **argv, int argc) {\n"
+        "    if (!argv) {\n"
+        "        return;\n"
+        "    }\n"
+        "    for (int i = 0; i < argc; i++) {\n"
+        "        free(argv[i]);\n"
+        "    }\n"
+        "    free(argv);\n"
+        "}\n"
+        "\n"
+        "static int bake_parse_cmd(const char *cmd, char ***argv_out, int *argc_out) {\n"
+        "    int argc = 0;\n"
+        "    int cap = 8;\n"
+        "    char **argv = calloc((size_t)cap, sizeof(char*));\n"
+        "    if (!argv) {\n"
+        "        return -1;\n"
+        "    }\n"
+        "\n"
+        "    const char *p = cmd;\n"
+        "    while (*p) {\n"
+        "        while (*p && bake_char_is_space(*p)) {\n"
+        "            p++;\n"
+        "        }\n"
+        "        if (!*p) {\n"
+        "            break;\n"
+        "        }\n"
+        "\n"
+        "        int tcap = 128;\n"
+        "        int tlen = 0;\n"
+        "        char *tok = malloc((size_t)tcap);\n"
+        "        if (!tok) {\n"
+        "            bake_free_argv(argv, argc);\n"
+        "            return -1;\n"
+        "        }\n"
+        "\n"
+        "        while (*p && !bake_char_is_space(*p)) {\n"
+        "            if (*p == '\"' || *p == '\\'') {\n"
+        "                char quote = *p++;\n"
+        "                while (*p && *p != quote) {\n"
+        "                    if (*p == '\\\\' && p[1] && quote == '\"') {\n"
+        "                        p++;\n"
+        "                    }\n"
+        "                    if ((tlen + 2) >= tcap) {\n"
+        "                        tcap *= 2;\n"
+        "                        char *tmp = realloc(tok, (size_t)tcap);\n"
+        "                        if (!tmp) {\n"
+        "                            free(tok);\n"
+        "                            bake_free_argv(argv, argc);\n"
+        "                            return -1;\n"
+        "                        }\n"
+        "                        tok = tmp;\n"
+        "                    }\n"
+        "                    tok[tlen++] = *p++;\n"
+        "                }\n"
+        "                if (*p == quote) {\n"
+        "                    p++;\n"
+        "                }\n"
+        "                continue;\n"
+        "            }\n"
+        "\n"
+        "            if (*p == '\\\\' && p[1]) {\n"
+        "                p++;\n"
+        "            }\n"
+        "\n"
+        "            if ((tlen + 2) >= tcap) {\n"
+        "                tcap *= 2;\n"
+        "                char *tmp = realloc(tok, (size_t)tcap);\n"
+        "                if (!tmp) {\n"
+        "                    free(tok);\n"
+        "                    bake_free_argv(argv, argc);\n"
+        "                    return -1;\n"
+        "                }\n"
+        "                tok = tmp;\n"
+        "            }\n"
+        "            tok[tlen++] = *p++;\n"
+        "        }\n"
+        "\n"
+        "        tok[tlen] = '\\0';\n"
+        "        if ((argc + 2) >= cap) {\n"
+        "            cap *= 2;\n"
+        "            char **tmp = realloc(argv, (size_t)cap * sizeof(char*));\n"
+        "            if (!tmp) {\n"
+        "                free(tok);\n"
+        "                bake_free_argv(argv, argc);\n"
+        "                return -1;\n"
+        "            }\n"
+        "            argv = tmp;\n"
+        "        }\n"
+        "        argv[argc++] = tok;\n"
+        "    }\n"
+        "\n"
+        "    if (!argc) {\n"
+        "        bake_free_argv(argv, argc);\n"
+        "        return -1;\n"
+        "    }\n"
+        "    argv[argc] = NULL;\n"
+        "    *argv_out = argv;\n"
+        "    *argc_out = argc;\n"
+        "    return 0;\n"
+        "}\n"
+        "\n"
+        "static int bake_run_subprocess(const char *cmd, int *sig_out) {\n"
+        "    if (sig_out) {\n"
+        "        *sig_out = 0;\n"
+        "    }\n"
+        "\n"
+        "#if defined(_WIN32)\n"
+        "    STARTUPINFOA si;\n"
+        "    PROCESS_INFORMATION pi;\n"
+        "    memset(&si, 0, sizeof(si));\n"
+        "    memset(&pi, 0, sizeof(pi));\n"
+        "    si.cb = sizeof(si);\n"
+        "\n"
+        "    char *cmd_copy = _strdup(cmd);\n"
+        "    if (!cmd_copy) {\n"
+        "        return -1;\n"
+        "    }\n"
+        "\n"
+        "    BOOL ok = CreateProcessA(NULL, cmd_copy, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);\n"
+        "    free(cmd_copy);\n"
+        "    if (!ok) {\n"
+        "        return -1;\n"
+        "    }\n"
+        "\n"
+        "    for (;;) {\n"
+        "        DWORD wait_rc = WaitForSingleObject(pi.hProcess, 20);\n"
+        "        if (wait_rc == WAIT_OBJECT_0) {\n"
+        "            break;\n"
+        "        }\n"
+        "        if (wait_rc != WAIT_TIMEOUT) {\n"
+        "            CloseHandle(pi.hThread);\n"
+        "            CloseHandle(pi.hProcess);\n"
+        "            return -1;\n"
+        "        }\n"
+        "        if (g_interrupted) {\n"
+        "            TerminateProcess(pi.hProcess, 130);\n"
+        "        }\n"
+        "    }\n"
+        "\n"
+        "    DWORD exit_code = 0;\n"
+        "    if (!GetExitCodeProcess(pi.hProcess, &exit_code)) {\n"
+        "        CloseHandle(pi.hThread);\n"
+        "        CloseHandle(pi.hProcess);\n"
+        "        return -1;\n"
+        "    }\n"
+        "\n"
+        "    CloseHandle(pi.hThread);\n"
+        "    CloseHandle(pi.hProcess);\n"
+        "    return (int)exit_code;\n"
+        "#else\n"
+        "    char **argv = NULL;\n"
+        "    int argc = 0;\n"
+        "    if (bake_parse_cmd(cmd, &argv, &argc) != 0) {\n"
+        "        return -1;\n"
+        "    }\n"
+        "\n"
+        "    pid_t pid = fork();\n"
+        "    if (pid < 0) {\n"
+        "        bake_free_argv(argv, argc);\n"
+        "        return -1;\n"
+        "    }\n"
+        "\n"
+        "    if (pid == 0) {\n"
+        "        signal(SIGINT, SIG_DFL);\n"
+        "        execvp(argv[0], argv);\n"
+        "        _exit(127);\n"
+        "    }\n"
+        "\n"
+        "    bake_free_argv(argv, argc);\n"
+        "\n"
+        "    int status = 0;\n"
+        "    for (;;) {\n"
+        "        if (g_interrupted) {\n"
+        "            kill(pid, SIGINT);\n"
+        "        }\n"
+        "\n"
+        "        pid_t rc = waitpid(pid, &status, WNOHANG);\n"
+        "        if (rc == pid) {\n"
+        "            break;\n"
+        "        }\n"
+        "        if (rc == 0) {\n"
+        "            usleep(10000);\n"
+        "            continue;\n"
+        "        }\n"
+        "        if (errno == EINTR) {\n"
+        "            continue;\n"
+        "        }\n"
+        "        return -1;\n"
+        "    }\n"
+        "\n"
+        "    if (WIFSIGNALED(status)) {\n"
+        "        if (sig_out) {\n"
+        "            *sig_out = WTERMSIG(status);\n"
+        "        }\n"
+        "        return 128 + WTERMSIG(status);\n"
+        "    }\n"
+        "    if (WIFEXITED(status)) {\n"
+        "        return WEXITSTATUS(status);\n"
+        "    }\n"
+        "    return -1;\n"
+        "#endif\n"
+        "}\n"
+        "\n"
+        "static void bake_set_failure(const char *file, int line, const char *msg, bool jump) {\n"
         "    g_failed = true;\n"
         "    if (g_current_suite && g_current_case) {\n"
-        "        printf(\"FAIL %s.%s:%d: %s\\n\", g_current_suite->id, g_current_case->id, line, msg);\n"
+        "        printf(\"FAIL: %s.%s:%d: %s\\n\", g_current_suite->id, g_current_case->id, line, msg);\n"
         "    } else {\n"
-        "        printf(\"FAIL %s:%d: %s\\n\", file, line, msg);\n"
+        "        printf(\"FAIL: %s:%d: %s\\n\", file, line, msg);\n"
         "    }\n"
         "    if (jump && g_jmp_active) {\n"
         "        longjmp(g_jmp, B2_JMP_FAIL);\n"
         "    }\n"
         "}\n"
         "\n"
-        "static const char* b2_lookup_param(const char *name) {\n"
+        "static const char* bake_lookup_param(const char *name) {\n"
         "    size_t len = strlen(name);\n"
         "    for (int i = 0; i < g_cli_param_count; i++) {\n"
         "        const char *p = g_cli_params[i];\n"
@@ -744,7 +1041,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "}\n"
         "\n"
         "const char* test_param(const char *name) {\n"
-        "    return b2_lookup_param(name);\n"
+        "    return bake_lookup_param(name);\n"
         "}\n"
         "\n"
         "void test_is_flaky(void) {\n"
@@ -760,10 +1057,10 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "\n"
         "void test_expect_abort(void) {\n"
         "    g_expect_abort = true;\n"
-        "    signal(SIGABRT, b2_abort_handler);\n"
+        "    signal(SIGABRT, bake_abort_handler);\n"
         "}\n"
         "\n"
-        "static void b2_abort_handler(int sig) {\n"
+        "static void bake_abort_handler(int sig) {\n"
         "    (void)sig;\n"
         "    if (g_expect_abort) {\n"
         "        g_observed_abort = true;\n"
@@ -773,12 +1070,12 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "        exit(0);\n"
         "    }\n"
         "\n"
-        "    b2_set_failure(__FILE__, __LINE__, \"unexpected abort\", true);\n"
+        "    bake_set_failure(__FILE__, __LINE__, \"unexpected abort\", true);\n"
         "    exit(-1);\n"
         "}\n"
         "\n"
         "void test_abort(void) {\n"
-        "    b2_abort_handler(SIGABRT);\n"
+        "    bake_abort_handler(SIGABRT);\n"
         "}\n"
         "\n"
         "bool _if_test_assert(bool cond, const char *cond_str, const char *file, int line) {\n"
@@ -788,7 +1085,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    if (!cond) {\n"
         "        char msg[512];\n"
         "        snprintf(msg, sizeof(msg), \"assert(%s)\", cond_str);\n"
-        "        b2_set_failure(file, line, msg, false);\n"
+        "        bake_set_failure(file, line, msg, false);\n"
         "        return false;\n"
         "    }\n"
         "    return true;\n"
@@ -799,7 +1096,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    if (v1 != v2) {\n"
         "        char msg[512];\n"
         "        snprintf(msg, sizeof(msg), \"%s (%lld) != %s (%lld)\", str_v1, (long long)v1, str_v2, (long long)v2);\n"
-        "        b2_set_failure(file, line, msg, false);\n"
+        "        bake_set_failure(file, line, msg, false);\n"
         "        return false;\n"
         "    }\n"
         "    return true;\n"
@@ -810,7 +1107,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    if (v1 != v2) {\n"
         "        char msg[512];\n"
         "        snprintf(msg, sizeof(msg), \"%s (%llu) != %s (%llu)\", str_v1, (unsigned long long)v1, str_v2, (unsigned long long)v2);\n"
-        "        b2_set_failure(file, line, msg, false);\n"
+        "        bake_set_failure(file, line, msg, false);\n"
         "        return false;\n"
         "    }\n"
         "    return true;\n"
@@ -821,7 +1118,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    if (v1 != v2) {\n"
         "        char msg[512];\n"
         "        snprintf(msg, sizeof(msg), \"%s (%s) != %s (%s)\", str_v1, v1 ? \"true\" : \"false\", str_v2, v2 ? \"true\" : \"false\");\n"
-        "        b2_set_failure(file, line, msg, false);\n"
+        "        bake_set_failure(file, line, msg, false);\n"
         "        return false;\n"
         "    }\n"
         "    return true;\n"
@@ -833,7 +1130,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    if (d > 0.000001) {\n"
         "        char msg[512];\n"
         "        snprintf(msg, sizeof(msg), \"%s (%f) != %s (%f)\", str_v1, v1, str_v2, v2);\n"
-        "        b2_set_failure(file, line, msg, false);\n"
+        "        bake_set_failure(file, line, msg, false);\n"
         "        return false;\n"
         "    }\n"
         "    return true;\n"
@@ -851,7 +1148,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    if (!equal) {\n"
         "        char msg[1024];\n"
         "        snprintf(msg, sizeof(msg), \"%s (%s) != %s (%s)\", str_v1, v1 ? v1 : \"NULL\", str_v2, v2 ? v2 : \"NULL\");\n"
-        "        b2_set_failure(file, line, msg, false);\n"
+        "        bake_set_failure(file, line, msg, false);\n"
         "        return false;\n"
         "    }\n"
         "\n"
@@ -863,7 +1160,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    if (v != NULL) {\n"
         "        char msg[512];\n"
         "        snprintf(msg, sizeof(msg), \"%s is not NULL\", str_v);\n"
-        "        b2_set_failure(file, line, msg, false);\n"
+        "        bake_set_failure(file, line, msg, false);\n"
         "        return false;\n"
         "    }\n"
         "    return true;\n"
@@ -874,7 +1171,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    if (v == NULL) {\n"
         "        char msg[512];\n"
         "        snprintf(msg, sizeof(msg), \"%s is NULL\", str_v);\n"
-        "        b2_set_failure(file, line, msg, false);\n"
+        "        bake_set_failure(file, line, msg, false);\n"
         "        return false;\n"
         "    }\n"
         "    return true;\n"
@@ -885,7 +1182,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    if (v1 != v2) {\n"
         "        char msg[512];\n"
         "        snprintf(msg, sizeof(msg), \"%s (%p) != %s (%p)\", str_v1, v1, str_v2, v2);\n"
-        "        b2_set_failure(file, line, msg, false);\n"
+        "        bake_set_failure(file, line, msg, false);\n"
         "        return false;\n"
         "    }\n"
         "    return true;\n"
@@ -919,7 +1216,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    if (!_if_test_ptr(v1, v2, str_v1, str_v2, file, line) && g_jmp_active) { longjmp(g_jmp, B2_JMP_FAIL); }\n"
         "}\n"
         "\n"
-        "static int b2_run_case(bake_test_suite *suite, bake_test_case *tc) {\n"
+        "static int bake_run_case(bake_test_suite *suite, bake_test_case *tc) {\n"
         "    g_current_suite = suite;\n"
         "    g_current_case = tc;\n"
         "    suite->assert_count = 0;\n"
@@ -928,7 +1225,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    g_failed = false;\n"
         "    g_flaky = false;\n"
         "    g_quarantine_date = NULL;\n"
-        "    signal(SIGABRT, b2_abort_handler);\n"
+        "    signal(SIGABRT, bake_abort_handler);\n"
         "\n"
         "    if (suite->setup) {\n"
         "        suite->setup();\n"
@@ -947,12 +1244,12 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    }\n"
         "\n"
         "    if (g_quarantine_date) {\n"
-        "        printf(\"QUAR %s.%s (%s)\\n\", suite->id, tc->id, g_quarantine_date);\n"
-        "        return 0;\n"
+        "        printf(\"SKIP: %s.%s: test was quarantined on %s\\n\", suite->id, tc->id, g_quarantine_date);\n"
+        "        return B2_TEST_QUARANTINED;\n"
         "    }\n"
         "\n"
         "    if (g_expect_abort && !g_observed_abort) {\n"
-        "        b2_set_failure(__FILE__, __LINE__, \"expected abort signal\", false);\n"
+        "        bake_set_failure(__FILE__, __LINE__, \"expected abort signal\", false);\n"
         "    }\n"
         "\n"
         "    if (g_failed) {\n"
@@ -966,7 +1263,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    return 0;\n"
         "}\n"
         "\n"
-        "static const char* b2_lookup_cli_param_only(const char *name) {\n"
+        "static const char* bake_lookup_cli_param_only(const char *name) {\n"
         "    size_t len = strlen(name);\n"
         "    for (int i = 0; i < g_cli_param_count; i++) {\n"
         "        const char *p = g_cli_params[i];\n"
@@ -977,13 +1274,20 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    return NULL;\n"
         "}\n"
         "\n"
-        "static int b2_run_suite(const char *exec, bake_test_suite *suite, int *pass, int *fail) {\n"
+        "static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite *suite, int *pass_out, int *fail_out, int *empty_out) {\n"
         "    int rc = 0;\n"
+        "    int pass = 0;\n"
+        "    int fail = 0;\n"
+        "    int empty = 0;\n"
         "    for (uint32_t i = 0; i < suite->testcase_count; i++) {\n"
+        "        if (g_interrupted) {\n"
+        "            return -2;\n"
+        "        }\n"
+        "\n"
         "        char cmd[4096];\n"
         "        int written = snprintf(cmd, sizeof(cmd), \"\\\"%s\\\" \\\"%s.%s\\\"\", exec, suite->id, suite->testcases[i].id);\n"
         "        if (written < 0 || (size_t)written >= sizeof(cmd)) {\n"
-        "            (*fail) ++;\n"
+        "            fail ++;\n"
         "            rc = -1;\n"
         "            continue;\n"
         "        }\n"
@@ -999,7 +1303,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "\n"
         "        for (uint32_t p = 0; p < suite->param_count; p++) {\n"
         "            bake_test_param *param = &suite->params[p];\n"
-        "            if (b2_lookup_cli_param_only(param->name)) {\n"
+        "            if (bake_lookup_cli_param_only(param->name)) {\n"
         "                continue;\n"
         "            }\n"
         "            if (param->value_cur < 0 || param->value_cur >= param->value_count) {\n"
@@ -1016,34 +1320,173 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "            strcat(cmd, value);\n"
         "        }\n"
         "\n"
-        "        int test_rc = system(cmd);\n"
-        "        if (test_rc == 0) {\n"
-        "            (*pass) ++;\n"
-        "        } else {\n"
-        "            (*fail) ++;\n"
-        "            rc = -1;\n"
+        "        int sig = 0;\n"
+        "        int test_rc = bake_run_subprocess(cmd, &sig);\n"
+        "        if (g_interrupted || sig == SIGINT || test_rc == 130) {\n"
+        "            g_interrupted = 1;\n"
+        "            return -2;\n"
         "        }\n"
+        "        if (test_rc == 0) {\n"
+        "            pass ++;\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        if (test_rc == B2_TEST_QUARANTINED) {\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        if (test_rc == B2_TEST_EMPTY) {\n"
+        "            empty ++;\n"
+        "            bake_print_debug_command(exec, suite, &suite->testcases[i]);\n"
+        "            continue;\n"
+        "        }\n"
+        "\n"
+        "        if (sig) {\n"
+        "            printf(\"FAIL: %s.%s exited with signal %d\\n\", suite->id, suite->testcases[i].id, sig);\n"
+        "        }\n"
+        "        fail ++;\n"
+        "        rc = -1;\n"
+        "        bake_print_debug_command(exec, suite, &suite->testcases[i]);\n"
+        "    }\n"
+        "\n"
+        "    char param_str[512] = {0};\n"
+        "    bake_append_suite_params(param_str, sizeof(param_str), suite);\n"
+        "    bake_print_report(test_id, suite->id, param_str, pass, fail, empty);\n"
+        "    if (fail || empty) {\n"
+        "        printf(\"\\n\");\n"
+        "    }\n"
+        "\n"
+        "    if (pass_out) {\n"
+        "        *pass_out += pass;\n"
+        "    }\n"
+        "    if (fail_out) {\n"
+        "        *fail_out += fail;\n"
+        "    }\n"
+        "    if (empty_out) {\n"
+        "        *empty_out += empty;\n"
         "    }\n"
         "    return rc;\n"
         "}\n"
         "\n"
-        "static int b2_run_suite_for_params(const char *exec, bake_test_suite *suite, uint32_t param, int *pass, int *fail) {\n"
+        "static int bake_run_suite_for_params(const char *test_id, const char *exec, bake_test_suite *suite, uint32_t param, int *pass, int *fail, int *empty) {\n"
         "    if (!suite->param_count || param >= suite->param_count) {\n"
-        "        return b2_run_suite(exec, suite, pass, fail);\n"
+        "        return bake_run_suite(test_id, exec, suite, pass, fail, empty);\n"
         "    }\n"
         "\n"
         "    int rc = 0;\n"
         "    bake_test_param *p = &suite->params[param];\n"
         "    for (int32_t i = 0; i < p->value_count; i++) {\n"
         "        p->value_cur = i;\n"
-        "        if (b2_run_suite_for_params(exec, suite, param + 1, pass, fail) != 0) {\n"
+        "        int suite_rc = bake_run_suite_for_params(test_id, exec, suite, param + 1, pass, fail, empty);\n"
+        "        if (suite_rc == -2) {\n"
+        "            return -2;\n"
+        "        }\n"
+        "        if (suite_rc != 0) {\n"
         "            rc = -1;\n"
         "        }\n"
         "    }\n"
         "    return rc;\n"
         "}\n"
         "\n"
-        "static void b2_list_tests(bake_test_suite *suites, uint32_t suite_count) {\n"
+        "#if !defined(_WIN32)\n"
+        "typedef struct bake_suite_jobs_t {\n"
+        "    const char *test_id;\n"
+        "    const char *exec;\n"
+        "    bake_test_suite *suites;\n"
+        "    uint32_t suite_count;\n"
+        "    uint32_t next_suite;\n"
+        "    int pass;\n"
+        "    int fail;\n"
+        "    int empty;\n"
+        "    int rc;\n"
+        "    pthread_mutex_t lock;\n"
+        "} bake_suite_jobs_t;\n"
+        "\n"
+        "static void* bake_suite_worker(void *arg) {\n"
+        "    bake_suite_jobs_t *jobs = arg;\n"
+        "    for (;;) {\n"
+        "        if (g_interrupted) {\n"
+        "            return NULL;\n"
+        "        }\n"
+        "\n"
+        "        pthread_mutex_lock(&jobs->lock);\n"
+        "        uint32_t suite_index = jobs->next_suite;\n"
+        "        if (suite_index < jobs->suite_count) {\n"
+        "            jobs->next_suite ++;\n"
+        "        }\n"
+        "        pthread_mutex_unlock(&jobs->lock);\n"
+        "\n"
+        "        if (suite_index >= jobs->suite_count) {\n"
+        "            break;\n"
+        "        }\n"
+        "\n"
+        "        int pass = 0;\n"
+        "        int fail = 0;\n"
+        "        int empty = 0;\n"
+        "        int suite_rc = bake_run_suite_for_params(jobs->test_id, jobs->exec, &jobs->suites[suite_index], 0, &pass, &fail, &empty);\n"
+        "\n"
+        "        pthread_mutex_lock(&jobs->lock);\n"
+        "        jobs->pass += pass;\n"
+        "        jobs->fail += fail;\n"
+        "        jobs->empty += empty;\n"
+        "        if (suite_rc == -2) {\n"
+        "            g_interrupted = 1;\n"
+        "        } else if (suite_rc != 0) {\n"
+        "            jobs->rc = -1;\n"
+        "        }\n"
+        "        pthread_mutex_unlock(&jobs->lock);\n"
+        "    }\n"
+        "    return NULL;\n"
+        "}\n"
+        "\n"
+        "static int bake_run_suites_parallel(const char *test_id, const char *exec, bake_test_suite *suites, uint32_t suite_count, int jobs_count, int *pass, int *fail, int *empty) {\n"
+        "    if (jobs_count < 1) {\n"
+        "        jobs_count = 1;\n"
+        "    }\n"
+        "    if ((uint32_t)jobs_count > suite_count) {\n"
+        "        jobs_count = (int)suite_count;\n"
+        "    }\n"
+        "    if (jobs_count < 2) {\n"
+        "        return 1;\n"
+        "    }\n"
+        "\n"
+        "    bake_suite_jobs_t jobs = {\n"
+        "        .test_id = test_id,\n"
+        "        .exec = exec,\n"
+        "        .suites = suites,\n"
+        "        .suite_count = suite_count,\n"
+        "        .next_suite = 0,\n"
+        "        .pass = 0,\n"
+        "        .fail = 0,\n"
+        "        .empty = 0,\n"
+        "        .rc = 0\n"
+        "    };\n"
+        "    pthread_mutex_init(&jobs.lock, NULL);\n"
+        "\n"
+        "    pthread_t *threads = calloc((size_t)jobs_count, sizeof(pthread_t));\n"
+        "    if (!threads) {\n"
+        "        pthread_mutex_destroy(&jobs.lock);\n"
+        "        return -1;\n"
+        "    }\n"
+        "\n"
+        "    for (int i = 0; i < jobs_count; i++) {\n"
+        "        pthread_create(&threads[i], NULL, bake_suite_worker, &jobs);\n"
+        "    }\n"
+        "    for (int i = 0; i < jobs_count; i++) {\n"
+        "        pthread_join(threads[i], NULL);\n"
+        "    }\n"
+        "\n"
+        "    pthread_mutex_destroy(&jobs.lock);\n"
+        "    free(threads);\n"
+        "\n"
+        "    *pass += jobs.pass;\n"
+        "    *fail += jobs.fail;\n"
+        "    *empty += jobs.empty;\n"
+        "    return jobs.rc;\n"
+        "}\n"
+        "#endif\n"
+        "\n"
+        "static void bake_list_tests(bake_test_suite *suites, uint32_t suite_count) {\n"
         "    for (uint32_t s = 0; s < suite_count; s++) {\n"
         "        for (uint32_t t = 0; t < suites[s].testcase_count; t++) {\n"
         "            printf(\"%s.%s\\n\", suites[s].id, suites[s].testcases[t].id);\n"
@@ -1051,13 +1494,13 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    }\n"
         "}\n"
         "\n"
-        "static void b2_list_suites(bake_test_suite *suites, uint32_t suite_count) {\n"
+        "static void bake_list_suites(bake_test_suite *suites, uint32_t suite_count) {\n"
         "    for (uint32_t s = 0; s < suite_count; s++) {\n"
         "        printf(\"%s\\n\", suites[s].id);\n"
         "    }\n"
         "}\n"
         "\n"
-        "static void b2_list_commands(const char *exec, bake_test_suite *suites, uint32_t suite_count) {\n"
+        "static void bake_list_commands(const char *exec, bake_test_suite *suites, uint32_t suite_count) {\n"
         "    for (uint32_t s = 0; s < suite_count; s++) {\n"
         "        for (uint32_t t = 0; t < suites[s].testcase_count; t++) {\n"
         "            printf(\"%s %s.%s\\n\", exec, suites[s].id, suites[s].testcases[t].id);\n"
@@ -1065,7 +1508,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    }\n"
         "}\n"
         "\n"
-        "static bake_test_suite* b2_find_suite(bake_test_suite *suites, uint32_t suite_count, const char *id) {\n"
+        "static bake_test_suite* bake_find_suite(bake_test_suite *suites, uint32_t suite_count, const char *id) {\n"
         "    for (uint32_t i = 0; i < suite_count; i++) {\n"
         "        if (!strcmp(suites[i].id, id)) {\n"
         "            return &suites[i];\n"
@@ -1074,7 +1517,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    return NULL;\n"
         "}\n"
         "\n"
-        "static int b2_run_single_test(bake_test_suite *suites, uint32_t suite_count, const char *id) {\n"
+        "static int bake_run_single_test(bake_test_suite *suites, uint32_t suite_count, const char *id) {\n"
         "    const char *dot = strchr(id, '.');\n"
         "    if (!dot) {\n"
         "        return -1;\n"
@@ -1089,7 +1532,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    suite_id[suite_len] = '\\0';\n"
         "\n"
         "    const char *case_id = dot + 1;\n"
-        "    bake_test_suite *suite = b2_find_suite(suites, suite_count, suite_id);\n"
+        "    bake_test_suite *suite = bake_find_suite(suites, suite_count, suite_id);\n"
         "    if (!suite) {\n"
         "        printf(\"test suite '%s' not found\\n\", suite_id);\n"
         "        return -1;\n"
@@ -1097,7 +1540,7 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "\n"
         "    for (uint32_t i = 0; i < suite->testcase_count; i++) {\n"
         "        if (!strcmp(suite->testcases[i].id, case_id)) {\n"
-        "            return b2_run_case(suite, &suite->testcases[i]);\n"
+        "            return bake_run_case(suite, &suite->testcases[i]);\n"
         "        }\n"
         "    }\n"
         "\n"
@@ -1106,24 +1549,33 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "}\n"
         "\n"
         "int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *suites, uint32_t suite_count) {\n"
-        "    (void)test_id;\n"
+        "    if (!test_id || !test_id[0]) {\n"
+        "        test_id = \"test\";\n"
+        "    }\n"
+        "\n"
         "    const char *single_test = NULL;\n"
         "    const char *suite_filter = NULL;\n"
+        "    int job_count = 1;\n"
         "\n"
         "    g_cli_param_count = 0;\n"
+        "    g_interrupted = 0;\n"
+        "    void (*prev_sigint)(int) = signal(SIGINT, bake_interrupt_handler);\n"
         "\n"
         "    for (int i = 1; i < argc; i++) {\n"
         "        const char *arg = argv[i];\n"
         "        if (!strcmp(arg, \"--list-tests\")) {\n"
-        "            b2_list_tests(suites, suite_count);\n"
+        "            bake_list_tests(suites, suite_count);\n"
+        "            signal(SIGINT, prev_sigint);\n"
         "            return 0;\n"
         "        }\n"
         "        if (!strcmp(arg, \"--list-suites\")) {\n"
-        "            b2_list_suites(suites, suite_count);\n"
+        "            bake_list_suites(suites, suite_count);\n"
+        "            signal(SIGINT, prev_sigint);\n"
         "            return 0;\n"
         "        }\n"
         "        if (!strcmp(arg, \"--list-commands\")) {\n"
-        "            b2_list_commands(argv[0], suites, suite_count);\n"
+        "            bake_list_commands(argv[0], suites, suite_count);\n"
+        "            signal(SIGINT, prev_sigint);\n"
         "            return 0;\n"
         "        }\n"
         "        if (!strcmp(arg, \"--param\")) {\n"
@@ -1135,14 +1587,20 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "                continue;\n"
         "            }\n"
         "            printf(\"invalid --param argument\\n\");\n"
+        "            signal(SIGINT, prev_sigint);\n"
         "            return -1;\n"
         "        }\n"
         "        if (!strcmp(arg, \"-j\")) {\n"
         "            if ((i + 1) < argc) {\n"
+        "                int parsed_jobs = atoi(argv[i + 1]);\n"
+        "                if (parsed_jobs > 0) {\n"
+        "                    job_count = parsed_jobs;\n"
+        "                }\n"
         "                i ++;\n"
         "                continue;\n"
         "            }\n"
         "            printf(\"missing value for -j\\n\");\n"
+        "            signal(SIGINT, prev_sigint);\n"
         "            return -1;\n"
         "        }\n"
         "\n"
@@ -1154,29 +1612,62 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
         "    }\n"
         "\n"
         "    if (single_test) {\n"
-        "        return b2_run_single_test(suites, suite_count, single_test);\n"
+        "        int run_rc = bake_run_single_test(suites, suite_count, single_test);\n"
+        "        signal(SIGINT, prev_sigint);\n"
+        "        return run_rc;\n"
         "    }\n"
         "\n"
         "    int pass = 0;\n"
         "    int fail = 0;\n"
+        "    int empty = 0;\n"
         "    int rc = 0;\n"
         "\n"
         "    if (suite_filter) {\n"
-        "        bake_test_suite *suite = b2_find_suite(suites, suite_count, suite_filter);\n"
+        "        bake_test_suite *suite = bake_find_suite(suites, suite_count, suite_filter);\n"
         "        if (!suite) {\n"
         "            printf(\"test suite '%s' not found\\n\", suite_filter);\n"
+        "            signal(SIGINT, prev_sigint);\n"
         "            return -1;\n"
         "        }\n"
-        "        rc = b2_run_suite_for_params(argv[0], suite, 0, &pass, &fail);\n"
+        "        int suite_rc = bake_run_suite_for_params(test_id, argv[0], suite, 0, &pass, &fail, &empty);\n"
+        "        if (suite_rc == -2) {\n"
+        "            g_interrupted = 1;\n"
+        "        } else if (suite_rc != 0) {\n"
+        "            rc = -1;\n"
+        "        }\n"
         "    } else {\n"
-        "        for (uint32_t s = 0; s < suite_count; s++) {\n"
-        "            if (b2_run_suite_for_params(argv[0], &suites[s], 0, &pass, &fail) != 0) {\n"
-        "                rc = -1;\n"
+        "#if !defined(_WIN32)\n"
+        "        int parallel_rc = bake_run_suites_parallel(test_id, argv[0], suites, suite_count, job_count, &pass, &fail, &empty);\n"
+        "        if (parallel_rc == -1) {\n"
+        "            rc = -1;\n"
+        "        }\n"
+        "        if (parallel_rc == 1)\n"
+        "#endif\n"
+        "        {\n"
+        "            for (uint32_t s = 0; s < suite_count; s++) {\n"
+        "                int suite_rc = bake_run_suite_for_params(test_id, argv[0], &suites[s], 0, &pass, &fail, &empty);\n"
+        "                if (suite_rc == -2) {\n"
+        "                    g_interrupted = 1;\n"
+        "                    break;\n"
+        "                }\n"
+        "                if (suite_rc != 0) {\n"
+        "                    rc = -1;\n"
+        "                }\n"
         "            }\n"
+        "        }\n"
+        "        if (!g_interrupted) {\n"
+        "            printf(\"-----------------------------\\n\");\n"
+        "            bake_print_report(test_id, \"all\", \"\", pass, fail, empty);\n"
         "        }\n"
         "    }\n"
         "\n"
-        "    printf(\"PASS:%d FAIL:%d\\n\", pass, fail);\n"
+        "    signal(SIGINT, prev_sigint);\n"
+        "    if (g_interrupted) {\n"
+        "        signal(SIGINT, SIG_DFL);\n"
+        "        raise(SIGINT);\n"
+        "        return -1;\n"
+        "    }\n"
+        "\n"
         "    return rc;\n"
         "}\n";
 
@@ -1184,9 +1675,9 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
 #pragma clang diagnostic pop
 #endif
 
-    int rc = b2_write_file(hdr_path, header);
+    int rc = bake_write_file(hdr_path, header);
     if (rc == 0) {
-        rc = b2_write_file(src_path, source);
+        rc = bake_write_file(src_path, source);
     }
 
     if (rc == 0) {
@@ -1199,8 +1690,57 @@ int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_di
     return rc;
 }
 
-int b2_test_run_project(b2_context_t *ctx, const b2_project_cfg_t *cfg, const char *exe_path) {
-    B2_UNUSED(ctx);
+int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, const char *exe_path) {
     B2_UNUSED(cfg);
-    return b2_run_command(exe_path);
+
+    char *old_threads = NULL;
+    const char *old_env = getenv("BAKE_TEST_THREADS");
+    if (old_env) {
+        old_threads = bake_strdup(old_env);
+    }
+
+    if (ctx && ctx->opts.jobs > 0) {
+        char jobs_str[32];
+        ecs_os_snprintf(jobs_str, sizeof(jobs_str), "%d", ctx->opts.jobs);
+#if defined(_WIN32)
+        _putenv_s("BAKE_TEST_THREADS", jobs_str);
+#else
+        setenv("BAKE_TEST_THREADS", jobs_str, 1);
+#endif
+    }
+
+    ecs_strbuf_t cmd = ECS_STRBUF_INIT;
+    if (ctx && ctx->opts.run_prefix) {
+        ecs_strbuf_append(&cmd, "%s ", ctx->opts.run_prefix);
+    }
+    ecs_strbuf_append(&cmd, "\"%s\"", exe_path);
+    if (ctx && ctx->opts.jobs > 0) {
+        ecs_strbuf_append(&cmd, " -j %d", ctx->opts.jobs);
+    }
+    for (int i = 0; ctx && i < ctx->opts.run_argc; i++) {
+        ecs_strbuf_append(&cmd, " \"%s\"", ctx->opts.run_argv[i]);
+    }
+
+    char *cmd_str = ecs_strbuf_get(&cmd);
+    int rc = bake_run_command(cmd_str);
+    ecs_os_free(cmd_str);
+
+    if (ctx && ctx->opts.jobs > 0) {
+        if (old_threads) {
+#if defined(_WIN32)
+            _putenv_s("BAKE_TEST_THREADS", old_threads);
+#else
+            setenv("BAKE_TEST_THREADS", old_threads, 1);
+#endif
+        } else {
+#if defined(_WIN32)
+            _putenv_s("BAKE_TEST_THREADS", "");
+#else
+            unsetenv("BAKE_TEST_THREADS");
+#endif
+        }
+    }
+    ecs_os_free(old_threads);
+
+    return rc;
 }

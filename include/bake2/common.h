@@ -36,21 +36,22 @@
         fputc('\n', stderr); \
     } while (0)
 
-char* b2_strdup(const char *str);
-char* b2_join_path(const char *lhs, const char *rhs);
-char* b2_join3_path(const char *a, const char *b, const char *c);
-char* b2_asprintf(const char *fmt, ...);
-char* b2_read_file(const char *path, size_t *len_out);
-int b2_write_file(const char *path, const char *content);
-int b2_mkdirs(const char *path);
-int b2_path_exists(const char *path);
-int b2_is_dir(const char *path);
-char* b2_dirname(const char *path);
-char* b2_basename(const char *path);
-char* b2_stem(const char *path);
-char* b2_getcwd(void);
-int b2_remove_tree(const char *path);
-int b2_copy_file(const char *src, const char *dst);
-int b2_run_command(const char *cmd);
+char* bake_strdup(const char *str);
+char* bake_join_path(const char *lhs, const char *rhs);
+char* bake_join3_path(const char *a, const char *b, const char *c);
+char* bake_asprintf(const char *fmt, ...);
+char* bake_read_file(const char *path, size_t *len_out);
+int bake_write_file(const char *path, const char *content);
+int bake_mkdirs(const char *path);
+int bake_path_exists(const char *path);
+int64_t bake_file_mtime(const char *path);
+int bake_is_dir(const char *path);
+char* bake_dirname(const char *path);
+char* bake_basename(const char *path);
+char* bake_stem(const char *path);
+char* bake_getcwd(void);
+int bake_remove_tree(const char *path);
+int bake_copy_file(const char *src, const char *dst);
+int bake_run_command(const char *cmd);
 
 #endif

@@ -3,8 +3,8 @@
 
 #include "bake2/discovery.h"
 
-int b2_build_run(b2_context_t *ctx);
-int b2_build_clean(b2_context_t *ctx);
-int b2_build_rebuild(b2_context_t *ctx);
+int bake_build_run(bake_context_t *ctx);
+int bake_build_clean(bake_context_t *ctx);
+int bake_build_rebuild(bake_context_t *ctx);
 
 #endif

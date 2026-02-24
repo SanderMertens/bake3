@@ -4,8 +4,8 @@
 
 #include <windows.h>
 
-int b2_dir_list(const char *path, b2_dir_entry_t **entries_out, int32_t *count_out) {
-    char *pattern = b2_join_path(path, "*");
+int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *count_out) {
+    char *pattern = bake_join_path(path, "*");
     if (!pattern) {
         return -1;
     }
@@ -20,7 +20,7 @@ int b2_dir_list(const char *path, b2_dir_entry_t **entries_out, int32_t *count_o
 
     int32_t count = 0;
     int32_t capacity = 16;
-    b2_dir_entry_t *entries = ecs_os_calloc_n(b2_dir_entry_t, capacity);
+    bake_dir_entry_t *entries = ecs_os_calloc_n(bake_dir_entry_t, capacity);
     if (!entries) {
         FindClose(handle);
         return -1;
@@ -29,9 +29,9 @@ int b2_dir_list(const char *path, b2_dir_entry_t **entries_out, int32_t *count_o
     do {
         if (count == capacity) {
             int32_t next = capacity * 2;
-            b2_dir_entry_t *next_entries = ecs_os_realloc_n(entries, b2_dir_entry_t, next);
+            bake_dir_entry_t *next_entries = ecs_os_realloc_n(entries, bake_dir_entry_t, next);
             if (!next_entries) {
-                b2_dir_entries_free(entries, count);
+                bake_dir_entries_free(entries, count);
                 FindClose(handle);
                 return -1;
             }
@@ -39,9 +39,9 @@ int b2_dir_list(const char *path, b2_dir_entry_t **entries_out, int32_t *count_o
             capacity = next;
         }
 
-        b2_dir_entry_t *entry = &entries[count++];
-        entry->name = b2_strdup(ffd.cFileName);
-        entry->path = b2_join_path(path, ffd.cFileName);
+        bake_dir_entry_t *entry = &entries[count++];
+        entry->name = bake_strdup(ffd.cFileName);
+        entry->path = bake_join_path(path, ffd.cFileName);
         entry->is_dir = (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
     } while (FindNextFileA(handle, &ffd) != 0);
 
@@ -55,5 +55,5 @@ int b2_dir_list(const char *path, b2_dir_entry_t **entries_out, int32_t *count_o
 #endif
 
 #if !defined(_WIN32)
-typedef int b2_dir_win_dummy_t;
+typedef int bake_dir_win_dummy_t;
 #endif

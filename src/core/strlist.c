@@ -1,6 +1,6 @@
 #include "bake2/strlist.h"
 
-static int b2_strlist_ensure(b2_strlist_t *list, int32_t n) {
+static int bake_strlist_ensure(bake_strlist_t *list, int32_t n) {
     if (list->count + n <= list->capacity) {
         return 0;
     }
@@ -20,13 +20,13 @@ static int b2_strlist_ensure(b2_strlist_t *list, int32_t n) {
     return 0;
 }
 
-void b2_strlist_init(b2_strlist_t *list) {
+void bake_strlist_init(bake_strlist_t *list) {
     list->items = NULL;
     list->count = 0;
     list->capacity = 0;
 }
 
-void b2_strlist_fini(b2_strlist_t *list) {
+void bake_strlist_fini(bake_strlist_t *list) {
     for (int32_t i = 0; i < list->count; i++) {
         ecs_os_free(list->items[i]);
     }
@@ -36,16 +36,16 @@ void b2_strlist_fini(b2_strlist_t *list) {
     list->capacity = 0;
 }
 
-int b2_strlist_append(b2_strlist_t *list, const char *value) {
-    char *dup = b2_strdup(value);
+int bake_strlist_append(bake_strlist_t *list, const char *value) {
+    char *dup = bake_strdup(value);
     if (!dup) {
         return -1;
     }
-    return b2_strlist_append_owned(list, dup);
+    return bake_strlist_append_owned(list, dup);
 }
 
-int b2_strlist_append_owned(b2_strlist_t *list, char *value) {
-    if (b2_strlist_ensure(list, 1) != 0) {
+int bake_strlist_append_owned(bake_strlist_t *list, char *value) {
+    if (bake_strlist_ensure(list, 1) != 0) {
         ecs_os_free(value);
         return -1;
     }
@@ -53,7 +53,7 @@ int b2_strlist_append_owned(b2_strlist_t *list, char *value) {
     return 0;
 }
 
-int b2_strlist_contains(const b2_strlist_t *list, const char *value) {
+int bake_strlist_contains(const bake_strlist_t *list, const char *value) {
     for (int32_t i = 0; i < list->count; i++) {
         if (!strcmp(list->items[i], value)) {
             return 1;
@@ -62,9 +62,9 @@ int b2_strlist_contains(const b2_strlist_t *list, const char *value) {
     return 0;
 }
 
-char* b2_strlist_join(const b2_strlist_t *list, const char *separator) {
+char* bake_strlist_join(const bake_strlist_t *list, const char *separator) {
     if (list->count == 0) {
-        return b2_strdup("");
+        return bake_strdup("");
     }
 
     size_t sep_len = strlen(separator);

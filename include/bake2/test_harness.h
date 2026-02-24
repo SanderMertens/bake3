@@ -3,8 +3,8 @@
 
 #include "bake2/discovery.h"
 
-int b2_test_generate_harness(const b2_project_cfg_t *cfg);
-int b2_test_generate_builtin_api(const b2_project_cfg_t *cfg, const char *gen_dir, char **src_out);
-int b2_test_run_project(b2_context_t *ctx, const b2_project_cfg_t *cfg, const char *exe_path);
+int bake_test_generate_harness(const bake_project_cfg_t *cfg);
+int bake_test_generate_builtin_api(const bake_project_cfg_t *cfg, const char *gen_dir, char **src_out);
+int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, const char *exe_path);
 
 #endif

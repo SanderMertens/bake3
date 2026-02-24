@@ -16,7 +16,7 @@
 #define B2_MKDIR(path) mkdir(path, 0755)
 #endif
 
-char* b2_strdup(const char *str) {
+char* bake_strdup(const char *str) {
     if (!str) {
         return NULL;
     }
@@ -29,12 +29,12 @@ char* b2_strdup(const char *str) {
     return out;
 }
 
-char* b2_join_path(const char *lhs, const char *rhs) {
+char* bake_join_path(const char *lhs, const char *rhs) {
     if (!lhs || !lhs[0]) {
-        return b2_strdup(rhs);
+        return bake_strdup(rhs);
     }
     if (!rhs || !rhs[0]) {
-        return b2_strdup(lhs);
+        return bake_strdup(lhs);
     }
 
     size_t lhs_len = strlen(lhs);
@@ -56,17 +56,17 @@ char* b2_join_path(const char *lhs, const char *rhs) {
     return out;
 }
 
-char* b2_join3_path(const char *a, const char *b, const char *c) {
-    char *ab = b2_join_path(a, b);
+char* bake_join3_path(const char *a, const char *b, const char *c) {
+    char *ab = bake_join_path(a, b);
     if (!ab) {
         return NULL;
     }
-    char *abc = b2_join_path(ab, c);
+    char *abc = bake_join_path(ab, c);
     ecs_os_free(ab);
     return abc;
 }
 
-char* b2_asprintf(const char *fmt, ...) {
+char* bake_asprintf(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
     int needed = vsnprintf(NULL, 0, fmt, args);
@@ -88,7 +88,7 @@ char* b2_asprintf(const char *fmt, ...) {
     return out;
 }
 
-char* b2_read_file(const char *path, size_t *len_out) {
+char* bake_read_file(const char *path, size_t *len_out) {
     FILE *f = fopen(path, "rb");
     if (!f) {
         return NULL;
@@ -130,13 +130,13 @@ char* b2_read_file(const char *path, size_t *len_out) {
     return buf;
 }
 
-int b2_write_file(const char *path, const char *content) {
-    char *dir = b2_dirname(path);
+int bake_write_file(const char *path, const char *content) {
+    char *dir = bake_dirname(path);
     if (!dir) {
         return -1;
     }
 
-    if (b2_mkdirs(dir) != 0) {
+    if (bake_mkdirs(dir) != 0) {
         ecs_os_free(dir);
         return -1;
     }
@@ -153,12 +153,27 @@ int b2_write_file(const char *path, const char *content) {
     return written == len ? 0 : -1;
 }
 
-int b2_path_exists(const char *path) {
+int bake_path_exists(const char *path) {
     struct B2_STAT st;
     return B2_STAT(path, &st) == 0;
 }
 
-int b2_is_dir(const char *path) {
+int64_t bake_file_mtime(const char *path) {
+    struct B2_STAT st;
+    if (B2_STAT(path, &st) != 0) {
+        return -1;
+    }
+#if defined(_WIN32)
+    return (int64_t)st.st_mtime;
+#elif defined(__APPLE__)
+    return (int64_t)st.st_mtimespec.tv_sec * 1000000000LL +
+        (int64_t)st.st_mtimespec.tv_nsec;
+#else
+    return (int64_t)st.st_mtim.tv_sec * 1000000000LL + (int64_t)st.st_mtim.tv_nsec;
+#endif
+}
+
+int bake_is_dir(const char *path) {
     struct B2_STAT st;
     if (B2_STAT(path, &st) != 0) {
         return 0;
@@ -170,16 +185,16 @@ int b2_is_dir(const char *path) {
 #endif
 }
 
-int b2_mkdirs(const char *path) {
+int bake_mkdirs(const char *path) {
     if (!path || !path[0]) {
         return -1;
     }
 
-    if (b2_path_exists(path)) {
+    if (bake_path_exists(path)) {
         return 0;
     }
 
-    char *tmp = b2_strdup(path);
+    char *tmp = bake_strdup(path);
     if (!tmp) {
         return -1;
     }
@@ -189,7 +204,7 @@ int b2_mkdirs(const char *path) {
         if (tmp[i] == '/' || tmp[i] == '\\') {
             char prev = tmp[i];
             tmp[i] = '\0';
-            if (tmp[0] && !b2_path_exists(tmp) && B2_MKDIR(tmp) != 0 && errno != EEXIST) {
+            if (tmp[0] && !bake_path_exists(tmp) && B2_MKDIR(tmp) != 0 && errno != EEXIST) {
                 ecs_os_free(tmp);
                 return -1;
             }
@@ -197,7 +212,7 @@ int b2_mkdirs(const char *path) {
         }
     }
 
-    if (!b2_path_exists(tmp) && B2_MKDIR(tmp) != 0 && errno != EEXIST) {
+    if (!bake_path_exists(tmp) && B2_MKDIR(tmp) != 0 && errno != EEXIST) {
         ecs_os_free(tmp);
         return -1;
     }
@@ -206,7 +221,7 @@ int b2_mkdirs(const char *path) {
     return 0;
 }
 
-char* b2_dirname(const char *path) {
+char* bake_dirname(const char *path) {
     if (!path) {
         return NULL;
     }
@@ -220,7 +235,7 @@ char* b2_dirname(const char *path) {
 #endif
 
     if (!slash) {
-        return b2_strdup(".");
+        return bake_strdup(".");
     }
 
     size_t len = (size_t)(slash - path);
@@ -233,7 +248,7 @@ char* b2_dirname(const char *path) {
     return out;
 }
 
-char* b2_basename(const char *path) {
+char* bake_basename(const char *path) {
     if (!path) {
         return NULL;
     }
@@ -247,14 +262,14 @@ char* b2_basename(const char *path) {
 #endif
 
     if (!slash) {
-        return b2_strdup(path);
+        return bake_strdup(path);
     }
 
-    return b2_strdup(slash + 1);
+    return bake_strdup(slash + 1);
 }
 
-char* b2_stem(const char *path) {
-    char *base = b2_basename(path);
+char* bake_stem(const char *path) {
+    char *base = bake_basename(path);
     if (!base) {
         return NULL;
     }
@@ -267,7 +282,7 @@ char* b2_stem(const char *path) {
     return base;
 }
 
-char* b2_getcwd(void) {
+char* bake_getcwd(void) {
 #if defined(_WIN32)
     char buf[MAX_PATH];
     if (!_getcwd(buf, (int)sizeof(buf))) {
@@ -279,21 +294,21 @@ char* b2_getcwd(void) {
         return NULL;
     }
 #endif
-    return b2_strdup(buf);
+    return bake_strdup(buf);
 }
 
-int b2_remove_tree(const char *path) {
-    if (!b2_path_exists(path)) {
+int bake_remove_tree(const char *path) {
+    if (!bake_path_exists(path)) {
         return 0;
     }
 
-    if (!b2_is_dir(path)) {
+    if (!bake_is_dir(path)) {
         return remove(path);
     }
 
-    b2_dir_entry_t *entries = NULL;
+    bake_dir_entry_t *entries = NULL;
     int32_t count = 0;
-    if (b2_dir_list(path, &entries, &count) != 0) {
+    if (bake_dir_list(path, &entries, &count) != 0) {
         return -1;
     }
 
@@ -301,12 +316,12 @@ int b2_remove_tree(const char *path) {
         if (!strcmp(entries[i].name, ".") || !strcmp(entries[i].name, "..")) {
             continue;
         }
-        if (b2_remove_tree(entries[i].path) != 0) {
-            b2_dir_entries_free(entries, count);
+        if (bake_remove_tree(entries[i].path) != 0) {
+            bake_dir_entries_free(entries, count);
             return -1;
         }
     }
-    b2_dir_entries_free(entries, count);
+    bake_dir_entries_free(entries, count);
 
 #if defined(_WIN32)
     return _rmdir(path);
@@ -315,15 +330,15 @@ int b2_remove_tree(const char *path) {
 #endif
 }
 
-int b2_copy_file(const char *src, const char *dst) {
+int bake_copy_file(const char *src, const char *dst) {
     size_t len = 0;
-    char *content = b2_read_file(src, &len);
+    char *content = bake_read_file(src, &len);
     if (!content) {
         return -1;
     }
 
-    char *dir = b2_dirname(dst);
-    if (!dir || b2_mkdirs(dir) != 0) {
+    char *dir = bake_dirname(dst);
+    if (!dir || bake_mkdirs(dir) != 0) {
         ecs_os_free(content);
         ecs_os_free(dir);
         return -1;
@@ -342,15 +357,339 @@ int b2_copy_file(const char *src, const char *dst) {
     return written == len ? 0 : -1;
 }
 
-int b2_run_command(const char *cmd) {
+typedef enum bake_cmd_redir_t {
+    B2_CMD_REDIR_NONE = 0,
+    B2_CMD_REDIR_STDIN,
+    B2_CMD_REDIR_STDOUT,
+    B2_CMD_REDIR_STDERR
+} bake_cmd_redir_t;
+
+typedef struct bake_cmd_line_t {
+    char **argv;
+    int argc;
+    int argv_cap;
+    bake_process_stdio_t stdio_cfg;
+} bake_cmd_line_t;
+
+static bool bake_char_is_space(char ch) {
+    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+}
+
+static void bake_cmd_line_fini(bake_cmd_line_t *cmd) {
     if (!cmd) {
+        return;
+    }
+
+    if (cmd->argv) {
+        for (int i = 0; i < cmd->argc; i++) {
+            ecs_os_free(cmd->argv[i]);
+        }
+        ecs_os_free(cmd->argv);
+    }
+
+    ecs_os_free((char*)cmd->stdio_cfg.stdin_path);
+    ecs_os_free((char*)cmd->stdio_cfg.stdout_path);
+    ecs_os_free((char*)cmd->stdio_cfg.stderr_path);
+    memset(cmd, 0, sizeof(*cmd));
+}
+
+static int bake_cmd_set_redirect(char **dst, const char *path) {
+    if (!path || !path[0]) {
         return -1;
     }
+
+    char *str = bake_strdup(path);
+    if (!str) {
+        return -1;
+    }
+
+    ecs_os_free(*dst);
+    *dst = str;
+    return 0;
+}
+
+static bool bake_cmd_parse_redirection_token(
+    const char *token,
+    bake_cmd_redir_t *target_out,
+    bool *append_out,
+    const char **path_inline_out)
+{
+    if (!token || !target_out || !append_out || !path_inline_out) {
+        return false;
+    }
+
+    *target_out = B2_CMD_REDIR_NONE;
+    *append_out = false;
+    *path_inline_out = NULL;
+
+    if (!strncmp(token, "2>>", 3)) {
+        *target_out = B2_CMD_REDIR_STDERR;
+        *append_out = true;
+        *path_inline_out = token + 3;
+        return true;
+    }
+
+    if (!strncmp(token, "2>", 2)) {
+        *target_out = B2_CMD_REDIR_STDERR;
+        *path_inline_out = token + 2;
+        return true;
+    }
+
+    if (!strncmp(token, "1>>", 3)) {
+        *target_out = B2_CMD_REDIR_STDOUT;
+        *append_out = true;
+        *path_inline_out = token + 3;
+        return true;
+    }
+
+    if (!strncmp(token, "1>", 2)) {
+        *target_out = B2_CMD_REDIR_STDOUT;
+        *path_inline_out = token + 2;
+        return true;
+    }
+
+    if (!strncmp(token, ">>", 2)) {
+        *target_out = B2_CMD_REDIR_STDOUT;
+        *append_out = true;
+        *path_inline_out = token + 2;
+        return true;
+    }
+
+    if (token[0] == '>') {
+        *target_out = B2_CMD_REDIR_STDOUT;
+        *path_inline_out = token + 1;
+        return true;
+    }
+
+    if (!strncmp(token, "0<", 2)) {
+        *target_out = B2_CMD_REDIR_STDIN;
+        *path_inline_out = token + 2;
+        return true;
+    }
+
+    if (token[0] == '<') {
+        *target_out = B2_CMD_REDIR_STDIN;
+        *path_inline_out = token + 1;
+        return true;
+    }
+
+    return false;
+}
+
+static int bake_cmd_append_arg(bake_cmd_line_t *cmd, const char *arg) {
+    if (!cmd->argv) {
+        cmd->argv_cap = 8;
+        cmd->argv = ecs_os_calloc_n(char*, cmd->argv_cap);
+        if (!cmd->argv) {
+            return -1;
+        }
+    }
+
+    if ((cmd->argc + 2) > cmd->argv_cap) {
+        int next = cmd->argv_cap ? cmd->argv_cap * 2 : 8;
+        if (next < (cmd->argc + 2)) {
+            next = cmd->argc + 2;
+        }
+
+        char **next_argv = ecs_os_realloc_n(cmd->argv, char*, next);
+        if (!next_argv) {
+            return -1;
+        }
+
+        memset(
+            &next_argv[cmd->argv_cap],
+            0,
+            (size_t)(next - cmd->argv_cap) * sizeof(char*));
+        cmd->argv = next_argv;
+        cmd->argv_cap = next;
+    }
+
+    cmd->argv[cmd->argc] = bake_strdup(arg);
+    if (!cmd->argv[cmd->argc]) {
+        return -1;
+    }
+    cmd->argc++;
+    cmd->argv[cmd->argc] = NULL;
+    return 0;
+}
+
+static int bake_cmd_next_token(const char **cursor, char **token_out) {
+    const char *p = *cursor;
+    while (*p && bake_char_is_space(*p)) {
+        p++;
+    }
+
+    if (!*p) {
+        *cursor = p;
+        *token_out = NULL;
+        return 0;
+    }
+
+    ecs_strbuf_t token = ECS_STRBUF_INIT;
+    while (*p && !bake_char_is_space(*p)) {
+        if (*p == '"' || *p == '\'') {
+            char quote = *p++;
+            while (*p && *p != quote) {
+                if (*p == '\\' && p[1] && quote == '"') {
+                    p++;
+                }
+                ecs_strbuf_appendch(&token, *p++);
+            }
+            if (*p == quote) {
+                p++;
+            }
+            continue;
+        }
+
+        if (*p == '\\' && p[1]) {
+            p++;
+        }
+        ecs_strbuf_appendch(&token, *p++);
+    }
+
+    *cursor = p;
+    *token_out = ecs_strbuf_get(&token);
+    if (!*token_out) {
+        return -1;
+    }
+
+    return 0;
+}
+
+static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
+    memset(cmd, 0, sizeof(*cmd));
+
+    const char *cursor = line;
+    bake_cmd_redir_t pending = B2_CMD_REDIR_NONE;
+    bool pending_append = false;
+
+    while (true) {
+        char *token = NULL;
+        if (bake_cmd_next_token(&cursor, &token) != 0) {
+            bake_cmd_line_fini(cmd);
+            return -1;
+        }
+
+        if (!token) {
+            break;
+        }
+
+        if (!token[0]) {
+            ecs_os_free(token);
+            continue;
+        }
+
+        if (pending != B2_CMD_REDIR_NONE) {
+            int rc = 0;
+            if (pending == B2_CMD_REDIR_STDIN) {
+                rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stdin_path, token);
+            } else if (pending == B2_CMD_REDIR_STDOUT) {
+                rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stdout_path, token);
+                cmd->stdio_cfg.stdout_append = pending_append;
+            } else {
+                rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stderr_path, token);
+                cmd->stdio_cfg.stderr_append = pending_append;
+            }
+
+            ecs_os_free(token);
+            pending = B2_CMD_REDIR_NONE;
+            pending_append = false;
+            if (rc != 0) {
+                bake_cmd_line_fini(cmd);
+                return -1;
+            }
+            continue;
+        }
+
+        bake_cmd_redir_t target = B2_CMD_REDIR_NONE;
+        bool append = false;
+        const char *inline_path = NULL;
+        if (bake_cmd_parse_redirection_token(token, &target, &append, &inline_path)) {
+            if (inline_path && inline_path[0]) {
+                int rc = 0;
+                if (target == B2_CMD_REDIR_STDIN) {
+                    rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stdin_path, inline_path);
+                } else if (target == B2_CMD_REDIR_STDOUT) {
+                    rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stdout_path, inline_path);
+                    cmd->stdio_cfg.stdout_append = append;
+                } else {
+                    rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stderr_path, inline_path);
+                    cmd->stdio_cfg.stderr_append = append;
+                }
+
+                ecs_os_free(token);
+                if (rc != 0) {
+                    bake_cmd_line_fini(cmd);
+                    return -1;
+                }
+                continue;
+            }
+
+            pending = target;
+            pending_append = append;
+            ecs_os_free(token);
+            continue;
+        }
+
+        if (bake_cmd_append_arg(cmd, token) != 0) {
+            ecs_os_free(token);
+            bake_cmd_line_fini(cmd);
+            return -1;
+        }
+
+        ecs_os_free(token);
+    }
+
+    if (pending != B2_CMD_REDIR_NONE || !cmd->argc) {
+        bake_cmd_line_fini(cmd);
+        return -1;
+    }
+
+    return 0;
+}
+
+int bake_run_command(const char *cmd) {
+    if (!cmd || !cmd[0]) {
+        return -1;
+    }
+
+    bake_cmd_line_t parsed;
+    if (bake_parse_command_line(cmd, &parsed) != 0) {
+        B2_ERR("invalid command line: %s", cmd);
+        return -1;
+    }
+
     B2_LOG("$ %s", cmd);
-    int rc = system(cmd);
+
+    bake_process_result_t result = {0};
+    int rc = bake_proc_run(
+        (const char *const*)parsed.argv,
+        &parsed.stdio_cfg,
+        &result);
     if (rc != 0) {
-        B2_ERR("command failed (%d): %s", rc, cmd);
+        B2_ERR("failed to start command: %s", cmd);
+        bake_cmd_line_fini(&parsed);
         return -1;
     }
+
+    if (result.interrupted) {
+        B2_ERR("command interrupted: %s", cmd);
+        bake_cmd_line_fini(&parsed);
+        return -1;
+    }
+
+    if (result.term_signal) {
+        B2_ERR("command terminated by signal %d: %s", result.term_signal, cmd);
+        bake_cmd_line_fini(&parsed);
+        return -1;
+    }
+
+    if (result.exit_code != 0) {
+        B2_ERR("command failed with exit code %d: %s", result.exit_code, cmd);
+        bake_cmd_line_fini(&parsed);
+        return -1;
+    }
+
+    bake_cmd_line_fini(&parsed);
     return 0;
 }

@@ -3,7 +3,7 @@
 
 #include "bake2/build.h"
 
-void b2_print_help(void);
-int b2_execute(b2_context_t *ctx, const char *argv0);
+void bake_print_help(void);
+int bake_execute(bake_context_t *ctx, const char *argv0);
 
 #endif

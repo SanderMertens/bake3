@@ -3,7 +3,7 @@
 
 #include "bake2/config.h"
 
-typedef struct b2_options_t {
+typedef struct bake_options_t {
     const char *command;
     const char *target;
     const char *mode;
@@ -13,20 +13,22 @@ typedef struct b2_options_t {
     const char *run_prefix;
     bool recursive;
     bool standalone;
+    bool strict;
+    int32_t jobs;
     int run_argc;
     const char **run_argv;
-} b2_options_t;
+} bake_options_t;
 
-typedef struct b2_context_t {
+typedef struct bake_context_t {
     ecs_world_t *world;
-    b2_options_t opts;
+    bake_options_t opts;
     char *bake_home;
     char *env_path;
-    b2_compiler_kind_t compiler_kind;
+    bake_compiler_kind_t compiler_kind;
     int32_t thread_count;
-} b2_context_t;
+} bake_context_t;
 
-int b2_context_init(b2_context_t *ctx, const b2_options_t *opts);
-void b2_context_fini(b2_context_t *ctx);
+int bake_context_init(bake_context_t *ctx, const bake_options_t *opts);
+void bake_context_fini(bake_context_t *ctx);
 
 #endif

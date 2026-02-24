@@ -1,0 +1,8 @@
+{
+    "id": "ws.apps.use_env",
+    "type": "application",
+    "value": {
+        "output": "use_env",
+        "use": ["env.libs.math"]
+    }
+}

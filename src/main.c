@@ -1,13 +1,16 @@
 #include "bake2/commands.h"
 #include "bake2/context.h"
 
-static bool b2_is_command(const char *arg) {
+static bool bake_is_command(const char *arg) {
     return !strcmp(arg, "build") ||
         !strcmp(arg, "run") ||
         !strcmp(arg, "test") ||
         !strcmp(arg, "clean") ||
         !strcmp(arg, "rebuild") ||
         !strcmp(arg, "list") ||
+        !strcmp(arg, "info") ||
+        !strcmp(arg, "reset") ||
+        !strcmp(arg, "cleanup") ||
         !strcmp(arg, "setup") ||
         !strcmp(arg, "help");
 }
@@ -17,7 +20,7 @@ int main(int argc, char *argv[]) {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
 
-    b2_options_t opts = {
+    bake_options_t opts = {
         .command = "build",
         .target = NULL,
         .mode = "debug",
@@ -27,11 +30,13 @@ int main(int argc, char *argv[]) {
         .run_prefix = NULL,
         .recursive = false,
         .standalone = false,
+        .strict = false,
+        .jobs = 0,
         .run_argc = 0,
         .run_argv = NULL
     };
 
-    char *cwd = b2_getcwd();
+    char *cwd = bake_getcwd();
     if (!cwd) {
         B2_ERR("failed to get current directory");
         return 1;
@@ -50,7 +55,7 @@ int main(int argc, char *argv[]) {
         }
 
         if (!strcmp(arg, "-h") || !strcmp(arg, "--help")) {
-            b2_print_help();
+            bake_print_help();
             ecs_os_free(cwd);
             return 0;
         }
@@ -62,6 +67,28 @@ int main(int argc, char *argv[]) {
 
         if (!strcmp(arg, "--standalone")) {
             opts.standalone = true;
+            continue;
+        }
+
+        if (!strcmp(arg, "--strict")) {
+            opts.strict = true;
+            continue;
+        }
+
+        if (!strcmp(arg, "-j")) {
+            if ((i + 1) >= argc) {
+                B2_ERR("missing value for -j");
+                ecs_os_free(cwd);
+                return 1;
+            }
+
+            int jobs = atoi(argv[++i]);
+            if (jobs < 1) {
+                B2_ERR("invalid value for -j: %s", argv[i]);
+                ecs_os_free(cwd);
+                return 1;
+            }
+            opts.jobs = jobs;
             continue;
         }
 
@@ -85,7 +112,7 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        if (!seen_command && b2_is_command(arg)) {
+        if (!seen_command && bake_is_command(arg)) {
             opts.command = arg;
             seen_command = true;
             continue;
@@ -97,15 +124,15 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    b2_context_t ctx;
-    if (b2_context_init(&ctx, &opts) != 0) {
+    bake_context_t ctx;
+    if (bake_context_init(&ctx, &opts) != 0) {
         B2_ERR("failed to initialize bake context");
         ecs_os_free(cwd);
         return 1;
     }
 
-    int rc = b2_execute(&ctx, argv[0]);
-    b2_context_fini(&ctx);
+    int rc = bake_execute(&ctx, argv[0]);
+    bake_context_fini(&ctx);
     ecs_os_free(cwd);
 
     return rc == 0 ? 0 : 1;

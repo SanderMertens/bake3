@@ -1,0 +1,13 @@
+{
+    "id": "env.libs.math",
+    "type": "package",
+    "value": {
+        "output": "envmath",
+        "dependee": {
+            "lib": ["envmath"]
+        }
+    },
+    "lang.c": {
+        "include": ["include"]
+    }
+}

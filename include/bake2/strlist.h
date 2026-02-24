@@ -3,17 +3,17 @@
 
 #include "bake2/common.h"
 
-typedef struct b2_strlist_t {
+typedef struct bake_strlist_t {
     char **items;
     int32_t count;
     int32_t capacity;
-} b2_strlist_t;
+} bake_strlist_t;
 
-void b2_strlist_init(b2_strlist_t *list);
-void b2_strlist_fini(b2_strlist_t *list);
-int b2_strlist_append(b2_strlist_t *list, const char *value);
-int b2_strlist_append_owned(b2_strlist_t *list, char *value);
-int b2_strlist_contains(const b2_strlist_t *list, const char *value);
-char* b2_strlist_join(const b2_strlist_t *list, const char *separator);
+void bake_strlist_init(bake_strlist_t *list);
+void bake_strlist_fini(bake_strlist_t *list);
+int bake_strlist_append(bake_strlist_t *list, const char *value);
+int bake_strlist_append_owned(bake_strlist_t *list, char *value);
+int bake_strlist_contains(const bake_strlist_t *list, const char *value);
+char* bake_strlist_join(const bake_strlist_t *list, const char *separator);
 
 #endif

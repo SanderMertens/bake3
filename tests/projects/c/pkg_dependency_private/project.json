@@ -1,0 +1,7 @@
+{
+    "id":"examples.c.pkg_dependency_private",
+    "type":"package",
+    "value": {
+        "use_private": ["examples.c.pkg_helloworld"]
+    }
+}
