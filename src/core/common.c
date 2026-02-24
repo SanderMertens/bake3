@@ -88,6 +88,59 @@ char* bake_asprintf(const char *fmt, ...) {
     return out;
 }
 
+static const char* bake_host_arch(void) {
+#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
+    return "arm64";
+#elif defined(__x86_64__) || defined(__amd64__) || defined(_M_X64)
+    return "x64";
+#elif defined(__i386__) || defined(_M_IX86)
+    return "x86";
+#elif defined(__arm__) || defined(_M_ARM)
+    return "arm";
+#else
+    return "unknown";
+#endif
+}
+
+static const char* bake_host_os(void) {
+#if defined(_WIN32)
+    return "Windows";
+#elif defined(__APPLE__)
+    return "Darwin";
+#elif defined(__linux__)
+    return "Linux";
+#else
+    return "Unknown";
+#endif
+}
+
+char* bake_host_triplet(const char *mode) {
+    const char *cfg = mode && mode[0] ? mode : "debug";
+    return bake_asprintf("%s-%s-%s", bake_host_arch(), bake_host_os(), cfg);
+}
+
+char* bake_project_build_root(const char *project_path, const char *mode) {
+    if (!project_path || !project_path[0]) {
+        return NULL;
+    }
+
+    char *triplet = bake_host_triplet(mode);
+    if (!triplet) {
+        return NULL;
+    }
+
+    char *bake_dir = bake_join_path(project_path, ".bake");
+    if (!bake_dir) {
+        ecs_os_free(triplet);
+        return NULL;
+    }
+
+    char *root = bake_join_path(bake_dir, triplet);
+    ecs_os_free(triplet);
+    ecs_os_free(bake_dir);
+    return root;
+}
+
 char* bake_read_file(const char *path, size_t *len_out) {
     FILE *f = fopen(path, "rb");
     if (!f) {

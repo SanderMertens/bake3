@@ -90,31 +90,15 @@ void bake_build_paths_fini(bake_build_paths_t *paths) {
 int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_build_paths_t *paths) {
     memset(paths, 0, sizeof(*paths));
 
-    char *build_dir = bake_join_path(cfg->path, "build");
-    if (!build_dir) {
-        B2_ERR("bake_build_paths_init: failed to join build dir");
-        return -1;
-    }
-
-    if (bake_path_exists(build_dir) && !bake_is_dir(build_dir)) {
-        ecs_os_free(build_dir);
-        build_dir = bake_join_path(cfg->path, "bake-build");
-        if (!build_dir) {
-            B2_ERR("bake_build_paths_init: failed to fallback to bake-build");
-            return -1;
-        }
-    }
-
-    paths->build_root = bake_join_path(build_dir, mode ? mode : "debug");
-    ecs_os_free(build_dir);
+    paths->build_root = bake_project_build_root(cfg->path, mode);
     if (!paths->build_root) {
         B2_ERR("bake_build_paths_init: failed to build build_root");
         return -1;
     }
 
     paths->obj_dir = bake_join_path(paths->build_root, "obj");
-    paths->bin_dir = bake_join_path(paths->build_root, "bin");
-    paths->lib_dir = bake_join_path(paths->build_root, "lib");
+    paths->bin_dir = bake_strdup(paths->build_root);
+    paths->lib_dir = bake_strdup(paths->build_root);
     paths->gen_dir = bake_join_path(paths->build_root, "generated");
 
     if (!paths->obj_dir || !paths->bin_dir || !paths->lib_dir || !paths->gen_dir) {
@@ -123,7 +107,10 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
         return -1;
     }
 
-    if (bake_mkdirs(paths->obj_dir) != 0 || bake_mkdirs(paths->bin_dir) != 0 || bake_mkdirs(paths->lib_dir) != 0 || bake_mkdirs(paths->gen_dir) != 0) {
+    if (bake_mkdirs(paths->build_root) != 0 ||
+        bake_mkdirs(paths->obj_dir) != 0 ||
+        bake_mkdirs(paths->gen_dir) != 0)
+    {
         B2_ERR("bake_build_paths_init: mkdir failed for %s", paths->build_root);
         bake_build_paths_fini(paths);
         return -1;
@@ -143,9 +130,6 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
 
     if (entry->is_dir) {
         if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..")) {
-            return 1;
-        }
-        if (!strcmp(entry->name, "build") || !strncmp(entry->name, "build-", 6)) {
             return 1;
         }
         if (entry->name[0] == '.') {
@@ -298,7 +282,7 @@ typedef struct bake_rule_exec_ctx_t {
 static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     bake_rule_exec_ctx_t *ctx = ctx_ptr;
     if (entry->is_dir) {
-        if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..") || !strcmp(entry->name, "build") || entry->name[0] == '.') {
+        if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..") || entry->name[0] == '.') {
             return 1;
         }
         return 0;

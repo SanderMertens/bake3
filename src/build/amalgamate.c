@@ -19,7 +19,7 @@ static int bake_has_suffix(const char *value, const char *suffix) {
 static int bake_concat_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     bake_concat_ctx_t *ctx = ctx_ptr;
     if (entry->is_dir) {
-        if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..") || entry->name[0] == '.' || !strcmp(entry->name, "build")) {
+        if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..") || entry->name[0] == '.') {
             return 1;
         }
         return 0;

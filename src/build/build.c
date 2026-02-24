@@ -490,24 +490,18 @@ static int bake_prepare_discovery(bake_context_t *ctx) {
 
 static int bake_clean_project(const bake_project_cfg_t *cfg, bool recursive) {
     B2_UNUSED(recursive);
-    char *build_dir = bake_join_path(cfg->path, "build");
-    char *fallback_dir = bake_join_path(cfg->path, "bake-build");
-    if (!build_dir || !fallback_dir) {
-        ecs_os_free(build_dir);
-        ecs_os_free(fallback_dir);
+    char *bake_dir = bake_join_path(cfg->path, ".bake");
+    if (!bake_dir) {
+        ecs_os_free(bake_dir);
         return -1;
     }
 
     int rc = 0;
-    if (bake_path_exists(build_dir) && bake_is_dir(build_dir)) {
-        rc = bake_remove_tree(build_dir);
-    }
-    if (rc == 0 && bake_path_exists(fallback_dir) && bake_is_dir(fallback_dir)) {
-        rc = bake_remove_tree(fallback_dir);
+    if (bake_path_exists(bake_dir) && bake_is_dir(bake_dir)) {
+        rc = bake_remove_tree(bake_dir);
     }
 
-    ecs_os_free(build_dir);
-    ecs_os_free(fallback_dir);
+    ecs_os_free(bake_dir);
     return rc;
 }
 

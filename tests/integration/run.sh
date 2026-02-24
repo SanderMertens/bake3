@@ -64,26 +64,61 @@ case "$(uname -s)" in
         LIB_EXT=".lib"
         LIB_PREFIX=""
         EXE_EXT=".exe"
+        OS_TAG="Windows"
+        ;;
+    Darwin)
+        LIB_EXT=".a"
+        LIB_PREFIX="lib"
+        EXE_EXT=""
+        OS_TAG="Darwin"
+        ;;
+    Linux)
+        LIB_EXT=".a"
+        LIB_PREFIX="lib"
+        EXE_EXT=""
+        OS_TAG="Linux"
         ;;
     *)
         LIB_EXT=".a"
         LIB_PREFIX="lib"
         EXE_EXT=""
+        OS_TAG="$(uname -s)"
         ;;
 esac
+
+case "$(uname -m)" in
+    arm64|aarch64)
+        ARCH_TAG="arm64"
+        ;;
+    x86_64|amd64)
+        ARCH_TAG="x64"
+        ;;
+    i386|i686|x86)
+        ARCH_TAG="x86"
+        ;;
+    *)
+        ARCH_TAG="$(uname -m)"
+        ;;
+esac
+
+BUILD_DEBUG="$ARCH_TAG-$OS_TAG-debug"
+BUILD_RELEASE="$ARCH_TAG-$OS_TAG-release"
+BUILD_PROFILE="$ARCH_TAG-$OS_TAG-profile"
+BUILD_SANITIZE="$ARCH_TAG-$OS_TAG-sanitize"
 
 rm -rf \
     "$BAKE_HOME" \
     "$TMP/stale_proj" \
-    "$C_PROJ_ROOT"/*/build \
-    "$CPP_PROJ_ROOT"/*/build \
-    "$WS/apps/hello/build" \
+    "$C_PROJ_ROOT"/*/.bake \
+    "$CPP_PROJ_ROOT"/*/.bake \
+    "$WS/apps/hello/.bake" \
     "$WS/apps/hello/deps" \
-    "$WS/apps/use_env/build" \
-    "$WS/libs/core/build" \
-    "$WS/libs/cppmath/build" \
-    "$WS/tests/core_tests/build" \
-    "$ENVPKGS/libmath/build"
+    "$WS/apps/use_env/.bake" \
+    "$WS/libs/core/.bake" \
+    "$WS/libs/cppmath/.bake" \
+    "$WS/tests/core_tests/.bake" \
+    "$ENVPKGS/libmath/.bake" \
+    "$ENVPKGS/libmath/.bake"
 mkdir -p "$BAKE_HOME"
 
 cd "$WS"
@@ -94,8 +129,8 @@ grep -q "ws.apps.hello[[:space:]]*application" "$ROOT/tests/tmp/list.txt"
 grep -q "ws.libs.core[[:space:]]*library" "$ROOT/tests/tmp/list.txt"
 
 $BAKE_BIN build ws.apps.hello
-"$WS/apps/hello/build/debug/bin/hello$EXE_EXT"
-[ -f "$WS/apps/hello/build/debug/generated/rule.txt" ]
+"$WS/apps/hello/.bake/$BUILD_DEBUG/hello$EXE_EXT"
+[ -f "$WS/apps/hello/.bake/$BUILD_DEBUG/generated/rule.txt" ]
 
 $BAKE_BIN test ws.tests.core
 [ -f "$WS/tests/core_tests/test/generated/main.c" ]
@@ -131,13 +166,13 @@ $BAKE_BIN --cfg release build ws.libs.core
 $BAKE_BIN --cfg profile build ws.libs.core
 $BAKE_BIN --cfg sanitize build ws.libs.core
 $BAKE_BIN --strict build ws.libs.core
-[ -f "$WS/libs/core/build/debug/lib/${LIB_PREFIX}ws_core${LIB_EXT}" ]
-[ -f "$WS/libs/core/build/release/lib/${LIB_PREFIX}ws_core${LIB_EXT}" ]
-[ -f "$WS/libs/core/build/profile/lib/${LIB_PREFIX}ws_core${LIB_EXT}" ]
-[ -f "$WS/libs/core/build/sanitize/lib/${LIB_PREFIX}ws_core${LIB_EXT}" ]
+[ -f "$WS/libs/core/.bake/$BUILD_DEBUG/${LIB_PREFIX}ws_core${LIB_EXT}" ]
+[ -f "$WS/libs/core/.bake/$BUILD_RELEASE/${LIB_PREFIX}ws_core${LIB_EXT}" ]
+[ -f "$WS/libs/core/.bake/$BUILD_PROFILE/${LIB_PREFIX}ws_core${LIB_EXT}" ]
+[ -f "$WS/libs/core/.bake/$BUILD_SANITIZE/${LIB_PREFIX}ws_core${LIB_EXT}" ]
 
 $BAKE_BIN clean ws.apps.hello -r
-[ ! -d "$WS/apps/hello/build" ]
+[ ! -d "$WS/apps/hello/.bake" ]
 
 $BAKE_BIN rebuild ws.apps.hello -r
 
@@ -159,17 +194,15 @@ done
 
 cd "$ENVPKGS"
 $BAKE_BIN build env.libs.math
-[ -f "$ENVPKGS/libmath/build/debug/lib/${LIB_PREFIX}envmath${LIB_EXT}" ]
+[ -f "$ENVPKGS/libmath/.bake/$BUILD_DEBUG/${LIB_PREFIX}envmath${LIB_EXT}" ]
 
 cd "$WS"
 $BAKE_BIN build ws.apps.use_env
-"$WS/apps/use_env/build/debug/bin/use_env$EXE_EXT"
+"$WS/apps/use_env/.bake/$BUILD_DEBUG/use_env$EXE_EXT"
 
 cd "$ROOT"
 $BAKE_BIN build flecs
-if [ -f "$ROOT/flecs/build/debug/lib/libflecs.a" ]; then
-    :
-elif [ -f "$ROOT/flecs/bake-build/debug/lib/libflecs.a" ]; then
+if [ -f "$ROOT/flecs/.bake/$BUILD_DEBUG/libflecs.a" ]; then
     :
 else
     echo "flecs artefact not found" >&2

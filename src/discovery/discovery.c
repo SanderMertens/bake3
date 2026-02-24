@@ -9,9 +9,6 @@ static int bake_should_skip_dir(const char *name, bool skip_special_dirs) {
     if (name[0] == '.') {
         return 1;
     }
-    if (!strcmp(name, "build") || !strncmp(name, "build-", 6)) {
-        return 1;
-    }
     if (!strcmp(name, "tmp") || !strcmp(name, "target") || !strcmp(name, "out")) {
         return 1;
     }

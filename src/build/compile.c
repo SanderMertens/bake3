@@ -348,6 +348,7 @@ static void bake_collect_dependency_include_dirs(ecs_world_t *world, ecs_entity_
 static void bake_collect_dependency_link_inputs(
     ecs_world_t *world,
     ecs_entity_t project_entity,
+    const char *mode,
     bake_strlist_t *artefacts,
     bake_strlist_t *libpaths,
     bake_strlist_t *libs)
@@ -365,7 +366,7 @@ static void bake_collect_dependency_link_inputs(
 
         const BakeProject *dep_project = ecs_get(world, dep, BakeProject);
         if (dep_project && dep_project->cfg && dep_project->cfg->path) {
-            char *lib = bake_join3_path(dep_project->cfg->path, "build", "debug/lib");
+            char *lib = bake_project_build_root(dep_project->cfg->path, mode);
             if (lib && bake_path_exists(lib) && !bake_strlist_contains(libpaths, lib)) {
                 bake_strlist_append(libpaths, lib);
             }
@@ -391,8 +392,8 @@ static void bake_collect_dependency_link_inputs(
                     }
 
                     if (use_project->cfg->path) {
-                        char *lib = bake_join3_path(
-                            use_project->cfg->path, "build", "debug/lib");
+                        char *lib = bake_project_build_root(
+                            use_project->cfg->path, mode);
                         if (lib && bake_path_exists(lib) &&
                             !bake_strlist_contains(libpaths, lib))
                         {
@@ -681,7 +682,13 @@ int bake_link_project_binary(
     bake_strlist_init(&dep_libpaths);
     bake_strlist_init(&dep_libs);
 
-    bake_collect_dependency_link_inputs(ctx->world, project_entity, &dep_artefacts, &dep_libpaths, &dep_libs);
+    bake_collect_dependency_link_inputs(
+        ctx->world,
+        project_entity,
+        ctx->opts.mode,
+        &dep_artefacts,
+        &dep_libpaths,
+        &dep_libs);
 
     bool is_lib = cfg->kind == B2_PROJECT_PACKAGE;
 #if defined(_WIN32)
