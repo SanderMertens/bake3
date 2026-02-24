@@ -36,6 +36,25 @@ static int b2_entity_from_id(const ecs_world_t *world, const char *id, ecs_entit
     return -1;
 }
 
+static char* b2_id_from_path(const char *path) {
+    char *id = b2_strdup(path);
+    if (!id) {
+        return NULL;
+    }
+
+    for (char *p = id; *p; p++) {
+        if (*p == '/' || *p == '\\' || *p == ':') {
+            *p = '.';
+        }
+    }
+
+    while (id[0] == '.') {
+        memmove(id, id + 1, strlen(id));
+    }
+
+    return id;
+}
+
 int b2_model_init(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, b2_project_t);
     ECS_COMPONENT_DEFINE(world, b2_build_request_t);
@@ -66,6 +85,20 @@ ecs_entity_t b2_model_add_project(ecs_world_t *world, b2_project_cfg_t *cfg, boo
     ecs_entity_t entity = 0;
     if (cfg->id) {
         entity = ecs_lookup_path_w_sep(world, 0, cfg->id, "::", NULL, false);
+    }
+
+    if (entity) {
+        const b2_project_t *existing = ecs_get(world, entity, b2_project_t);
+        if (existing && existing->cfg && existing->cfg->path && cfg->path &&
+            strcmp(existing->cfg->path, cfg->path))
+        {
+            char *unique_id = b2_id_from_path(cfg->path);
+            if (unique_id) {
+                ecs_os_free(cfg->id);
+                cfg->id = unique_id;
+                entity = 0;
+            }
+        }
     }
 
     if (!entity) {
@@ -126,6 +159,27 @@ const b2_project_t* b2_model_find_project(const ecs_world_t *world, const char *
     }
 
     return ecs_get(world, entity, b2_project_t);
+}
+
+const b2_project_t* b2_model_find_project_by_path(const ecs_world_t *world, const char *path, ecs_entity_t *entity_out) {
+    ecs_iter_t it = ecs_each_id(world, ecs_id(b2_project_t));
+    while (ecs_each_next(&it)) {
+        const b2_project_t *projects = ecs_field(&it, b2_project_t, 0);
+        for (int32_t i = 0; i < it.count; i++) {
+            const b2_project_cfg_t *cfg = projects[i].cfg;
+            if (!cfg || !cfg->path) {
+                continue;
+            }
+            if (!strcmp(cfg->path, path)) {
+                if (entity_out) {
+                    *entity_out = it.entities[i];
+                }
+                return ecs_get(world, it.entities[i], b2_project_t);
+            }
+        }
+    }
+
+    return NULL;
 }
 
 static ecs_entity_t b2_model_ensure_dependency(ecs_world_t *world, const char *id) {

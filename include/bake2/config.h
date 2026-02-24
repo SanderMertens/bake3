@@ -58,6 +58,7 @@ typedef struct b2_project_cfg_t {
     char *id;
     char *path;
     b2_project_kind_t kind;
+    bool has_test_spec;
     char *language;
     char *output_name;
 

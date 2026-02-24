@@ -269,6 +269,7 @@ void b2_dependee_cfg_fini(b2_dependee_cfg_t *cfg) {
 void b2_project_cfg_init(b2_project_cfg_t *cfg) {
     memset(cfg, 0, sizeof(*cfg));
     cfg->kind = B2_PROJECT_APPLICATION;
+    cfg->has_test_spec = false;
     cfg->language = b2_strdup("c");
 
     b2_strlist_init(&cfg->use);
@@ -473,6 +474,14 @@ int b2_project_cfg_load_file(const char *project_json_path, b2_project_cfg_t *cf
 
     if (b2_json_get_array(json, tokens, parsed, root, "drivers", &cfg->drivers) < 0) goto error;
     if (b2_json_get_array(json, tokens, parsed, root, "plugins", &cfg->plugins) < 0) goto error;
+
+    int test_obj = b2_json_find_object_key(json, tokens, parsed, root, "test");
+    if (test_obj >= 0 && tokens[test_obj].type == JSMN_OBJECT) {
+        cfg->has_test_spec = true;
+        if (cfg->kind == B2_PROJECT_APPLICATION) {
+            cfg->kind = B2_PROJECT_TEST;
+        }
+    }
 
     int rules_tok = b2_json_find_object_key(json, tokens, parsed, root, "rules");
     if (b2_parse_rules(json, tokens, parsed, rules_tok, &cfg->rules) != 0) goto error;

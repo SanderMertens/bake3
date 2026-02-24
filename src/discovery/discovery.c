@@ -73,7 +73,7 @@ int b2_discover_projects(b2_context_t *ctx, const char *start_path) {
     b2_model_link_dependencies(ctx->world);
 
     if (b2_environment_save(ctx) != 0) {
-        return -1;
+        B2_ERR("warning: failed to save bake environment");
     }
 
     return discovery.discovered;
