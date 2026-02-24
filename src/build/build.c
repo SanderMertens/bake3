@@ -70,7 +70,7 @@ static int bake_order_violations(ecs_world_t *world, ecs_entity_t *order, int32_
     for (int32_t i = 0; i < count; i++) {
         ecs_entity_t dependent = order[i];
         for (int32_t d = 0;; d++) {
-            ecs_entity_t dep = ecs_get_target(world, dependent, B2DependsOn, d);
+            ecs_entity_t dep = ecs_get_target(world, dependent, BAKEDependsOn, d);
             if (!dep) {
                 break;
             }
@@ -179,7 +179,7 @@ static void bake_log_build_header(const bake_context_t *ctx, const bake_project_
     const char *kind = bake_project_kind_str(cfg->kind);
     const char *id = cfg->id ? cfg->id : "<unnamed>";
     char *path = bake_build_display_path(ctx, cfg->path);
-    B2_LOG("[%s] %s %s => '%s'", command, kind, id, path ? path : ".");
+    BAKE_LOG("[%s] %s %s => '%s'", command, kind, id, path ? path : ".");
     ecs_os_free(path);
 }
 
@@ -200,7 +200,7 @@ static char* bake_resolve_target_path(const bake_context_t *ctx, const char *tar
 }
 
 static int bake_prepare_standalone_sources(bake_context_t *ctx, ecs_entity_t project_entity, const bake_project_cfg_t *cfg) {
-    B2_UNUSED(ctx);
+    BAKE_UNUSED(ctx);
 
     char *deps_dir = bake_join_path(cfg->path, "deps");
     if (!deps_dir) {
@@ -213,7 +213,7 @@ static int bake_prepare_standalone_sources(bake_context_t *ctx, ecs_entity_t pro
     }
 
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(ctx->world, project_entity, B2DependsOn, i);
+        ecs_entity_t dep = ecs_get_target(ctx->world, project_entity, BAKEDependsOn, i);
         if (!dep) {
             break;
         }
@@ -222,7 +222,7 @@ static int bake_prepare_standalone_sources(bake_context_t *ctx, ecs_entity_t pro
         if (!dep_project || !dep_project->cfg || !dep_project->cfg->path) {
             continue;
         }
-        if (dep_project->cfg->kind == B2_PROJECT_CONFIG || dep_project->cfg->kind == B2_PROJECT_TEMPLATE) {
+        if (dep_project->cfg->kind == BAKE_PROJECT_CONFIG || dep_project->cfg->kind == BAKE_PROJECT_TEMPLATE) {
             continue;
         }
 
@@ -253,33 +253,33 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     if (bake_plugin_load_for_project(ctx, cfg) != 0) {
-        B2_ERR("plugin loading failed for %s", cfg->id);
+        BAKE_ERR("plugin loading failed for %s", cfg->id);
         return -1;
     }
 
-    if (cfg->kind == B2_PROJECT_CONFIG || cfg->kind == B2_PROJECT_TEMPLATE) {
+    if (cfg->kind == BAKE_PROJECT_CONFIG || cfg->kind == BAKE_PROJECT_TEMPLATE) {
         BakeBuildResult result = { .status = 0, .artefact = NULL };
         ecs_set_ptr(ctx->world, project_entity, BakeBuildResult, &result);
-        ecs_add(ctx->world, project_entity, B2Built);
+        ecs_add(ctx->world, project_entity, BakeBuilt);
         return 0;
     }
 
     bake_build_paths_t paths;
     if (bake_build_paths_init(cfg, request->mode, &paths) != 0) {
-        B2_ERR("failed to initialize build paths for %s (path=%s)", cfg->id, cfg->path ? cfg->path : "<null>");
+        BAKE_ERR("failed to initialize build paths for %s (path=%s)", cfg->id, cfg->path ? cfg->path : "<null>");
         return -1;
     }
 
-    if (cfg->kind == B2_PROJECT_TEST) {
+    if (cfg->kind == BAKE_PROJECT_TEST) {
         if (bake_test_generate_harness(cfg) != 0) {
-            B2_ERR("test harness generation failed for %s", cfg->id);
+            BAKE_ERR("test harness generation failed for %s", cfg->id);
             bake_build_paths_fini(&paths);
             return -1;
         }
 
         if (cfg->has_test_spec) {
             if (bake_test_generate_builtin_api(cfg, paths.gen_dir, &builtin_test_src) != 0) {
-                B2_ERR("failed to generate test API for %s", cfg->id);
+                BAKE_ERR("failed to generate test API for %s", cfg->id);
                 bake_build_paths_fini(&paths);
                 return -1;
             }
@@ -287,7 +287,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     if (cfg->rules.count && bake_execute_rules(cfg, &paths) != 0) {
-        B2_ERR("rule execution failed for %s", cfg->id);
+        BAKE_ERR("rule execution failed for %s", cfg->id);
         ecs_os_free(builtin_test_src);
         bake_build_paths_fini(&paths);
         return -1;
@@ -295,7 +295,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 
     if (cfg->amalgamate) {
         if (bake_generate_project_amalgamation(cfg) != 0) {
-            B2_ERR("amalgamation failed for %s", cfg->id);
+            BAKE_ERR("amalgamation failed for %s", cfg->id);
             ecs_os_free(builtin_test_src);
             bake_build_paths_fini(&paths);
             return -1;
@@ -303,15 +303,15 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     if (bake_generate_dep_header(ctx->world, cfg, &paths) != 0) {
-        B2_ERR("dependency header generation failed for %s", cfg->id);
+        BAKE_ERR("dependency header generation failed for %s", cfg->id);
         ecs_os_free(builtin_test_src);
         bake_build_paths_fini(&paths);
         return -1;
     }
 
-    if ((request->standalone || cfg->standalone) && (cfg->kind == B2_PROJECT_APPLICATION || cfg->kind == B2_PROJECT_TEST)) {
+    if ((request->standalone || cfg->standalone) && (cfg->kind == BAKE_PROJECT_APPLICATION || cfg->kind == BAKE_PROJECT_TEST)) {
         if (bake_prepare_standalone_sources(ctx, project_entity, cfg) != 0) {
-            B2_ERR("standalone amalgamation failed for %s", cfg->id);
+            BAKE_ERR("standalone amalgamation failed for %s", cfg->id);
             ecs_os_free(builtin_test_src);
             bake_build_paths_fini(&paths);
             return -1;
@@ -321,7 +321,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     bake_lang_cfg_t c_lang;
     bake_lang_cfg_t cpp_lang;
     if (bake_lang_cfg_copy(&c_lang, &cfg->c_lang) != 0 || bake_lang_cfg_copy(&cpp_lang, &cfg->cpp_lang) != 0) {
-        B2_ERR("failed to clone language config for %s", cfg->id);
+        BAKE_ERR("failed to clone language config for %s", cfg->id);
         ecs_os_free(builtin_test_src);
         bake_build_paths_fini(&paths);
         return -1;
@@ -330,7 +330,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     bake_apply_dependee_config(ctx->world, project_entity, &c_lang);
     bake_apply_dependee_config(ctx->world, project_entity, &cpp_lang);
 
-    if (cfg->kind == B2_PROJECT_TEST) {
+    if (cfg->kind == BAKE_PROJECT_TEST) {
         if (!bake_strlist_contains(&c_lang.include_paths, paths.gen_dir)) {
             bake_strlist_append(&c_lang.include_paths, paths.gen_dir);
         }
@@ -349,7 +349,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         &mode_ldflags);
 
 #if !defined(_WIN32)
-    if (cfg->kind == B2_PROJECT_TEST) {
+    if (cfg->kind == BAKE_PROJECT_TEST) {
         bake_strlist_append(&mode_cflags, "-pthread");
         bake_strlist_append(&mode_cxxflags, "-pthread");
         bake_strlist_append(&mode_ldflags, "-pthread");
@@ -358,8 +358,8 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 
     bake_compile_list_t units;
     bake_compile_list_init(&units);
-    if (bake_collect_compile_units(cfg, &paths, cfg->kind == B2_PROJECT_TEST, &units) != 0) {
-        B2_ERR("failed to collect source files for %s", cfg->id);
+    if (bake_collect_compile_units(cfg, &paths, cfg->kind == BAKE_PROJECT_TEST, &units) != 0) {
+        BAKE_ERR("failed to collect source files for %s", cfg->id);
         bake_compile_list_fini(&units);
         bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
         bake_lang_cfg_fini(&c_lang);
@@ -380,7 +380,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         if (!obj_name || !obj_path || bake_compile_list_append(&units, builtin_test_src, obj_path, NULL, false) != 0) {
             ecs_os_free(obj_name);
             ecs_os_free(obj_path);
-            B2_ERR("failed to add generated test API source for %s", cfg->id);
+            BAKE_ERR("failed to add generated test API source for %s", cfg->id);
             bake_compile_list_fini(&units);
             bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
             bake_lang_cfg_fini(&c_lang);
@@ -402,7 +402,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     if (bake_compile_units_parallel(ctx, cfg, &paths, &units, base_lang, base_cpp, &mode_cflags, &mode_cxxflags) != 0) {
-        B2_ERR("compilation failed for %s", cfg->id);
+        BAKE_ERR("compilation failed for %s", cfg->id);
         bake_compile_list_fini(&units);
         bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
         bake_lang_cfg_fini(&c_lang);
@@ -414,7 +414,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 
     char *artefact = NULL;
     if (bake_link_project_binary(ctx, project_entity, cfg, &paths, &units, base_cpp, &mode_ldflags, &artefact) != 0) {
-        B2_ERR("link failed for %s", cfg->id);
+        BAKE_ERR("link failed for %s", cfg->id);
         bake_compile_list_fini(&units);
         bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
         bake_lang_cfg_fini(&c_lang);
@@ -434,7 +434,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         .artefact = artefact
     };
     ecs_set_ptr(ctx->world, project_entity, BakeBuildResult, &result);
-    ecs_add(ctx->world, project_entity, B2Built);
+    ecs_add(ctx->world, project_entity, BakeBuilt);
 
     bake_compile_list_fini(&units);
     bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
@@ -456,7 +456,7 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
     }
 
     if (target && target[0] && count == 0) {
-        B2_ERR("target not found: %s", target);
+        BAKE_ERR("target not found: %s", target);
         ecs_os_free(order);
         return -1;
     }
@@ -477,7 +477,7 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
         }
 
         if (bake_build_one(ctx, order[i], req) != 0) {
-            ecs_add(ctx->world, order[i], B2BuildFailed);
+            ecs_add(ctx->world, order[i], BakeBuildFailed);
             ecs_os_free(order);
             return -1;
         }
@@ -498,7 +498,7 @@ static int bake_prepare_discovery(bake_context_t *ctx) {
 }
 
 static int bake_clean_project(const bake_project_cfg_t *cfg, bool recursive) {
-    B2_UNUSED(recursive);
+    BAKE_UNUSED(recursive);
     char *bake_dir = bake_join_path(cfg->path, ".bake");
     if (!bake_dir) {
         ecs_os_free(bake_dir);
@@ -533,7 +533,7 @@ int bake_build_clean(bake_context_t *ctx) {
     }
 
     if (ctx->opts.target && ctx->opts.target[0] && count == 0) {
-        B2_ERR("target not found: %s", ctx->opts.target);
+        BAKE_ERR("target not found: %s", ctx->opts.target);
         ecs_os_free(order);
         ecs_os_free(target_path);
         return -1;
@@ -545,7 +545,7 @@ int bake_build_clean(bake_context_t *ctx) {
             continue;
         }
 
-        B2_LOG("cleaning %s", project->cfg->id);
+        BAKE_LOG("cleaning %s", project->cfg->id);
         if (bake_clean_project(project->cfg, ctx->opts.recursive) != 0) {
             ecs_os_free(order);
             ecs_os_free(target_path);
@@ -590,7 +590,7 @@ int bake_build_run(bake_context_t *ctx) {
         project = bake_model_find_project_by_path(ctx->world, target_path, &project_entity);
     }
     if (!project || !project_entity) {
-        B2_ERR("target not found: %s", target);
+        BAKE_ERR("target not found: %s", target);
         ecs_os_free(target_path);
         return -1;
     }
@@ -601,7 +601,7 @@ int bake_build_run(bake_context_t *ctx) {
         return -1;
     }
 
-    if (!strcmp(ctx->opts.command, "test") || project->cfg->kind == B2_PROJECT_TEST) {
+    if (!strcmp(ctx->opts.command, "test") || project->cfg->kind == BAKE_PROJECT_TEST) {
         int rc = bake_test_run_project(ctx, project->cfg, result->artefact);
         ecs_os_free(target_path);
         return rc;

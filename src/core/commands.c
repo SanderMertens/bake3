@@ -31,11 +31,11 @@ void bake_print_help(void) {
 
 static const char* bake_kind_label(bake_project_kind_t kind) {
     switch (kind) {
-    case B2_PROJECT_APPLICATION: return "application";
-    case B2_PROJECT_PACKAGE: return "library";
-    case B2_PROJECT_CONFIG: return "config";
-    case B2_PROJECT_TEST: return "test";
-    case B2_PROJECT_TEMPLATE: return "template";
+    case BAKE_PROJECT_APPLICATION: return "application";
+    case BAKE_PROJECT_PACKAGE: return "library";
+    case BAKE_PROJECT_CONFIG: return "config";
+    case BAKE_PROJECT_TEST: return "test";
+    case BAKE_PROJECT_TEMPLATE: return "template";
     default: return "application";
     }
 }
@@ -112,14 +112,14 @@ static int bake_info_project(bake_context_t *ctx) {
     }
 
     if (!ctx->opts.target || !ctx->opts.target[0]) {
-        B2_ERR("info command requires a target");
+        BAKE_ERR("info command requires a target");
         return -1;
     }
 
     ecs_entity_t entity = 0;
     const BakeProject *project = bake_find_project_for_target(ctx, ctx->opts.target, &entity);
     if (!project || !project->cfg) {
-        B2_ERR("target not found: %s", ctx->opts.target);
+        BAKE_ERR("target not found: %s", ctx->opts.target);
         return -1;
     }
 
@@ -214,7 +214,7 @@ int bake_execute(bake_context_t *ctx, const char *argv0) {
         int32_t removed = 0;
         int rc = bake_environment_cleanup(ctx, &removed);
         if (rc == 0) {
-            B2_LOG("removed %d stale project(s) from bake environment", removed);
+            BAKE_LOG("removed %d stale project(s) from bake environment", removed);
         }
         return rc;
     }
@@ -228,7 +228,7 @@ int bake_execute(bake_context_t *ctx, const char *argv0) {
         return 0;
     }
 
-    B2_ERR("unknown command: %s", ctx->opts.command);
+    BAKE_ERR("unknown command: %s", ctx->opts.command);
     bake_print_help();
     return -1;
 }

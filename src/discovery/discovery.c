@@ -57,7 +57,7 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     if (bake_project_cfg_load_file(entry->path, cfg) != 0) {
         bake_project_cfg_fini(cfg);
         ecs_os_free(cfg);
-        B2_ERR("failed to parse %s", entry->path);
+        BAKE_ERR("failed to parse %s", entry->path);
         return 0;
     }
 
@@ -91,7 +91,7 @@ int bake_discover_projects(bake_context_t *ctx, const char *start_path) {
     bake_model_link_dependencies(ctx->world);
 
     if (bake_environment_save(ctx) != 0) {
-        B2_ERR("warning: failed to save bake environment");
+        BAKE_ERR("warning: failed to save bake environment");
     }
 
     return discovery.discovered;

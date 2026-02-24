@@ -182,28 +182,28 @@ bake_compiler_kind_t bake_detect_compiler_kind(const char *cc, const char *cxx) 
     const char *probe = cxx && cxx[0] ? cxx : cc;
     if (!probe) {
 #if defined(_WIN32)
-        return B2_COMPILER_MSVC;
+        return BAKE_COMPILER_MSVC;
 #else
-        return B2_COMPILER_GCC;
+        return BAKE_COMPILER_GCC;
 #endif
     }
 
     if (strstr(probe, "cl") || strstr(probe, "cl.exe")) {
-        return B2_COMPILER_MSVC;
+        return BAKE_COMPILER_MSVC;
     }
     if (strstr(probe, "clang")) {
-        return B2_COMPILER_CLANG;
+        return BAKE_COMPILER_CLANG;
     }
     if (strstr(probe, "gcc") || strstr(probe, "g++") || strstr(probe, "cc") || strstr(probe, "c++")) {
-        return B2_COMPILER_GCC;
+        return BAKE_COMPILER_GCC;
     }
 
-    return B2_COMPILER_UNKNOWN;
+    return BAKE_COMPILER_UNKNOWN;
 }
 
 void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strlist_t *cflags, bake_strlist_t *cxxflags, bake_strlist_t *ldflags) {
     if (!mode || !strcmp(mode, "debug")) {
-        if (kind == B2_COMPILER_MSVC) {
+        if (kind == BAKE_COMPILER_MSVC) {
             bake_strlist_append(cflags, "/Zi");
             bake_strlist_append(cflags, "/Od");
             bake_strlist_append(cxxflags, "/Zi");
@@ -218,7 +218,7 @@ void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strli
     }
 
     if (!strcmp(mode, "release")) {
-        if (kind == B2_COMPILER_MSVC) {
+        if (kind == BAKE_COMPILER_MSVC) {
             bake_strlist_append(cflags, "/O2");
             bake_strlist_append(cxxflags, "/O2");
         } else {
@@ -231,7 +231,7 @@ void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strli
     }
 
     if (!strcmp(mode, "profile")) {
-        if (kind == B2_COMPILER_MSVC) {
+        if (kind == BAKE_COMPILER_MSVC) {
             bake_strlist_append(cflags, "/O2");
             bake_strlist_append(cxxflags, "/O2");
         } else {
@@ -245,7 +245,7 @@ void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strli
     }
 
     if (!strcmp(mode, "sanitize")) {
-        if (kind == B2_COMPILER_MSVC) {
+        if (kind == BAKE_COMPILER_MSVC) {
             bake_strlist_append(cflags, "/fsanitize=address");
             bake_strlist_append(cxxflags, "/fsanitize=address");
         } else {
@@ -274,7 +274,7 @@ void bake_add_strict_flags(
         return;
     }
 
-    if (kind == B2_COMPILER_MSVC) {
+    if (kind == BAKE_COMPILER_MSVC) {
         bake_strlist_append(cflags, "/W3");
         bake_strlist_append(cflags, "/WX");
         bake_strlist_append(cxxflags, "/W3");
@@ -305,7 +305,7 @@ void bake_add_strict_flags(
 
 static void bake_collect_dependency_include_dirs(ecs_world_t *world, ecs_entity_t project_entity, bake_strlist_t *paths) {
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(world, project_entity, B2DependsOn, i);
+        ecs_entity_t dep = ecs_get_target(world, project_entity, BAKEDependsOn, i);
         if (!dep) {
             break;
         }
@@ -354,7 +354,7 @@ static void bake_collect_dependency_link_inputs(
     bake_strlist_t *libs)
 {
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(world, project_entity, B2DependsOn, i);
+        ecs_entity_t dep = ecs_get_target(world, project_entity, BAKEDependsOn, i);
         if (!dep) {
             break;
         }
@@ -499,7 +499,7 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
     int32_t done = ecs_os_ainc(&ctx->compile_done);
     int32_t pct = (done * 100) / ctx->compile_total;
     char *display_path = bake_compile_display_path(ctx->cfg, unit->src);
-    B2_LOG("[%6d%%] %s", pct, display_path ? display_path : unit->src);
+    BAKE_LOG("[%6d%%] %s", pct, display_path ? display_path : unit->src);
     if (ctx->print_lock) {
         ecs_os_mutex_unlock(ctx->print_lock);
     }
@@ -526,7 +526,7 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
     };
 
     int rc = 0;
-    if (ctx->ctx->compiler_kind == B2_COMPILER_MSVC) {
+    if (ctx->ctx->compiler_kind == BAKE_COMPILER_MSVC) {
         rc = bake_compose_compile_command_msvc(&cmd_ctx, &cmd);
     } else {
         rc = bake_compose_compile_command_posix(&cmd_ctx, &cmd);
@@ -670,7 +670,7 @@ int bake_link_project_binary(
     const bake_strlist_t *mode_ldflags,
     char **artefact_out)
 {
-    if (cfg->kind == B2_PROJECT_CONFIG || cfg->kind == B2_PROJECT_TEMPLATE) {
+    if (cfg->kind == BAKE_PROJECT_CONFIG || cfg->kind == BAKE_PROJECT_TEMPLATE) {
         *artefact_out = NULL;
         return 0;
     }
@@ -690,7 +690,7 @@ int bake_link_project_binary(
         &dep_libpaths,
         &dep_libs);
 
-    bool is_lib = cfg->kind == B2_PROJECT_PACKAGE;
+    bool is_lib = cfg->kind == BAKE_PROJECT_PACKAGE;
 #if defined(_WIN32)
     const char *exe_ext = ".exe";
     const char *lib_ext = ".lib";
@@ -748,7 +748,7 @@ int bake_link_project_binary(
     };
 
     int compose_rc = 0;
-    if (ctx->compiler_kind == B2_COMPILER_MSVC) {
+    if (ctx->compiler_kind == BAKE_COMPILER_MSVC) {
         compose_rc = bake_compose_link_command_msvc(&cmd_ctx, &cmd);
     } else {
         compose_rc = bake_compose_link_command_posix(&cmd_ctx, &cmd);

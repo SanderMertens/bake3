@@ -259,35 +259,35 @@ static int bake_json_get_string_alias(
 
 const char* bake_project_kind_str(bake_project_kind_t kind) {
     switch (kind) {
-    case B2_PROJECT_APPLICATION: return "application";
-    case B2_PROJECT_PACKAGE: return "package";
-    case B2_PROJECT_CONFIG: return "config";
-    case B2_PROJECT_TEST: return "test";
-    case B2_PROJECT_TEMPLATE: return "template";
+    case BAKE_PROJECT_APPLICATION: return "application";
+    case BAKE_PROJECT_PACKAGE: return "package";
+    case BAKE_PROJECT_CONFIG: return "config";
+    case BAKE_PROJECT_TEST: return "test";
+    case BAKE_PROJECT_TEMPLATE: return "template";
     default: return "application";
     }
 }
 
 bake_project_kind_t bake_project_kind_parse(const char *value) {
     if (!value) {
-        return B2_PROJECT_APPLICATION;
+        return BAKE_PROJECT_APPLICATION;
     }
     if (!strcmp(value, "application") || !strcmp(value, "app")) {
-        return B2_PROJECT_APPLICATION;
+        return BAKE_PROJECT_APPLICATION;
     }
     if (!strcmp(value, "package") || !strcmp(value, "lib")) {
-        return B2_PROJECT_PACKAGE;
+        return BAKE_PROJECT_PACKAGE;
     }
     if (!strcmp(value, "config")) {
-        return B2_PROJECT_CONFIG;
+        return BAKE_PROJECT_CONFIG;
     }
     if (!strcmp(value, "test")) {
-        return B2_PROJECT_TEST;
+        return BAKE_PROJECT_TEST;
     }
     if (!strcmp(value, "template")) {
-        return B2_PROJECT_TEMPLATE;
+        return BAKE_PROJECT_TEMPLATE;
     }
-    return B2_PROJECT_APPLICATION;
+    return BAKE_PROJECT_APPLICATION;
 }
 
 void bake_rule_list_init(bake_rule_list_t *list) {
@@ -378,7 +378,7 @@ void bake_dependee_cfg_fini(bake_dependee_cfg_t *cfg) {
 
 void bake_project_cfg_init(bake_project_cfg_t *cfg) {
     memset(cfg, 0, sizeof(*cfg));
-    cfg->kind = B2_PROJECT_APPLICATION;
+    cfg->kind = BAKE_PROJECT_APPLICATION;
     cfg->has_test_spec = false;
     cfg->language = bake_strdup("c");
     cfg->amalgamate = false;
@@ -677,8 +677,8 @@ int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t
     int test_obj = bake_json_find_object_key(json, tokens, parsed, root, "test");
     if (test_obj >= 0 && tokens[test_obj].type == JSMN_OBJECT) {
         cfg->has_test_spec = true;
-        if (cfg->kind == B2_PROJECT_APPLICATION) {
-            cfg->kind = B2_PROJECT_TEST;
+        if (cfg->kind == BAKE_PROJECT_APPLICATION) {
+            cfg->kind = BAKE_PROJECT_TEST;
         }
     }
 

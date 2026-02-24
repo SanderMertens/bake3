@@ -15,22 +15,22 @@
 #include <flecs.h>
 
 #if defined(_WIN32)
-#define B2_PATH_SEP '\\'
-#define B2_PATH_SEP_STR "\\"
+#define BAKE_PATH_SEP '\\'
+#define BAKE_PATH_SEP_STR "\\"
 #else
-#define B2_PATH_SEP '/'
-#define B2_PATH_SEP_STR "/"
+#define BAKE_PATH_SEP '/'
+#define BAKE_PATH_SEP_STR "/"
 #endif
 
-#define B2_UNUSED(x) (void)(x)
+#define BAKE_UNUSED(x) (void)(x)
 
-#define B2_LOG(...) \
+#define BAKE_LOG(...) \
     do { \
         fprintf(stdout, __VA_ARGS__); \
         fputc('\n', stdout); \
     } while (0)
 
-#define B2_ERR(...) \
+#define BAKE_ERR(...) \
     do { \
         fprintf(stderr, __VA_ARGS__); \
         fputc('\n', stderr); \

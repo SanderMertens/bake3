@@ -12,7 +12,7 @@ static volatile sig_atomic_t bake_proc_interrupted = 0;
 static bool bake_proc_handler_installed = false;
 
 static void bake_proc_sigint_handler(int sig) {
-    B2_UNUSED(sig);
+    BAKE_UNUSED(sig);
     bake_proc_interrupted = 1;
 }
 

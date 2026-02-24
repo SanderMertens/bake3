@@ -43,13 +43,13 @@ extern ECS_COMPONENT_DECLARE(BakeDriver);
 extern ECS_COMPONENT_DECLARE(BakeBuildRule);
 extern ECS_COMPONENT_DECLARE(BakeEnvProject);
 
-extern ecs_entity_t B2DependsOn;
+extern ecs_entity_t BAKEDependsOn;
 
-extern ECS_TAG_DECLARE(B2Discovered);
-extern ECS_TAG_DECLARE(B2External);
-extern ECS_TAG_DECLARE(B2Built);
-extern ECS_TAG_DECLARE(B2BuildFailed);
-extern ECS_TAG_DECLARE(B2BuildInProgress);
+extern ECS_TAG_DECLARE(BakeDiscovered);
+extern ECS_TAG_DECLARE(BakeExternal);
+extern ECS_TAG_DECLARE(BakeBuilt);
+extern ECS_TAG_DECLARE(BakeBuildFailed);
+extern ECS_TAG_DECLARE(BakeBuildInProgress);
 
 int bake_model_init(ecs_world_t *world);
 void bake_model_fini(ecs_world_t *world);

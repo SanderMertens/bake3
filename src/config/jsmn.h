@@ -1,8 +1,8 @@
 /*
  * Minimal JSON parser based on jsmn (public domain / MIT style)
  */
-#ifndef B2_JSMN_H
-#define B2_JSMN_H
+#ifndef BAKE_JSMN_H
+#define BAKE_JSMN_H
 
 #include <stddef.h>
 

@@ -3,7 +3,7 @@
 
 #include <ctype.h>
 
-#define B2_AMALG_MAX_LINE (4096)
+#define BAKE_AMALG_MAX_LINE (4096)
 
 typedef struct bake_concat_ctx_t {
     ecs_strbuf_t *out;
@@ -316,7 +316,7 @@ static int bake_amalgamate_file(
 
     FILE *in = fopen(file, "rb");
     if (!in) {
-        B2_ERR(
+        BAKE_ERR(
             "cannot read file '%s' while amalgamating '%s' (from '%s:%d')",
             file, ctx->cfg->id, src_file, src_line);
         return -1;
@@ -327,9 +327,9 @@ static int bake_amalgamate_file(
     bool bake_config_h = base_name && !strcmp(base_name, "bake_config.h");
     ecs_os_free(base_name);
 
-    char line[B2_AMALG_MAX_LINE];
+    char line[BAKE_AMALG_MAX_LINE];
     int32_t line_count = 0;
-    while (fgets(line, B2_AMALG_MAX_LINE, in)) {
+    while (fgets(line, BAKE_AMALG_MAX_LINE, in)) {
         line_count++;
 
         bool include_relative = false;
@@ -585,7 +585,7 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
     }
 
     if (!bake_path_exists(main_header)) {
-        B2_ERR("cannot find include file '%s' for amalgamation", main_header);
+        BAKE_ERR("cannot find include file '%s' for amalgamation", main_header);
         ecs_os_free(project_id);
         ecs_os_free(output_path);
         ecs_os_free(include_out);

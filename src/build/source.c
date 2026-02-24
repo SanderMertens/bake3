@@ -26,7 +26,7 @@ static int bake_is_c_source(const char *path, bool *cpp_out) {
 
 static char* bake_rel_path(const char *base, const char *path) {
     size_t base_len = strlen(base);
-    if (!strncmp(base, path, base_len) && (path[base_len] == B2_PATH_SEP || path[base_len] == '/')) {
+    if (!strncmp(base, path, base_len) && (path[base_len] == BAKE_PATH_SEP || path[base_len] == '/')) {
         return bake_strdup(path + base_len + 1);
     }
     return bake_basename(path);
@@ -92,7 +92,7 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
 
     paths->build_root = bake_project_build_root(cfg->path, mode);
     if (!paths->build_root) {
-        B2_ERR("bake_build_paths_init: failed to build build_root");
+        BAKE_ERR("bake_build_paths_init: failed to build build_root");
         return -1;
     }
 
@@ -102,7 +102,7 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
     paths->gen_dir = bake_join_path(paths->build_root, "generated");
 
     if (!paths->obj_dir || !paths->bin_dir || !paths->lib_dir || !paths->gen_dir) {
-        B2_ERR("bake_build_paths_init: failed to allocate path(s)");
+        BAKE_ERR("bake_build_paths_init: failed to allocate path(s)");
         bake_build_paths_fini(paths);
         return -1;
     }
@@ -111,7 +111,7 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
         bake_mkdirs(paths->obj_dir) != 0 ||
         bake_mkdirs(paths->gen_dir) != 0)
     {
-        B2_ERR("bake_build_paths_init: mkdir failed for %s", paths->build_root);
+        BAKE_ERR("bake_build_paths_init: mkdir failed for %s", paths->build_root);
         bake_build_paths_fini(paths);
         return -1;
     }
@@ -357,7 +357,7 @@ int bake_generate_dep_header(ecs_world_t *world, const bake_project_cfg_t *cfg, 
     ecs_strbuf_appendstr(&header, "#pragma once\n\n");
 
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(world, project, B2DependsOn, i);
+        ecs_entity_t dep = ecs_get_target(world, project, BAKEDependsOn, i);
         if (!dep) {
             break;
         }
@@ -401,7 +401,7 @@ static void bake_merge_strlist_unique(bake_strlist_t *dst, const bake_strlist_t 
 
 int bake_apply_dependee_config(ecs_world_t *world, ecs_entity_t project_entity, bake_lang_cfg_t *dst) {
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(world, project_entity, B2DependsOn, i);
+        ecs_entity_t dep = ecs_get_target(world, project_entity, BAKEDependsOn, i);
         if (!dep) {
             break;
         }

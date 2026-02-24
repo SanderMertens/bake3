@@ -16,7 +16,7 @@ int bake_compose_compile_command_msvc(const bake_compile_cmd_ctx_t *ctx, ecs_str
         ecs_strbuf_append(cmd, " /D%s", ctx->lang->defines.items[i]);
     }
     ecs_strbuf_append(cmd, " /DBAKE_PROJECT_ID=\\\"%s\\\"", ctx->cfg->id);
-    if (ctx->cfg->kind == B2_PROJECT_PACKAGE) {
+    if (ctx->cfg->kind == BAKE_PROJECT_PACKAGE) {
         char *macro = bake_project_id_as_macro(ctx->cfg->id);
         if (!macro) {
             return -1;
@@ -43,7 +43,7 @@ int bake_compose_compile_command_msvc(const bake_compile_cmd_ctx_t *ctx, ecs_str
 }
 
 int bake_compose_link_command_msvc(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t *cmd) {
-    bool is_lib = ctx->cfg->kind == B2_PROJECT_PACKAGE;
+    bool is_lib = ctx->cfg->kind == BAKE_PROJECT_PACKAGE;
     if (is_lib) {
         ecs_strbuf_append(cmd, "lib /nologo /OUT:\"%s\"", ctx->artefact);
         for (int32_t i = 0; i < ctx->units->count; i++) {

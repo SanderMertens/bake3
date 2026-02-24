@@ -5,15 +5,15 @@
 #include <direct.h>
 #include <io.h>
 #include <windows.h>
-#define B2_STAT _stat
-#define B2_MKDIR(path) _mkdir(path)
+#define BAKE_STAT _stat
+#define BAKE_MKDIR(path) _mkdir(path)
 #else
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-#define B2_STAT stat
-#define B2_MKDIR(path) mkdir(path, 0755)
+#define BAKE_STAT stat
+#define BAKE_MKDIR(path) mkdir(path, 0755)
 #endif
 
 char* bake_strdup(const char *str) {
@@ -39,7 +39,7 @@ char* bake_join_path(const char *lhs, const char *rhs) {
 
     size_t lhs_len = strlen(lhs);
     size_t rhs_len = strlen(rhs);
-    bool has_sep = lhs[lhs_len - 1] == B2_PATH_SEP;
+    bool has_sep = lhs[lhs_len - 1] == BAKE_PATH_SEP;
 
     char *out = ecs_os_malloc(lhs_len + rhs_len + (has_sep ? 1 : 2));
     if (!out) {
@@ -49,7 +49,7 @@ char* bake_join_path(const char *lhs, const char *rhs) {
     memcpy(out, lhs, lhs_len);
     out[lhs_len] = '\0';
     if (!has_sep) {
-        out[lhs_len] = B2_PATH_SEP;
+        out[lhs_len] = BAKE_PATH_SEP;
         out[lhs_len + 1] = '\0';
     }
     strcat(out, rhs);
@@ -207,13 +207,13 @@ int bake_write_file(const char *path, const char *content) {
 }
 
 int bake_path_exists(const char *path) {
-    struct B2_STAT st;
-    return B2_STAT(path, &st) == 0;
+    struct BAKE_STAT st;
+    return BAKE_STAT(path, &st) == 0;
 }
 
 int64_t bake_file_mtime(const char *path) {
-    struct B2_STAT st;
-    if (B2_STAT(path, &st) != 0) {
+    struct BAKE_STAT st;
+    if (BAKE_STAT(path, &st) != 0) {
         return -1;
     }
 #if defined(_WIN32)
@@ -227,8 +227,8 @@ int64_t bake_file_mtime(const char *path) {
 }
 
 int bake_is_dir(const char *path) {
-    struct B2_STAT st;
-    if (B2_STAT(path, &st) != 0) {
+    struct BAKE_STAT st;
+    if (BAKE_STAT(path, &st) != 0) {
         return 0;
     }
 #if defined(_WIN32)
@@ -257,7 +257,7 @@ int bake_mkdirs(const char *path) {
         if (tmp[i] == '/' || tmp[i] == '\\') {
             char prev = tmp[i];
             tmp[i] = '\0';
-            if (tmp[0] && !bake_path_exists(tmp) && B2_MKDIR(tmp) != 0 && errno != EEXIST) {
+            if (tmp[0] && !bake_path_exists(tmp) && BAKE_MKDIR(tmp) != 0 && errno != EEXIST) {
                 ecs_os_free(tmp);
                 return -1;
             }
@@ -265,7 +265,7 @@ int bake_mkdirs(const char *path) {
         }
     }
 
-    if (!bake_path_exists(tmp) && B2_MKDIR(tmp) != 0 && errno != EEXIST) {
+    if (!bake_path_exists(tmp) && BAKE_MKDIR(tmp) != 0 && errno != EEXIST) {
         ecs_os_free(tmp);
         return -1;
     }
@@ -411,10 +411,10 @@ int bake_copy_file(const char *src, const char *dst) {
 }
 
 typedef enum bake_cmd_redir_t {
-    B2_CMD_REDIR_NONE = 0,
-    B2_CMD_REDIR_STDIN,
-    B2_CMD_REDIR_STDOUT,
-    B2_CMD_REDIR_STDERR
+    BAKE_CMD_REDIR_NONE = 0,
+    BAKE_CMD_REDIR_STDIN,
+    BAKE_CMD_REDIR_STDOUT,
+    BAKE_CMD_REDIR_STDERR
 } bake_cmd_redir_t;
 
 typedef struct bake_cmd_line_t {
@@ -471,57 +471,57 @@ static bool bake_cmd_parse_redirection_token(
         return false;
     }
 
-    *target_out = B2_CMD_REDIR_NONE;
+    *target_out = BAKE_CMD_REDIR_NONE;
     *append_out = false;
     *path_inline_out = NULL;
 
     if (!strncmp(token, "2>>", 3)) {
-        *target_out = B2_CMD_REDIR_STDERR;
+        *target_out = BAKE_CMD_REDIR_STDERR;
         *append_out = true;
         *path_inline_out = token + 3;
         return true;
     }
 
     if (!strncmp(token, "2>", 2)) {
-        *target_out = B2_CMD_REDIR_STDERR;
+        *target_out = BAKE_CMD_REDIR_STDERR;
         *path_inline_out = token + 2;
         return true;
     }
 
     if (!strncmp(token, "1>>", 3)) {
-        *target_out = B2_CMD_REDIR_STDOUT;
+        *target_out = BAKE_CMD_REDIR_STDOUT;
         *append_out = true;
         *path_inline_out = token + 3;
         return true;
     }
 
     if (!strncmp(token, "1>", 2)) {
-        *target_out = B2_CMD_REDIR_STDOUT;
+        *target_out = BAKE_CMD_REDIR_STDOUT;
         *path_inline_out = token + 2;
         return true;
     }
 
     if (!strncmp(token, ">>", 2)) {
-        *target_out = B2_CMD_REDIR_STDOUT;
+        *target_out = BAKE_CMD_REDIR_STDOUT;
         *append_out = true;
         *path_inline_out = token + 2;
         return true;
     }
 
     if (token[0] == '>') {
-        *target_out = B2_CMD_REDIR_STDOUT;
+        *target_out = BAKE_CMD_REDIR_STDOUT;
         *path_inline_out = token + 1;
         return true;
     }
 
     if (!strncmp(token, "0<", 2)) {
-        *target_out = B2_CMD_REDIR_STDIN;
+        *target_out = BAKE_CMD_REDIR_STDIN;
         *path_inline_out = token + 2;
         return true;
     }
 
     if (token[0] == '<') {
-        *target_out = B2_CMD_REDIR_STDIN;
+        *target_out = BAKE_CMD_REDIR_STDIN;
         *path_inline_out = token + 1;
         return true;
     }
@@ -613,7 +613,7 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
     memset(cmd, 0, sizeof(*cmd));
 
     const char *cursor = line;
-    bake_cmd_redir_t pending = B2_CMD_REDIR_NONE;
+    bake_cmd_redir_t pending = BAKE_CMD_REDIR_NONE;
     bool pending_append = false;
 
     while (true) {
@@ -632,11 +632,11 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
             continue;
         }
 
-        if (pending != B2_CMD_REDIR_NONE) {
+        if (pending != BAKE_CMD_REDIR_NONE) {
             int rc = 0;
-            if (pending == B2_CMD_REDIR_STDIN) {
+            if (pending == BAKE_CMD_REDIR_STDIN) {
                 rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stdin_path, token);
-            } else if (pending == B2_CMD_REDIR_STDOUT) {
+            } else if (pending == BAKE_CMD_REDIR_STDOUT) {
                 rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stdout_path, token);
                 cmd->stdio_cfg.stdout_append = pending_append;
             } else {
@@ -645,7 +645,7 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
             }
 
             ecs_os_free(token);
-            pending = B2_CMD_REDIR_NONE;
+            pending = BAKE_CMD_REDIR_NONE;
             pending_append = false;
             if (rc != 0) {
                 bake_cmd_line_fini(cmd);
@@ -654,15 +654,15 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
             continue;
         }
 
-        bake_cmd_redir_t target = B2_CMD_REDIR_NONE;
+        bake_cmd_redir_t target = BAKE_CMD_REDIR_NONE;
         bool append = false;
         const char *inline_path = NULL;
         if (bake_cmd_parse_redirection_token(token, &target, &append, &inline_path)) {
             if (inline_path && inline_path[0]) {
                 int rc = 0;
-                if (target == B2_CMD_REDIR_STDIN) {
+                if (target == BAKE_CMD_REDIR_STDIN) {
                     rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stdin_path, inline_path);
-                } else if (target == B2_CMD_REDIR_STDOUT) {
+                } else if (target == BAKE_CMD_REDIR_STDOUT) {
                     rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stdout_path, inline_path);
                     cmd->stdio_cfg.stdout_append = append;
                 } else {
@@ -693,7 +693,7 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
         ecs_os_free(token);
     }
 
-    if (pending != B2_CMD_REDIR_NONE || !cmd->argc) {
+    if (pending != BAKE_CMD_REDIR_NONE || !cmd->argc) {
         bake_cmd_line_fini(cmd);
         return -1;
     }
@@ -708,12 +708,12 @@ static int bake_run_command_impl(const char *cmd, bool log_command) {
 
     bake_cmd_line_t parsed;
     if (bake_parse_command_line(cmd, &parsed) != 0) {
-        B2_ERR("invalid command line: %s", cmd);
+        BAKE_ERR("invalid command line: %s", cmd);
         return -1;
     }
 
     if (log_command) {
-        B2_LOG("$ %s", cmd);
+        BAKE_LOG("$ %s", cmd);
     }
 
     bake_process_result_t result = {0};
@@ -722,25 +722,25 @@ static int bake_run_command_impl(const char *cmd, bool log_command) {
         &parsed.stdio_cfg,
         &result);
     if (rc != 0) {
-        B2_ERR("failed to start command: %s", cmd);
+        BAKE_ERR("failed to start command: %s", cmd);
         bake_cmd_line_fini(&parsed);
         return -1;
     }
 
     if (result.interrupted) {
-        B2_ERR("command interrupted: %s", cmd);
+        BAKE_ERR("command interrupted: %s", cmd);
         bake_cmd_line_fini(&parsed);
         return -1;
     }
 
     if (result.term_signal) {
-        B2_ERR("command terminated by signal %d: %s", result.term_signal, cmd);
+        BAKE_ERR("command terminated by signal %d: %s", result.term_signal, cmd);
         bake_cmd_line_fini(&parsed);
         return -1;
     }
 
     if (result.exit_code != 0) {
-        B2_ERR("command failed with exit code %d: %s", result.exit_code, cmd);
+        BAKE_ERR("command failed with exit code %d: %s", result.exit_code, cmd);
         bake_cmd_line_fini(&parsed);
         return -1;
     }

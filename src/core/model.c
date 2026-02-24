@@ -7,13 +7,13 @@ ECS_COMPONENT_DECLARE(BakeDriver);
 ECS_COMPONENT_DECLARE(BakeBuildRule);
 ECS_COMPONENT_DECLARE(BakeEnvProject);
 
-ECS_TAG_DECLARE(B2Discovered);
-ECS_TAG_DECLARE(B2External);
-ECS_TAG_DECLARE(B2Built);
-ECS_TAG_DECLARE(B2BuildFailed);
-ECS_TAG_DECLARE(B2BuildInProgress);
+ECS_TAG_DECLARE(BakeDiscovered);
+ECS_TAG_DECLARE(BakeExternal);
+ECS_TAG_DECLARE(BakeBuilt);
+ECS_TAG_DECLARE(BakeBuildFailed);
+ECS_TAG_DECLARE(BakeBuildInProgress);
 
-ecs_entity_t B2DependsOn = 0;
+ecs_entity_t BAKEDependsOn = 0;
 
 static int bake_entity_from_id(const ecs_world_t *world, const char *id, ecs_entity_t *entity_out) {
     ecs_iter_t it = ecs_each_id(world, ecs_id(BakeProject));
@@ -63,22 +63,22 @@ int bake_model_init(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, BakeBuildRule);
     ECS_COMPONENT_DEFINE(world, BakeEnvProject);
 
-    ECS_TAG_DEFINE(world, B2Discovered);
-    ECS_TAG_DEFINE(world, B2External);
-    ECS_TAG_DEFINE(world, B2Built);
-    ECS_TAG_DEFINE(world, B2BuildFailed);
-    ECS_TAG_DEFINE(world, B2BuildInProgress);
+    ECS_TAG_DEFINE(world, BakeDiscovered);
+    ECS_TAG_DEFINE(world, BakeExternal);
+    ECS_TAG_DEFINE(world, BakeBuilt);
+    ECS_TAG_DEFINE(world, BakeBuildFailed);
+    ECS_TAG_DEFINE(world, BakeBuildInProgress);
 
-    B2DependsOn = ecs_entity(world, {
-        .name = "B2DependsOn"
+    BAKEDependsOn = ecs_entity(world, {
+        .name = "BAKEDependsOn"
     });
-    ecs_add_id(world, B2DependsOn, EcsTraversable);
+    ecs_add_id(world, BAKEDependsOn, EcsTraversable);
 
     return 0;
 }
 
 void bake_model_fini(ecs_world_t *world) {
-    B2_UNUSED(world);
+    BAKE_UNUSED(world);
 }
 
 ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg, bool external) {
@@ -118,10 +118,10 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
     ecs_set_ptr(world, entity, BakeProject, &project);
 
     if (external) {
-        ecs_add(world, entity, B2External);
+        ecs_add(world, entity, BakeExternal);
     } else {
-        ecs_remove(world, entity, B2External);
-        ecs_add(world, entity, B2Discovered);
+        ecs_remove(world, entity, BakeExternal);
+        ecs_add(world, entity, BakeDiscovered);
     }
 
     for (int32_t i = 0; i < cfg->drivers.count; i++) {
@@ -195,7 +195,7 @@ static ecs_entity_t bake_model_ensure_dependency(ecs_world_t *world, const char 
     bake_project_cfg_init(cfg);
     ecs_os_free(cfg->id);
     cfg->id = bake_strdup(id);
-    cfg->kind = B2_PROJECT_PACKAGE;
+    cfg->kind = BAKE_PROJECT_PACKAGE;
     cfg->path = NULL;
     cfg->private_project = false;
 
@@ -206,7 +206,7 @@ static void bake_model_link_project_list(ecs_world_t *world, ecs_entity_t entity
     for (int32_t i = 0; i < deps->count; i++) {
         ecs_entity_t dep = bake_model_ensure_dependency(world, deps->items[i]);
         if (dep && dep != entity) {
-            ecs_add_pair(world, entity, B2DependsOn, dep);
+            ecs_add_pair(world, entity, BAKEDependsOn, dep);
         }
     }
 }
@@ -247,7 +247,7 @@ static void bake_model_mark_build_recursive(ecs_world_t *world, ecs_entity_t ent
     }
 
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(world, entity, B2DependsOn, i);
+        ecs_entity_t dep = ecs_get_target(world, entity, BAKEDependsOn, i);
         if (!dep) {
             break;
         }
@@ -260,9 +260,9 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
     while (ecs_each_next(&clear)) {
         for (int32_t i = 0; i < clear.count; i++) {
             ecs_remove(world, clear.entities[i], BakeBuildRequest);
-            ecs_remove(world, clear.entities[i], B2Built);
-            ecs_remove(world, clear.entities[i], B2BuildFailed);
-            ecs_remove(world, clear.entities[i], B2BuildInProgress);
+            ecs_remove(world, clear.entities[i], BakeBuilt);
+            ecs_remove(world, clear.entities[i], BakeBuildFailed);
+            ecs_remove(world, clear.entities[i], BakeBuildInProgress);
         }
     }
 
@@ -310,7 +310,7 @@ int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities
     qd.terms[0].id = ecs_id(BakeBuildRequest);
     qd.terms[1].id = ecs_id(BakeBuildRequest);
     qd.terms[1].src.id = EcsCascade;
-    qd.terms[1].trav = B2DependsOn;
+    qd.terms[1].trav = BAKEDependsOn;
     qd.terms[1].oper = EcsOptional;
 
     ecs_query_t *q = ecs_query_init(world_mut, &qd);

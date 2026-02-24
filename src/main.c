@@ -38,7 +38,7 @@ int main(int argc, char *argv[]) {
 
     char *cwd = bake_getcwd();
     if (!cwd) {
-        B2_ERR("failed to get current directory");
+        BAKE_ERR("failed to get current directory");
         return 1;
     }
     opts.cwd = cwd;
@@ -77,14 +77,14 @@ int main(int argc, char *argv[]) {
 
         if (!strcmp(arg, "-j")) {
             if ((i + 1) >= argc) {
-                B2_ERR("missing value for -j");
+                BAKE_ERR("missing value for -j");
                 ecs_os_free(cwd);
                 return 1;
             }
 
             int jobs = atoi(argv[++i]);
             if (jobs < 1) {
-                B2_ERR("invalid value for -j: %s", argv[i]);
+                BAKE_ERR("invalid value for -j: %s", argv[i]);
                 ecs_os_free(cwd);
                 return 1;
             }
@@ -126,7 +126,7 @@ int main(int argc, char *argv[]) {
 
     bake_context_t ctx;
     if (bake_context_init(&ctx, &opts) != 0) {
-        B2_ERR("failed to initialize bake context");
+        BAKE_ERR("failed to initialize bake context");
         ecs_os_free(cwd);
         return 1;
     }

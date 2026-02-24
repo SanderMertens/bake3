@@ -1,5 +1,5 @@
-#ifndef B2_BUILD_INTERNAL_H
-#define B2_BUILD_INTERNAL_H
+#ifndef BAKE_BUILD_INTERNAL_H
+#define BAKE_BUILD_INTERNAL_H
 
 #include "bake2/build.h"
 #include "bake2/plugin.h"

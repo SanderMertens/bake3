@@ -4,18 +4,18 @@
 #include "bake2/strlist.h"
 
 typedef enum bake_project_kind_t {
-    B2_PROJECT_APPLICATION = 0,
-    B2_PROJECT_PACKAGE,
-    B2_PROJECT_CONFIG,
-    B2_PROJECT_TEST,
-    B2_PROJECT_TEMPLATE
+    BAKE_PROJECT_APPLICATION = 0,
+    BAKE_PROJECT_PACKAGE,
+    BAKE_PROJECT_CONFIG,
+    BAKE_PROJECT_TEST,
+    BAKE_PROJECT_TEMPLATE
 } bake_project_kind_t;
 
 typedef enum bake_compiler_kind_t {
-    B2_COMPILER_GCC = 0,
-    B2_COMPILER_CLANG,
-    B2_COMPILER_MSVC,
-    B2_COMPILER_UNKNOWN
+    BAKE_COMPILER_GCC = 0,
+    BAKE_COMPILER_CLANG,
+    BAKE_COMPILER_MSVC,
+    BAKE_COMPILER_UNKNOWN
 } bake_compiler_kind_t;
 
 typedef struct bake_rule_t {
