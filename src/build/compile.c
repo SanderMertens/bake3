@@ -428,6 +428,24 @@ typedef struct bake_compile_ctx_t {
     int32_t failed;
 } bake_compile_ctx_t;
 
+static int bake_run_compiler_command(
+    const bake_context_t *ctx,
+    ecs_os_mutex_t print_lock,
+    const char *command)
+{
+    if (ctx->opts.trace) {
+        if (print_lock) {
+            ecs_os_mutex_lock(print_lock);
+        }
+        ecs_trace("%s", command);
+        if (print_lock) {
+            ecs_os_mutex_unlock(print_lock);
+        }
+    }
+
+    return bake_run_command_quiet(command);
+}
+
 static bool bake_path_is_sep(char ch) {
     return ch == '/' || ch == '\\';
 }
@@ -536,7 +554,7 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
     }
 
     char *command = ecs_strbuf_get(&cmd);
-    rc = bake_run_command_quiet(command);
+    rc = bake_run_compiler_command(ctx->ctx, ctx->print_lock, command);
     ecs_os_free(command);
     return rc;
 }
@@ -762,7 +780,7 @@ int bake_link_project_binary(
     }
 
     char *command = ecs_strbuf_get(&cmd);
-    int rc = bake_run_command_quiet(command);
+    int rc = bake_run_compiler_command(ctx, 0, command);
     ecs_os_free(command);
 
     bake_strlist_fini(&dep_artefacts);
