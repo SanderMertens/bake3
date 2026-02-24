@@ -109,8 +109,13 @@ BUILD_SANITIZE="$ARCH_TAG-$OS_TAG-sanitize"
 rm -rf \
     "$BAKE_HOME" \
     "$TMP/stale_proj" \
+    "$TMP/c_amalgamate.o" \
+    "$TMP/cpp_amalgamate.o" \
+    "$TMP/flecs_amalgamate.o" \
     "$C_PROJ_ROOT"/*/.bake \
     "$CPP_PROJ_ROOT"/*/.bake \
+    "$C_PROJ_ROOT/pkg_amalgamate/distr" \
+    "$CPP_PROJ_ROOT/pkg_amalgamate/distr" \
     "$WS/apps/hello/.bake" \
     "$WS/apps/hello/deps" \
     "$WS/apps/use_env/.bake" \
@@ -118,7 +123,8 @@ rm -rf \
     "$WS/libs/cppmath/.bake" \
     "$WS/tests/core_tests/.bake" \
     "$ENVPKGS/libmath/.bake" \
-    "$ENVPKGS/libmath/.bake"
+    "$ROOT/flecs/distr/flecs.c" \
+    "$ROOT/flecs/distr/flecs.h"
 mkdir -p "$BAKE_HOME"
 
 cd "$WS"
@@ -192,6 +198,21 @@ for pj in $(find . -name project.json | sort); do
     fi
 done
 
+[ -f "$C_PROJ_ROOT/pkg_amalgamate/distr/examples_c_pkg_amalgamate.h" ]
+[ -f "$C_PROJ_ROOT/pkg_amalgamate/distr/examples_c_pkg_amalgamate.c" ]
+[ -f "$CPP_PROJ_ROOT/pkg_amalgamate/distr/examples_cpp_pkg_amalgamate.h" ]
+[ -f "$CPP_PROJ_ROOT/pkg_amalgamate/distr/examples_cpp_pkg_amalgamate.cpp" ]
+
+"${CC:-cc}" \
+    -I"$C_PROJ_ROOT/pkg_amalgamate/distr" \
+    -c "$C_PROJ_ROOT/pkg_amalgamate/distr/examples_c_pkg_amalgamate.c" \
+    -o "$TMP/c_amalgamate.o"
+
+"${CXX:-c++}" -std=c++17 \
+    -I"$CPP_PROJ_ROOT/pkg_amalgamate/distr" \
+    -c "$CPP_PROJ_ROOT/pkg_amalgamate/distr/examples_cpp_pkg_amalgamate.cpp" \
+    -o "$TMP/cpp_amalgamate.o"
+
 cd "$ENVPKGS"
 $BAKE_BIN build env.libs.math
 [ -f "$ENVPKGS/libmath/.bake/$BUILD_DEBUG/${LIB_PREFIX}envmath${LIB_EXT}" ]
@@ -202,9 +223,16 @@ $BAKE_BIN build ws.apps.use_env
 
 cd "$ROOT"
 $BAKE_BIN build flecs
-if [ -f "$ROOT/flecs/.bake/$BUILD_DEBUG/libflecs.a" ]; then
-    :
-else
+[ -f "$ROOT/flecs/.bake/$BUILD_DEBUG/libflecs.a" ]
+[ -f "$ROOT/flecs/distr/flecs.h" ]
+[ -f "$ROOT/flecs/distr/flecs.c" ]
+
+"${CC:-cc}" \
+    -I"$ROOT/flecs/distr" \
+    -c "$ROOT/flecs/distr/flecs.c" \
+    -o "$TMP/flecs_amalgamate.o"
+
+if [ ! -f "$ROOT/flecs/.bake/$BUILD_DEBUG/libflecs.a" ]; then
     echo "flecs artefact not found" >&2
     exit 1
 fi

@@ -293,6 +293,15 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         return -1;
     }
 
+    if (cfg->amalgamate) {
+        if (bake_generate_project_amalgamation(cfg) != 0) {
+            B2_ERR("amalgamation failed for %s", cfg->id);
+            ecs_os_free(builtin_test_src);
+            bake_build_paths_fini(&paths);
+            return -1;
+        }
+    }
+
     if (bake_generate_dep_header(ctx->world, cfg, &paths) != 0) {
         B2_ERR("dependency header generation failed for %s", cfg->id);
         ecs_os_free(builtin_test_src);

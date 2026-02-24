@@ -82,5 +82,6 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
 int bake_compose_link_command_msvc(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t *cmd);
 
 int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, char **out_c, char **out_h);
+int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg);
 
 #endif

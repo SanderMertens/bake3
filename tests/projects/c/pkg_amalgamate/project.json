@@ -1,0 +1,8 @@
+{
+    "id":"examples.c.pkg_amalgamate",
+    "type":"package",
+    "value": {
+        "amalgamate": true,
+        "amalgamate-path": "distr"
+    }
+}

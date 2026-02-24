@@ -1,0 +1,9 @@
+{
+    "id":"examples.cpp.pkg_amalgamate",
+    "type":"package",
+    "value": {
+        "language": "cpp",
+        "amalgamate": true,
+        "amalgamate-path": "distr"
+    }
+}

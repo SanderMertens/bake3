@@ -241,6 +241,22 @@ static int bake_json_get_array_alias(
     return rc;
 }
 
+static int bake_json_get_string_alias(
+    const char *json,
+    const jsmntok_t *toks,
+    int count,
+    int object,
+    const char *key,
+    const char *alias,
+    char **out)
+{
+    int rc = bake_json_get_string(json, toks, count, object, key, out);
+    if (rc == 1 && alias) {
+        rc = bake_json_get_string(json, toks, count, object, alias, out);
+    }
+    return rc;
+}
+
 const char* bake_project_kind_str(bake_project_kind_t kind) {
     switch (kind) {
     case B2_PROJECT_APPLICATION: return "application";
@@ -365,6 +381,8 @@ void bake_project_cfg_init(bake_project_cfg_t *cfg) {
     cfg->kind = B2_PROJECT_APPLICATION;
     cfg->has_test_spec = false;
     cfg->language = bake_strdup("c");
+    cfg->amalgamate = false;
+    cfg->amalgamate_path = NULL;
 
     bake_strlist_init(&cfg->use);
     bake_strlist_init(&cfg->use_private);
@@ -384,6 +402,7 @@ void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
     ecs_os_free(cfg->path);
     ecs_os_free(cfg->language);
     ecs_os_free(cfg->output_name);
+    ecs_os_free(cfg->amalgamate_path);
 
     bake_strlist_fini(&cfg->use);
     bake_strlist_fini(&cfg->use_private);
@@ -675,6 +694,14 @@ int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t
 
         if (bake_json_get_bool(json, tokens, parsed, value_obj, "private", &cfg->private_project) < 0) goto error;
         if (bake_json_get_bool(json, tokens, parsed, value_obj, "standalone", &cfg->standalone) < 0) goto error;
+        if (bake_json_get_bool(json, tokens, parsed, value_obj, "amalgamate", &cfg->amalgamate) < 0) goto error;
+        if (bake_json_get_string_alias(
+            json, tokens, parsed, value_obj,
+            "amalgamate-path", "amalgamate_path",
+            &cfg->amalgamate_path) < 0)
+        {
+            goto error;
+        }
 
         if (bake_json_get_array_alias(json, tokens, parsed, value_obj, "use", NULL, &cfg->use) < 0) goto error;
         if (bake_json_get_array_alias(json, tokens, parsed, value_obj, "use-private", "use_private", &cfg->use_private) < 0) goto error;

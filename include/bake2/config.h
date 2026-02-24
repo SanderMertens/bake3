@@ -65,6 +65,8 @@ typedef struct bake_project_cfg_t {
 
     bool private_project;
     bool standalone;
+    bool amalgamate;
+    char *amalgamate_path;
 
     bake_strlist_t use;
     bake_strlist_t use_private;
