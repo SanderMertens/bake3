@@ -1,21 +1,6 @@
 #include "bake2/common.h"
 #include "bake2/os.h"
 
-#if defined(_WIN32)
-#include <direct.h>
-#include <io.h>
-#include <windows.h>
-#define BAKE_STAT _stat
-#define BAKE_MKDIR(path) _mkdir(path)
-#else
-#include <dirent.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-#define BAKE_STAT stat
-#define BAKE_MKDIR(path) mkdir(path, 0755)
-#endif
-
 char* bake_strdup(const char *str) {
     if (!str) {
         return NULL;
@@ -39,7 +24,8 @@ char* bake_join_path(const char *lhs, const char *rhs) {
 
     size_t lhs_len = strlen(lhs);
     size_t rhs_len = strlen(rhs);
-    bool has_sep = lhs[lhs_len - 1] == BAKE_PATH_SEP;
+    char path_sep = bake_os_path_sep();
+    bool has_sep = lhs[lhs_len - 1] == path_sep;
 
     char *out = ecs_os_malloc(lhs_len + rhs_len + (has_sep ? 1 : 2));
     if (!out) {
@@ -49,7 +35,7 @@ char* bake_join_path(const char *lhs, const char *rhs) {
     memcpy(out, lhs, lhs_len);
     out[lhs_len] = '\0';
     if (!has_sep) {
-        out[lhs_len] = BAKE_PATH_SEP;
+        out[lhs_len] = path_sep;
         out[lhs_len + 1] = '\0';
     }
     strcat(out, rhs);
@@ -102,21 +88,9 @@ static const char* bake_host_arch(void) {
 #endif
 }
 
-static const char* bake_host_os(void) {
-#if defined(_WIN32)
-    return "Windows";
-#elif defined(__APPLE__)
-    return "Darwin";
-#elif defined(__linux__)
-    return "Linux";
-#else
-    return "Unknown";
-#endif
-}
-
 char* bake_host_triplet(const char *mode) {
     const char *cfg = mode && mode[0] ? mode : "debug";
-    return bake_asprintf("%s-%s-%s", bake_host_arch(), bake_host_os(), cfg);
+    return bake_asprintf("%s-%s-%s", bake_host_arch(), bake_os_host(), cfg);
 }
 
 char* bake_project_build_root(const char *project_path, const char *mode) {
@@ -207,35 +181,15 @@ int bake_write_file(const char *path, const char *content) {
 }
 
 int bake_path_exists(const char *path) {
-    struct BAKE_STAT st;
-    return BAKE_STAT(path, &st) == 0;
+    return bake_os_path_exists(path);
 }
 
 int64_t bake_file_mtime(const char *path) {
-    struct BAKE_STAT st;
-    if (BAKE_STAT(path, &st) != 0) {
-        return -1;
-    }
-#if defined(_WIN32)
-    return (int64_t)st.st_mtime;
-#elif defined(__APPLE__)
-    return (int64_t)st.st_mtimespec.tv_sec * 1000000000LL +
-        (int64_t)st.st_mtimespec.tv_nsec;
-#else
-    return (int64_t)st.st_mtim.tv_sec * 1000000000LL + (int64_t)st.st_mtim.tv_nsec;
-#endif
+    return bake_os_file_mtime(path);
 }
 
 int bake_is_dir(const char *path) {
-    struct BAKE_STAT st;
-    if (BAKE_STAT(path, &st) != 0) {
-        return 0;
-    }
-#if defined(_WIN32)
-    return (st.st_mode & _S_IFDIR) != 0;
-#else
-    return S_ISDIR(st.st_mode);
-#endif
+    return bake_os_path_is_dir(path);
 }
 
 int bake_mkdirs(const char *path) {
@@ -257,7 +211,7 @@ int bake_mkdirs(const char *path) {
         if (tmp[i] == '/' || tmp[i] == '\\') {
             char prev = tmp[i];
             tmp[i] = '\0';
-            if (tmp[0] && !bake_path_exists(tmp) && BAKE_MKDIR(tmp) != 0 && errno != EEXIST) {
+            if (tmp[0] && !bake_path_exists(tmp) && bake_os_mkdir(tmp) != 0 && errno != EEXIST) {
                 ecs_os_free(tmp);
                 return -1;
             }
@@ -265,7 +219,7 @@ int bake_mkdirs(const char *path) {
         }
     }
 
-    if (!bake_path_exists(tmp) && BAKE_MKDIR(tmp) != 0 && errno != EEXIST) {
+    if (!bake_path_exists(tmp) && bake_os_mkdir(tmp) != 0 && errno != EEXIST) {
         ecs_os_free(tmp);
         return -1;
     }
@@ -279,13 +233,7 @@ char* bake_dirname(const char *path) {
         return NULL;
     }
 
-    const char *slash = strrchr(path, '/');
-#if defined(_WIN32)
-    const char *backslash = strrchr(path, '\\');
-    if (!slash || (backslash && backslash > slash)) {
-        slash = backslash;
-    }
-#endif
+    const char *slash = bake_os_path_last_sep(path);
 
     if (!slash) {
         return bake_strdup(".");
@@ -306,13 +254,7 @@ char* bake_basename(const char *path) {
         return NULL;
     }
 
-    const char *slash = strrchr(path, '/');
-#if defined(_WIN32)
-    const char *backslash = strrchr(path, '\\');
-    if (!slash || (backslash && backslash > slash)) {
-        slash = backslash;
-    }
-#endif
+    const char *slash = bake_os_path_last_sep(path);
 
     if (!slash) {
         return bake_strdup(path);
@@ -336,18 +278,7 @@ char* bake_stem(const char *path) {
 }
 
 char* bake_getcwd(void) {
-#if defined(_WIN32)
-    char buf[MAX_PATH];
-    if (!_getcwd(buf, (int)sizeof(buf))) {
-        return NULL;
-    }
-#else
-    char buf[PATH_MAX];
-    if (!getcwd(buf, sizeof(buf))) {
-        return NULL;
-    }
-#endif
-    return bake_strdup(buf);
+    return bake_os_getcwd();
 }
 
 int bake_remove_tree(const char *path) {
@@ -376,11 +307,7 @@ int bake_remove_tree(const char *path) {
     }
     bake_dir_entries_free(entries, count);
 
-#if defined(_WIN32)
-    return _rmdir(path);
-#else
-    return rmdir(path);
-#endif
+    return bake_os_rmdir(path);
 }
 
 int bake_copy_file(const char *src, const char *dst) {

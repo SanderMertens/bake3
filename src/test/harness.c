@@ -1,4 +1,5 @@
 #include "bake2/test_harness.h"
+#include "bake2/os.h"
 
 #include "../config/jsmn.h"
 
@@ -516,11 +517,7 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
     if (ctx && ctx->opts.jobs > 0) {
         char jobs_str[32];
         ecs_os_snprintf(jobs_str, sizeof(jobs_str), "%d", ctx->opts.jobs);
-#if defined(_WIN32)
-        _putenv_s("BAKE_TEST_THREADS", jobs_str);
-#else
-        setenv("BAKE_TEST_THREADS", jobs_str, 1);
-#endif
+        bake_os_setenv("BAKE_TEST_THREADS", jobs_str);
     }
 
     ecs_strbuf_t cmd = ECS_STRBUF_INIT;
@@ -541,17 +538,9 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
 
     if (ctx && ctx->opts.jobs > 0) {
         if (old_threads) {
-#if defined(_WIN32)
-            _putenv_s("BAKE_TEST_THREADS", old_threads);
-#else
-            setenv("BAKE_TEST_THREADS", old_threads, 1);
-#endif
+            bake_os_setenv("BAKE_TEST_THREADS", old_threads);
         } else {
-#if defined(_WIN32)
-            _putenv_s("BAKE_TEST_THREADS", "");
-#else
-            unsetenv("BAKE_TEST_THREADS");
-#endif
+            bake_os_unsetenv("BAKE_TEST_THREADS");
         }
     }
     ecs_os_free(old_threads);

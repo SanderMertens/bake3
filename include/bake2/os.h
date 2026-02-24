@@ -29,6 +29,24 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
 void bake_dir_entries_free(bake_dir_entry_t *entries, int32_t count);
 int bake_dir_walk_recursive(const char *root, bake_dir_walk_cb cb, void *ctx);
 
+char bake_os_path_sep(void);
+const char* bake_os_path_last_sep(const char *path);
+bool bake_os_path_is_abs(const char *path);
+
+int bake_os_setenv(const char *name, const char *value);
+int bake_os_unsetenv(const char *name);
+char* bake_os_get_home(void);
+const char* bake_os_executable_name(void);
+int32_t bake_os_default_threads(void);
+const char* bake_os_host(void);
+
+int bake_os_path_exists(const char *path);
+int64_t bake_os_file_mtime(const char *path);
+int bake_os_path_is_dir(const char *path);
+int bake_os_mkdir(const char *path);
+char* bake_os_getcwd(void);
+int bake_os_rmdir(const char *path);
+
 int bake_proc_run(
     const char *const *argv,
     const bake_process_stdio_t *stdio_cfg,

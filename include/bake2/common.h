@@ -14,14 +14,6 @@
 
 #include <flecs.h>
 
-#if defined(_WIN32)
-#define BAKE_PATH_SEP '\\'
-#define BAKE_PATH_SEP_STR "\\"
-#else
-#define BAKE_PATH_SEP '/'
-#define BAKE_PATH_SEP_STR "/"
-#endif
-
 #define BAKE_UNUSED(x) (void)(x)
 
 char* bake_strdup(const char *str);

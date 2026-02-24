@@ -1,23 +1,14 @@
 #include "bake2/environment.h"
+#include "bake2/os.h"
 
 #include "../config/jsmn.h"
-
-static char* bake_get_home(void) {
-    const char *home = getenv("HOME");
-#if defined(_WIN32)
-    if (!home || !home[0]) {
-        home = getenv("USERPROFILE");
-    }
-#endif
-    return home ? bake_strdup(home) : NULL;
-}
 
 int bake_environment_init_paths(bake_context_t *ctx) {
     const char *env_home = getenv("BAKE_HOME");
     if (env_home && env_home[0]) {
         ctx->bake_home = bake_strdup(env_home);
     } else {
-        char *home = bake_get_home();
+        char *home = bake_os_get_home();
         if (!home) {
             return -1;
         }
@@ -469,11 +460,7 @@ int bake_environment_setup(bake_context_t *ctx, const char *argv0) {
         return -1;
     }
 
-#if defined(_WIN32)
-    const char *target_name = "bake.exe";
-#else
-    const char *target_name = "bake";
-#endif
+    const char *target_name = bake_os_executable_name();
 
     char *dst = bake_join_path(bin, target_name);
     ecs_os_free(bin);

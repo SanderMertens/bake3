@@ -1,19 +1,6 @@
 #include "bake2/commands.h"
 #include "bake2/context.h"
-
-static bool bake_is_abs_path(const char *path) {
-    if (!path || !path[0]) {
-        return false;
-    }
-#if defined(_WIN32)
-    if (path[0] == '\\' || path[0] == '/') {
-        return true;
-    }
-    return path[0] && path[1] == ':';
-#else
-    return path[0] == '/';
-#endif
-}
+#include "bake2/os.h"
 
 static bool bake_is_command(const char *arg) {
     return !strcmp(arg, "build") ||
@@ -60,18 +47,14 @@ int main(int argc, char *argv[]) {
 
     if (argv[0] && argv[0][0]) {
         char *exe_path = NULL;
-        if (bake_is_abs_path(argv[0])) {
+        if (bake_os_path_is_abs(argv[0])) {
             exe_path = bake_strdup(argv[0]);
         } else {
             exe_path = bake_join_path(cwd, argv[0]);
         }
 
         if (exe_path) {
-#if defined(_WIN32)
-            _putenv_s("BAKE2_EXEC_PATH", exe_path);
-#else
-            setenv("BAKE2_EXEC_PATH", exe_path, 1);
-#endif
+            bake_os_setenv("BAKE2_EXEC_PATH", exe_path);
             ecs_os_free(exe_path);
         }
     }

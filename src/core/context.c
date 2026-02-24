@@ -1,30 +1,7 @@
 #include "bake2/context.h"
 #include "bake2/environment.h"
 #include "bake2/model.h"
-
-#if !defined(_WIN32)
-#include <unistd.h>
-#endif
-
-static int32_t bake_default_threads(void) {
-    const char *threads = getenv("BAKE_THREADS");
-    if (threads && threads[0]) {
-        int32_t value = atoi(threads);
-        if (value > 0) {
-            return value;
-        }
-    }
-
-#if defined(_WIN32)
-    return 4;
-#else
-    long cpu = sysconf(_SC_NPROCESSORS_ONLN);
-    if (cpu > 1 && cpu < 256) {
-        return (int32_t)cpu;
-    }
-    return 4;
-#endif
-}
+#include "bake2/os.h"
 
 static
 void bake_print_header(
@@ -121,7 +98,17 @@ int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
     if (opts->jobs > 0) {
         ctx->thread_count = opts->jobs;
     } else {
-        ctx->thread_count = bake_default_threads();
+        const char *threads = getenv("BAKE_THREADS");
+        if (threads && threads[0]) {
+            int32_t value = atoi(threads);
+            if (value > 0) {
+                ctx->thread_count = value;
+            }
+        }
+
+        if (ctx->thread_count == 0) {
+            ctx->thread_count = bake_os_default_threads();
+        }
     }
 
     ecs_os_set_api_defaults();

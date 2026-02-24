@@ -1,6 +1,7 @@
 #include "bake2/commands.h"
 #include "bake2/discovery.h"
 #include "bake2/environment.h"
+#include "bake2/os.h"
 
 void bake_print_help(void) {
     printf("Usage: bake [options] [command] [target]\n");
@@ -64,20 +65,6 @@ static int bake_list_projects(bake_context_t *ctx) {
     return 0;
 }
 
-static bool bake_is_abs_path(const char *path) {
-    if (!path || !path[0]) {
-        return false;
-    }
-#if defined(_WIN32)
-    if (path[0] == '\\' || path[0] == '/') {
-        return true;
-    }
-    return path[0] && path[1] == ':';
-#else
-    return path[0] == '/';
-#endif
-}
-
 static const BakeProject* bake_find_project_for_target(
     bake_context_t *ctx,
     const char *target,
@@ -93,7 +80,7 @@ static const BakeProject* bake_find_project_for_target(
     }
 
     char *abs = NULL;
-    if (bake_is_abs_path(target)) {
+    if (bake_os_path_is_abs(target)) {
         abs = bake_strdup(target);
     } else {
         abs = bake_join_path(ctx->opts.cwd, target);
