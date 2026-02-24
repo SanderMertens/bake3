@@ -1,6 +1,3 @@
 [submodule "flecs"]
 	path = flecs
 	url = https://github.com/SanderMertens/flecs.git
-[submodule "bake"]
-	path = bake
-	url = https://github.com/SanderMertens/bake.git
