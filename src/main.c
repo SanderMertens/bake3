@@ -31,6 +31,7 @@ int main(int argc, char *argv[]) {
         .recursive = false,
         .standalone = false,
         .strict = false,
+        .trace = false,
         .jobs = 0,
         .run_argc = 0,
         .run_argv = NULL
@@ -38,7 +39,7 @@ int main(int argc, char *argv[]) {
 
     char *cwd = bake_getcwd();
     if (!cwd) {
-        BAKE_ERR("failed to get current directory");
+        ecs_err("failed to get current directory");
         return 1;
     }
     opts.cwd = cwd;
@@ -75,16 +76,21 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        if (!strcmp(arg, "--trace")) {
+            opts.trace = true;
+            continue;
+        }
+
         if (!strcmp(arg, "-j")) {
             if ((i + 1) >= argc) {
-                BAKE_ERR("missing value for -j");
+                ecs_err("missing value for -j");
                 ecs_os_free(cwd);
                 return 1;
             }
 
             int jobs = atoi(argv[++i]);
             if (jobs < 1) {
-                BAKE_ERR("invalid value for -j: %s", argv[i]);
+                ecs_err("invalid value for -j: %s", argv[i]);
                 ecs_os_free(cwd);
                 return 1;
             }
@@ -126,7 +132,7 @@ int main(int argc, char *argv[]) {
 
     bake_context_t ctx;
     if (bake_context_init(&ctx, &opts) != 0) {
-        BAKE_ERR("failed to initialize bake context");
+        ecs_err("failed to initialize bake context");
         ecs_os_free(cwd);
         return 1;
     }

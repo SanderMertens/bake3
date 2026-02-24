@@ -14,6 +14,7 @@ typedef struct bake_options_t {
     bool recursive;
     bool standalone;
     bool strict;
+    bool trace;
     int32_t jobs;
     int run_argc;
     const char **run_argv;

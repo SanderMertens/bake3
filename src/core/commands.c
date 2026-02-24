@@ -24,6 +24,7 @@ void bake_print_help(void) {
     printf("  --run-prefix <cmd>  Prefix command when running binaries\n");
     printf("  --standalone        Use amalgamated dependency sources in deps/\n");
     printf("  --strict            Enable strict compiler warnings and checks\n");
+    printf("  --trace             Enable trace logging (Flecs log level 0)\n");
     printf("  -j <count>          Number of parallel jobs for build/test execution\n");
     printf("  -r                  Recursive clean/rebuild\n");
     printf("  -h, --help          Show this help\n");
@@ -112,14 +113,14 @@ static int bake_info_project(bake_context_t *ctx) {
     }
 
     if (!ctx->opts.target || !ctx->opts.target[0]) {
-        BAKE_ERR("info command requires a target");
+        ecs_err("info command requires a target");
         return -1;
     }
 
     ecs_entity_t entity = 0;
     const BakeProject *project = bake_find_project_for_target(ctx, ctx->opts.target, &entity);
     if (!project || !project->cfg) {
-        BAKE_ERR("target not found: %s", ctx->opts.target);
+        ecs_err("target not found: %s", ctx->opts.target);
         return -1;
     }
 
@@ -214,7 +215,7 @@ int bake_execute(bake_context_t *ctx, const char *argv0) {
         int32_t removed = 0;
         int rc = bake_environment_cleanup(ctx, &removed);
         if (rc == 0) {
-            BAKE_LOG("removed %d stale project(s) from bake environment", removed);
+            ecs_trace("removed %d stale project(s) from bake environment", removed);
         }
         return rc;
     }
@@ -228,7 +229,7 @@ int bake_execute(bake_context_t *ctx, const char *argv0) {
         return 0;
     }
 
-    BAKE_ERR("unknown command: %s", ctx->opts.command);
+    ecs_err("unknown command: %s", ctx->opts.command);
     bake_print_help();
     return -1;
 }

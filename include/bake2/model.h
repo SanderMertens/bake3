@@ -43,7 +43,7 @@ extern ECS_COMPONENT_DECLARE(BakeDriver);
 extern ECS_COMPONENT_DECLARE(BakeBuildRule);
 extern ECS_COMPONENT_DECLARE(BakeEnvProject);
 
-extern ecs_entity_t BAKEDependsOn;
+extern ecs_entity_t BakeDependsOn;
 
 extern ECS_TAG_DECLARE(BakeDiscovered);
 extern ECS_TAG_DECLARE(BakeExternal);
@@ -52,7 +52,6 @@ extern ECS_TAG_DECLARE(BakeBuildFailed);
 extern ECS_TAG_DECLARE(BakeBuildInProgress);
 
 int bake_model_init(ecs_world_t *world);
-void bake_model_fini(ecs_world_t *world);
 
 ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg, bool external);
 const BakeProject* bake_model_get_project(const ecs_world_t *world, ecs_entity_t entity);

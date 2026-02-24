@@ -499,7 +499,7 @@ int bake_environment_setup(bake_context_t *ctx, const char *argv0) {
 
     int rc = bake_copy_file(src, dst);
     if (rc == 0) {
-        BAKE_LOG("installed bake to %s", dst);
+        ecs_trace("installed bake to %s", dst);
     }
 
     ecs_os_free(src);

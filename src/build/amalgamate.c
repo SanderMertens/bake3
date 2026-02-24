@@ -316,7 +316,7 @@ static int bake_amalgamate_file(
 
     FILE *in = fopen(file, "rb");
     if (!in) {
-        BAKE_ERR(
+        ecs_err(
             "cannot read file '%s' while amalgamating '%s' (from '%s:%d')",
             file, ctx->cfg->id, src_file, src_line);
         return -1;
@@ -585,7 +585,7 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
     }
 
     if (!bake_path_exists(main_header)) {
-        BAKE_ERR("cannot find include file '%s' for amalgamation", main_header);
+        ecs_err("cannot find include file '%s' for amalgamation", main_header);
         ecs_os_free(project_id);
         ecs_os_free(output_path);
         ecs_os_free(include_out);

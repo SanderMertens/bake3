@@ -24,18 +24,6 @@
 
 #define BAKE_UNUSED(x) (void)(x)
 
-#define BAKE_LOG(...) \
-    do { \
-        fprintf(stdout, __VA_ARGS__); \
-        fputc('\n', stdout); \
-    } while (0)
-
-#define BAKE_ERR(...) \
-    do { \
-        fprintf(stderr, __VA_ARGS__); \
-        fputc('\n', stderr); \
-    } while (0)
-
 char* bake_strdup(const char *str);
 char* bake_join_path(const char *lhs, const char *rhs);
 char* bake_join3_path(const char *a, const char *b, const char *c);

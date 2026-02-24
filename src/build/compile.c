@@ -305,7 +305,7 @@ void bake_add_strict_flags(
 
 static void bake_collect_dependency_include_dirs(ecs_world_t *world, ecs_entity_t project_entity, bake_strlist_t *paths) {
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(world, project_entity, BAKEDependsOn, i);
+        ecs_entity_t dep = ecs_get_target(world, project_entity, BakeDependsOn, i);
         if (!dep) {
             break;
         }
@@ -354,7 +354,7 @@ static void bake_collect_dependency_link_inputs(
     bake_strlist_t *libs)
 {
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(world, project_entity, BAKEDependsOn, i);
+        ecs_entity_t dep = ecs_get_target(world, project_entity, BakeDependsOn, i);
         if (!dep) {
             break;
         }
@@ -499,7 +499,7 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
     int32_t done = ecs_os_ainc(&ctx->compile_done);
     int32_t pct = (done * 100) / ctx->compile_total;
     char *display_path = bake_compile_display_path(ctx->cfg, unit->src);
-    BAKE_LOG("[%6d%%] %s", pct, display_path ? display_path : unit->src);
+    ecs_trace("#[green][#[normal]%6d%%#[green]]#[normal] %s", pct, display_path ? display_path : unit->src);
     if (ctx->print_lock) {
         ecs_os_mutex_unlock(ctx->print_lock);
     }

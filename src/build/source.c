@@ -92,7 +92,7 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
 
     paths->build_root = bake_project_build_root(cfg->path, mode);
     if (!paths->build_root) {
-        BAKE_ERR("bake_build_paths_init: failed to build build_root");
+        ecs_err("bake_build_paths_init: failed to build build_root");
         return -1;
     }
 
@@ -102,7 +102,7 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
     paths->gen_dir = bake_join_path(paths->build_root, "generated");
 
     if (!paths->obj_dir || !paths->bin_dir || !paths->lib_dir || !paths->gen_dir) {
-        BAKE_ERR("bake_build_paths_init: failed to allocate path(s)");
+        ecs_err("bake_build_paths_init: failed to allocate path(s)");
         bake_build_paths_fini(paths);
         return -1;
     }
@@ -111,7 +111,7 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
         bake_mkdirs(paths->obj_dir) != 0 ||
         bake_mkdirs(paths->gen_dir) != 0)
     {
-        BAKE_ERR("bake_build_paths_init: mkdir failed for %s", paths->build_root);
+        ecs_err("bake_build_paths_init: mkdir failed for %s", paths->build_root);
         bake_build_paths_fini(paths);
         return -1;
     }
@@ -357,7 +357,7 @@ int bake_generate_dep_header(ecs_world_t *world, const bake_project_cfg_t *cfg, 
     ecs_strbuf_appendstr(&header, "#pragma once\n\n");
 
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(world, project, BAKEDependsOn, i);
+        ecs_entity_t dep = ecs_get_target(world, project, BakeDependsOn, i);
         if (!dep) {
             break;
         }
@@ -401,7 +401,7 @@ static void bake_merge_strlist_unique(bake_strlist_t *dst, const bake_strlist_t 
 
 int bake_apply_dependee_config(ecs_world_t *world, ecs_entity_t project_entity, bake_lang_cfg_t *dst) {
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(world, project_entity, BAKEDependsOn, i);
+        ecs_entity_t dep = ecs_get_target(world, project_entity, BakeDependsOn, i);
         if (!dep) {
             break;
         }

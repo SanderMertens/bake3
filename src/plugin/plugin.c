@@ -7,19 +7,19 @@ int bake_plugin_load_for_project(bake_context_t *ctx, const bake_project_cfg_t *
         const char *plugin = cfg->plugins.items[i];
         ecs_os_dl_t dl = ecs_os_dlopen(plugin);
         if (!dl) {
-            BAKE_ERR("failed to load plugin %s", plugin);
+            ecs_err("failed to load plugin %s", plugin);
             return -1;
         }
 
         bake_plugin_init_t init = (bake_plugin_init_t)ecs_os_dlproc(dl, "bake_plugin_init");
         if (!init) {
-            BAKE_ERR("plugin %s does not export bake_plugin_init", plugin);
+            ecs_err("plugin %s does not export bake_plugin_init", plugin);
             ecs_os_dlclose(dl);
             return -1;
         }
 
         if (init(ctx->world, 0) != 0) {
-            BAKE_ERR("plugin init failed for %s", plugin);
+            ecs_err("plugin init failed for %s", plugin);
             ecs_os_dlclose(dl);
             return -1;
         }

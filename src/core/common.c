@@ -708,12 +708,12 @@ static int bake_run_command_impl(const char *cmd, bool log_command) {
 
     bake_cmd_line_t parsed;
     if (bake_parse_command_line(cmd, &parsed) != 0) {
-        BAKE_ERR("invalid command line: %s", cmd);
+        ecs_err("invalid command line: %s", cmd);
         return -1;
     }
 
     if (log_command) {
-        BAKE_LOG("$ %s", cmd);
+        ecs_trace("$ %s", cmd);
     }
 
     bake_process_result_t result = {0};
@@ -722,25 +722,25 @@ static int bake_run_command_impl(const char *cmd, bool log_command) {
         &parsed.stdio_cfg,
         &result);
     if (rc != 0) {
-        BAKE_ERR("failed to start command: %s", cmd);
+        ecs_err("failed to start command: %s", cmd);
         bake_cmd_line_fini(&parsed);
         return -1;
     }
 
     if (result.interrupted) {
-        BAKE_ERR("command interrupted: %s", cmd);
+        ecs_err("command interrupted: %s", cmd);
         bake_cmd_line_fini(&parsed);
         return -1;
     }
 
     if (result.term_signal) {
-        BAKE_ERR("command terminated by signal %d: %s", result.term_signal, cmd);
+        ecs_err("command terminated by signal %d: %s", result.term_signal, cmd);
         bake_cmd_line_fini(&parsed);
         return -1;
     }
 
     if (result.exit_code != 0) {
-        BAKE_ERR("command failed with exit code %d: %s", result.exit_code, cmd);
+        ecs_err("command failed with exit code %d: %s", result.exit_code, cmd);
         bake_cmd_line_fini(&parsed);
         return -1;
     }

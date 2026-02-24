@@ -13,7 +13,7 @@ ECS_TAG_DECLARE(BakeBuilt);
 ECS_TAG_DECLARE(BakeBuildFailed);
 ECS_TAG_DECLARE(BakeBuildInProgress);
 
-ecs_entity_t BAKEDependsOn = 0;
+ecs_entity_t BakeDependsOn = 0;
 
 static int bake_entity_from_id(const ecs_world_t *world, const char *id, ecs_entity_t *entity_out) {
     ecs_iter_t it = ecs_each_id(world, ecs_id(BakeProject));
@@ -69,16 +69,13 @@ int bake_model_init(ecs_world_t *world) {
     ECS_TAG_DEFINE(world, BakeBuildFailed);
     ECS_TAG_DEFINE(world, BakeBuildInProgress);
 
-    BAKEDependsOn = ecs_entity(world, {
-        .name = "BAKEDependsOn"
+    BakeDependsOn = ecs_entity(world, {
+        .name = "BakeDependsOn"
     });
-    ecs_add_id(world, BAKEDependsOn, EcsTraversable);
+
+    ecs_add_id(world, BakeDependsOn, EcsTraversable);
 
     return 0;
-}
-
-void bake_model_fini(ecs_world_t *world) {
-    BAKE_UNUSED(world);
 }
 
 ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg, bool external) {
@@ -206,7 +203,7 @@ static void bake_model_link_project_list(ecs_world_t *world, ecs_entity_t entity
     for (int32_t i = 0; i < deps->count; i++) {
         ecs_entity_t dep = bake_model_ensure_dependency(world, deps->items[i]);
         if (dep && dep != entity) {
-            ecs_add_pair(world, entity, BAKEDependsOn, dep);
+            ecs_add_pair(world, entity, BakeDependsOn, dep);
         }
     }
 }
@@ -247,7 +244,7 @@ static void bake_model_mark_build_recursive(ecs_world_t *world, ecs_entity_t ent
     }
 
     for (int32_t i = 0;; i++) {
-        ecs_entity_t dep = ecs_get_target(world, entity, BAKEDependsOn, i);
+        ecs_entity_t dep = ecs_get_target(world, entity, BakeDependsOn, i);
         if (!dep) {
             break;
         }
@@ -310,7 +307,7 @@ int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities
     qd.terms[0].id = ecs_id(BakeBuildRequest);
     qd.terms[1].id = ecs_id(BakeBuildRequest);
     qd.terms[1].src.id = EcsCascade;
-    qd.terms[1].trav = BAKEDependsOn;
+    qd.terms[1].trav = BakeDependsOn;
     qd.terms[1].oper = EcsOptional;
 
     ecs_query_t *q = ecs_query_init(world_mut, &qd);
