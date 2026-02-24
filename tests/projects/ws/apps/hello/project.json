@@ -1,0 +1,18 @@
+{
+    "id": "ws.apps.hello",
+    "type": "application",
+    "value": {
+        "output": "hello",
+        "language": "cpp",
+        "use": ["ws.libs.core", "ws.libs.cppmath", "ws.config.shared"]
+    },
+    "rules": [
+        {
+            "ext": ".b2rule",
+            "command": "echo rule-hit > {out_dir}/rule.txt"
+        }
+    ],
+    "lang.cpp": {
+        "cpp-standard": "c++17"
+    }
+}

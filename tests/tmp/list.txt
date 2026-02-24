@@ -1,0 +1,5 @@
+ws.config.shared                     /Users/sandermertens/GitHub/SanderMertens/bake_2/tests/projects/ws/config/shared
+ws.libs.core                         /Users/sandermertens/GitHub/SanderMertens/bake_2/tests/projects/ws/libs/core
+ws.tests.core                        /Users/sandermertens/GitHub/SanderMertens/bake_2/tests/projects/ws/tests/core_tests
+ws.libs.cppmath                      /Users/sandermertens/GitHub/SanderMertens/bake_2/tests/projects/ws/libs/cppmath
+ws.apps.hello                        /Users/sandermertens/GitHub/SanderMertens/bake_2/tests/projects/ws/apps/hello

@@ -1,0 +1,13 @@
+{
+    "id": "ws.libs.cppmath",
+    "type": "package",
+    "value": {
+        "output": "ws_cppmath",
+        "language": "cpp",
+        "use": ["ws.libs.core"]
+    },
+    "lang.cpp": {
+        "include": ["include"],
+        "cpp-standard": "c++17"
+    }
+}

@@ -1,0 +1,7 @@
+{
+    "id": "ws.config.shared",
+    "type": "config",
+    "value": {
+        "description": "shared config project"
+    }
+}

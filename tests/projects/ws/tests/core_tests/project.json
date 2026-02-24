@@ -1,0 +1,11 @@
+{
+    "id": "ws.tests.core",
+    "type": "test",
+    "value": {
+        "output": "ws_tests_core",
+        "use": ["ws.libs.core"]
+    },
+    "lang.c": {
+        "include": ["src"]
+    }
+}

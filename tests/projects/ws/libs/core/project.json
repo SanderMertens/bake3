@@ -1,0 +1,13 @@
+{
+    "id": "ws.libs.core",
+    "type": "package",
+    "value": {
+        "output": "ws_core",
+        "dependee": {
+            "defines": ["WS_CORE_DEP"]
+        }
+    },
+    "lang.c": {
+        "include": ["include"]
+    }
+}

@@ -1,0 +1,8 @@
+{
+    "suites": [
+        {
+            "id": "math",
+            "testcases": ["add", "add_again"]
+        }
+    ]
+}

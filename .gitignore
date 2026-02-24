@@ -1,0 +1,3 @@
+build/
+**/.bake_flecs_cache/
+**/bin/
