@@ -1,0 +1,33 @@
+{
+    "id": "tower_defense",
+    "type": "application",
+    "value": {
+        "use": [
+            "flecs",
+            "flecs.components.transform",
+            "flecs.components.graphics",
+            "flecs.components.geometry",
+            "flecs.components.physics",
+            "flecs.components.gui",
+            "flecs.components.input",
+            "flecs.systems.transform",
+            "flecs.systems.physics",
+            "flecs.systems.sokol",
+            "flecs.game"
+        ],
+        "language": "c++",
+        "use-bundle": ["flecs.hub:default"],
+        "standalone": true
+    },
+    "bundle": {
+        "repositories": {
+            "flecs.hub": "https://github.com/flecs-hub/flecs-hub"
+        }
+    },
+    "lang.c": {
+        "${target em}": {
+            "ldflags": ["-sSTACK_SIZE=1000000", "-Wl,-u,ntohs"],
+            "embed": ["etc/assets"]
+        }
+    }
+}

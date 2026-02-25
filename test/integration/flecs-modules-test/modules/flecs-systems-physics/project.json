@@ -1,0 +1,16 @@
+{
+    "id": "flecs.systems.physics",
+    "type": "package",
+    "value": {
+        "author": "Sander Mertens",
+        "description": "Flecs module package",
+        "use": [
+            "flecs",
+            "cglm",
+            "flecs.components.cglm",
+            "flecs.components.transform",
+            "flecs.components.geometry",
+            "flecs.components.physics"
+        ]
+    }
+}

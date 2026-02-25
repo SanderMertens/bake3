@@ -1,0 +1,35 @@
+module tower_defense.prefabs
+using flecs.components.*
+using flecs.systems.*
+
+const game: Game[Game]
+const center: $game.center
+
+@tree Parent
+prefab Turret {
+  (SpatialQuery, tower_defense.Enemy): {
+    center: [$center.x, $center.y, $center.z],
+    size: $game.size,
+  }
+
+  (SpatialQueryResult, tower_defense.Enemy)
+
+  auto_override | tower_defense.Target
+  auto_override | tower_defense.Turret
+
+  Base {
+    Position3: {0, 0, 0}
+
+    _ : materials.Metal {
+      Box: {0.6, 0.2, 0.6}
+      Position3: {0, 0.1, 0}
+    }
+
+    _ : materials.Metal {
+      Box: {0.4, 0.6, 0.4}
+      Position3: {0, 0.3, 0}
+    }
+  }
+
+  Head {}
+}

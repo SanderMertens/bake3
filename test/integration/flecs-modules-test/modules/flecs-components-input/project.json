@@ -1,0 +1,12 @@
+{
+    "id": "flecs.components.input",
+    "type": "package",
+    "value": {
+        "author": "Sander Mertens",
+        "description": "Input module for flecs",
+        "use": [
+            "flecs", 
+            "flecs.components.graphics"
+        ]
+    }
+}

@@ -1,0 +1,26 @@
+{
+    "id": "city",
+    "type": "application",
+    "value": {
+        "use": [
+            "flecs",
+            "flecs.components.transform",
+            "flecs.components.graphics",
+            "flecs.components.geometry",
+            "flecs.components.physics",
+            "flecs.components.gui",
+            "flecs.systems.physics",
+            "flecs.systems.transform",
+            "flecs.systems.sokol",
+            "flecs.game"
+        ],
+        "standalone": false
+    },
+    "lang.c": {
+        "${target em}": {
+            "ldflags": ["-sSTACK_SIZE=1000000", "-Wl,-u,ntohs"],
+            "embed": ["etc/assets"]
+        },
+        "defines": ["FLECS_USE_OS_ALLOC"]
+    }
+}

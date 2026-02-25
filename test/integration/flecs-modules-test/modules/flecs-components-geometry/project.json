@@ -1,0 +1,12 @@
+{
+    "id":"flecs.components.geometry",
+    "type":"package",
+    "value": {
+        "author": "Sander Mertens",
+        "description": "Geometry components for flecs",
+        "use": [
+            "flecs",
+            "flecs.components.graphics"
+        ]
+    }
+}

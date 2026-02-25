@@ -1,0 +1,13 @@
+{
+    "id":"flecs.components.graphics",
+    "type":"package",
+    "value": {
+        "author": "Sander Mertens",
+        "description": "Graphics components for flecs",
+        "use": [
+            "flecs",
+            "flecs.components.cglm"
+        ],
+        "amalgamate": true
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "id": "flecs.game",
+    "type": "package",
+    "value": {
+        "use": [
+            "cglm",
+            "flecs",
+            "flecs.components.input",
+            "flecs.components.graphics",
+            "flecs.components.gui",
+            "flecs.components.transform",
+            "flecs.components.geometry",
+            "flecs.components.physics",
+            "flecs.systems.physics"
+        ]
+    },
+    "lang.c": {
+        "${os linux}": {
+            "lib": ["m"]
+        }
+    }
+}
