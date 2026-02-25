@@ -36,6 +36,44 @@ static int bake_entity_from_id(const ecs_world_t *world, const char *id, ecs_ent
     return -1;
 }
 
+static bool bake_path_is_sep(char ch) {
+    return ch == '/' || ch == '\\';
+}
+
+static size_t bake_trim_path_len(const char *path) {
+    size_t len = strlen(path);
+    while (len > 0 && bake_path_is_sep(path[len - 1])) {
+        len--;
+    }
+    return len;
+}
+
+static bool bake_path_equal(const char *lhs, const char *rhs) {
+    if (!lhs || !rhs) {
+        return false;
+    }
+
+    size_t lhs_len = bake_trim_path_len(lhs);
+    size_t rhs_len = bake_trim_path_len(rhs);
+    if (lhs_len != rhs_len) {
+        return false;
+    }
+    return strncmp(lhs, rhs, lhs_len) == 0;
+}
+
+static bool bake_path_has_prefix(const char *path, const char *prefix) {
+    if (!path || !prefix) {
+        return false;
+    }
+
+    size_t prefix_len = bake_trim_path_len(prefix);
+    if (strncmp(path, prefix, prefix_len)) {
+        return false;
+    }
+
+    return !path[prefix_len] || bake_path_is_sep(path[prefix_len]);
+}
+
 static char* bake_id_from_path(const char *path) {
     char *id = bake_strdup(path);
     if (!id) {
@@ -283,6 +321,8 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
     }
 
     if (bake_path_exists(target)) {
+        bool target_is_dir = bake_is_dir(target);
+        bool matched_dir = false;
         ecs_iter_t all = ecs_each_id(world, ecs_id(BakeProject));
         while (ecs_each_next(&all)) {
             const BakeProject *project = ecs_field(&all, BakeProject, 0);
@@ -291,11 +331,20 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
                 if (!cfg || !cfg->path) {
                     continue;
                 }
-                if (!strcmp(cfg->path, target)) {
+                if (bake_path_equal(cfg->path, target)) {
                     bake_model_mark_build_recursive(world, all.entities[i], mode, true, standalone);
                     return;
                 }
+
+                if (target_is_dir && bake_path_has_prefix(cfg->path, target)) {
+                    bake_model_mark_build_recursive(world, all.entities[i], mode, true, standalone);
+                    matched_dir = true;
+                }
             }
+        }
+
+        if (matched_dir) {
+            return;
         }
     }
 
@@ -304,51 +353,136 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
         bake_model_mark_build_recursive(world, entity, mode, true, standalone);
     }
 }
-
 int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities, int32_t *out_count) {
-    ecs_world_t *world_mut = ECS_CONST_CAST(ecs_world_t*, world);
-
-    ecs_query_desc_t qd = {0};
-    qd.terms[0].id = ecs_id(BakeBuildRequest);
-    qd.terms[1].id = ecs_id(BakeBuildRequest);
-    qd.terms[1].src.id = EcsCascade;
-    qd.terms[1].trav = BakeDependsOn;
-    qd.terms[1].oper = EcsOptional;
-
-    ecs_query_t *q = ecs_query_init(world_mut, &qd);
-    if (!q) {
-        return -1;
-    }
+    *out_entities = NULL;
+    *out_count = 0;
 
     int32_t count = 0;
     int32_t capacity = 32;
     ecs_entity_t *entities = ecs_os_malloc_n(ecs_entity_t, capacity);
     if (!entities) {
-        ecs_query_fini(q);
         return -1;
     }
 
-    ecs_iter_t it = ecs_query_iter(world_mut, q);
-    while (ecs_query_next(&it)) {
-        for (int32_t i = 0; i < it.count; i++) {
+    ecs_iter_t collect = ecs_each_id(world, ecs_id(BakeBuildRequest));
+    while (ecs_each_next(&collect)) {
+        for (int32_t i = 0; i < collect.count; i++) {
             if (count == capacity) {
                 int32_t next = capacity * 2;
                 ecs_entity_t *next_entities = ecs_os_realloc_n(entities, ecs_entity_t, next);
                 if (!next_entities) {
                     ecs_os_free(entities);
-                    ecs_query_fini(q);
                     return -1;
                 }
                 entities = next_entities;
                 capacity = next;
             }
-            entities[count++] = it.entities[i];
+            entities[count++] = collect.entities[i];
         }
     }
 
-    ecs_query_fini(q);
+    if (!count) {
+        ecs_os_free(entities);
+        return 0;
+    }
 
-    *out_entities = entities;
-    *out_count = count;
+    for (int32_t i = 0; i < count - 1; i++) {
+        for (int32_t j = i + 1; j < count; j++) {
+            const BakeProject *lhs = ecs_get(world, entities[i], BakeProject);
+            const BakeProject *rhs = ecs_get(world, entities[j], BakeProject);
+            const char *lhs_id = (lhs && lhs->cfg && lhs->cfg->id) ? lhs->cfg->id : ecs_get_name(world, entities[i]);
+            const char *rhs_id = (rhs && rhs->cfg && rhs->cfg->id) ? rhs->cfg->id : ecs_get_name(world, entities[j]);
+            if (!lhs_id) {
+                lhs_id = "";
+            }
+            if (!rhs_id) {
+                rhs_id = "";
+            }
+            if (strcmp(lhs_id, rhs_id) > 0) {
+                ecs_entity_t tmp = entities[i];
+                entities[i] = entities[j];
+                entities[j] = tmp;
+            }
+        }
+    }
+
+    int32_t *indegree = ecs_os_calloc_n(int32_t, count);
+    bool *scheduled = ecs_os_calloc_n(bool, count);
+    ecs_entity_t *order = ecs_os_malloc_n(ecs_entity_t, count);
+    if (!indegree || !scheduled || !order) {
+        ecs_os_free(indegree);
+        ecs_os_free(scheduled);
+        ecs_os_free(order);
+        ecs_os_free(entities);
+        return -1;
+    }
+
+    for (int32_t i = 0; i < count; i++) {
+        for (int32_t d = 0;; d++) {
+            ecs_entity_t dep = ecs_get_target(world, entities[i], BakeDependsOn, d);
+            if (!dep) {
+                break;
+            }
+
+            for (int32_t j = 0; j < count; j++) {
+                if (entities[j] == dep) {
+                    indegree[i]++;
+                    break;
+                }
+            }
+        }
+    }
+
+    int32_t out_i = 0;
+    while (out_i < count) {
+        int32_t next = -1;
+        for (int32_t i = 0; i < count; i++) {
+            if (!scheduled[i] && indegree[i] == 0) {
+                next = i;
+                break;
+            }
+        }
+
+        if (next == -1) {
+            for (int32_t i = 0; i < count; i++) {
+                if (!scheduled[i]) {
+                    next = i;
+                    break;
+                }
+            }
+        }
+
+        if (next == -1) {
+            break;
+        }
+
+        ecs_entity_t resolved = entities[next];
+        scheduled[next] = true;
+        order[out_i++] = resolved;
+
+        for (int32_t i = 0; i < count; i++) {
+            if (scheduled[i]) {
+                continue;
+            }
+
+            for (int32_t d = 0;; d++) {
+                ecs_entity_t dep = ecs_get_target(world, entities[i], BakeDependsOn, d);
+                if (!dep) {
+                    break;
+                }
+                if (dep == resolved) {
+                    indegree[i]--;
+                    break;
+                }
+            }
+        }
+    }
+
+    ecs_os_free(entities);
+    ecs_os_free(indegree);
+    ecs_os_free(scheduled);
+
+    *out_entities = order;
+    *out_count = out_i;
     return 0;
 }

@@ -105,6 +105,7 @@ void bake_dependee_cfg_fini(bake_dependee_cfg_t *cfg);
 void bake_project_cfg_init(bake_project_cfg_t *cfg);
 void bake_project_cfg_fini(bake_project_cfg_t *cfg);
 int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t *cfg);
+void bake_project_cfg_set_eval_context(const char *mode, const char *target);
 
 void bake_build_mode_init(bake_build_mode_t *mode, const char *id);
 void bake_build_mode_fini(bake_build_mode_t *mode);

@@ -2,6 +2,9 @@
 #include "bake2/environment.h"
 #include "bake2/os.h"
 
+#include <limits.h>
+#include <stdlib.h>
+
 static int bake_strlist_copy(bake_strlist_t *dst, const bake_strlist_t *src) {
     for (int32_t i = 0; i < src->count; i++) {
         if (bake_strlist_append(dst, src->items[i]) != 0) {
@@ -57,42 +60,6 @@ static void bake_mode_lists_fini(bake_strlist_t *cflags, bake_strlist_t *cxxflag
     bake_strlist_fini(ldflags);
 }
 
-static int bake_array_index(ecs_entity_t *arr, int32_t count, ecs_entity_t e) {
-    for (int32_t i = 0; i < count; i++) {
-        if (arr[i] == e) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-static int bake_order_violations(ecs_world_t *world, ecs_entity_t *order, int32_t count) {
-    int violations = 0;
-    for (int32_t i = 0; i < count; i++) {
-        ecs_entity_t dependent = order[i];
-        for (int32_t d = 0;; d++) {
-            ecs_entity_t dep = ecs_get_target(world, dependent, BakeDependsOn, d);
-            if (!dep) {
-                break;
-            }
-            int dep_idx = bake_array_index(order, count, dep);
-            int dependent_idx = bake_array_index(order, count, dependent);
-            if (dep_idx >= 0 && dependent_idx >= 0 && dep_idx > dependent_idx) {
-                violations++;
-            }
-        }
-    }
-    return violations;
-}
-
-static void bake_reverse_order(ecs_entity_t *arr, int32_t count) {
-    for (int32_t i = 0; i < count / 2; i++) {
-        ecs_entity_t tmp = arr[i];
-        arr[i] = arr[count - i - 1];
-        arr[count - i - 1] = tmp;
-    }
-}
-
 static bool bake_is_abs_path(const char *path) {
     if (!path || !path[0]) {
         return false;
@@ -136,6 +103,37 @@ static bool bake_path_has_prefix(const char *path, const char *prefix, size_t *p
         *prefix_len_out = prefix_len;
     }
     return true;
+}
+
+static bool bake_path_has_special_dir(const char *path) {
+    if (!path || !path[0]) {
+        return false;
+    }
+
+    const char *seg = path;
+    for (const char *p = path;; p++) {
+        if (*p && !bake_path_is_sep(*p)) {
+            continue;
+        }
+
+        size_t len = (size_t)(p - seg);
+        if (len) {
+            if ((len == 4 && !strncmp(seg, "test", 4)) ||
+                (len == 5 && !strncmp(seg, "tests", 5)) ||
+                (len == 7 && !strncmp(seg, "example", 7)) ||
+                (len == 8 && !strncmp(seg, "examples", 8)))
+            {
+                return true;
+            }
+        }
+
+        if (!*p) {
+            break;
+        }
+        seg = p + 1;
+    }
+
+    return false;
 }
 
 static char* bake_build_display_path(const bake_context_t *ctx, const char *path) {
@@ -184,6 +182,26 @@ static void bake_log_build_header(const bake_context_t *ctx, const bake_project_
     ecs_os_free(path);
 }
 
+static char* bake_normalize_existing_path(const char *path) {
+    if (!path || !path[0]) {
+        return NULL;
+    }
+
+#if defined(_WIN32)
+    char buf[_MAX_PATH];
+    if (_fullpath(buf, path, _MAX_PATH)) {
+        return bake_strdup(buf);
+    }
+#else
+    char buf[PATH_MAX];
+    if (realpath(path, buf)) {
+        return bake_strdup(buf);
+    }
+#endif
+
+    return bake_strdup(path);
+}
+
 static char* bake_resolve_target_path(const bake_context_t *ctx, const char *target) {
     if (!ctx || !target || !target[0]) {
         return NULL;
@@ -194,14 +212,55 @@ static char* bake_resolve_target_path(const bake_context_t *ctx, const char *tar
     }
 
     if (bake_is_abs_path(target)) {
-        return bake_strdup(target);
+        return bake_normalize_existing_path(target);
     }
 
-    return bake_join_path(ctx->opts.cwd, target);
+    char *joined = bake_join_path(ctx->opts.cwd, target);
+    if (!joined) {
+        return NULL;
+    }
+    char *normalized = bake_normalize_existing_path(joined);
+    ecs_os_free(joined);
+    return normalized;
 }
 
-static int bake_prepare_standalone_sources(bake_context_t *ctx, ecs_entity_t project_entity, const bake_project_cfg_t *cfg) {
-    BAKE_UNUSED(ctx);
+static int bake_write_standalone_dep_header(
+    const bake_project_cfg_t *cfg,
+    const char *deps_dir)
+{
+    if (!cfg || !cfg->id) {
+        return -1;
+    }
+
+    char *header_base = bake_project_id_as_macro(cfg->id);
+    if (!header_base) {
+        return -1;
+    }
+
+    char *header_name = bake_asprintf("%s.h", header_base);
+    char *header_path = header_name ? bake_join_path(deps_dir, header_name) : NULL;
+    char *header_content = header_name
+        ? bake_asprintf("#pragma once\n#include <%s>\n", header_name)
+        : NULL;
+
+    int rc = -1;
+    if (header_path && header_content) {
+        rc = bake_write_file(header_path, header_content);
+    }
+
+    ecs_os_free(header_base);
+    ecs_os_free(header_name);
+    ecs_os_free(header_path);
+    ecs_os_free(header_content);
+    return rc;
+}
+
+static int bake_prepare_standalone_sources(
+    bake_context_t *ctx,
+    ecs_entity_t project_entity,
+    const bake_project_cfg_t *cfg,
+    bool emit_sources)
+{
 
     char *deps_dir = bake_join_path(cfg->path, "deps");
     if (!deps_dir) {
@@ -211,6 +270,17 @@ static int bake_prepare_standalone_sources(bake_context_t *ctx, ecs_entity_t pro
     if (bake_mkdirs(deps_dir) != 0) {
         ecs_os_free(deps_dir);
         return -1;
+    }
+
+    bake_dir_entry_t *entries = NULL;
+    int32_t entry_count = 0;
+    if (bake_dir_list(deps_dir, &entries, &entry_count) == 0) {
+        for (int32_t i = 0; i < entry_count; i++) {
+            if (!entries[i].is_dir) {
+                remove(entries[i].path);
+            }
+        }
+        bake_dir_entries_free(entries, entry_count);
     }
 
     for (int32_t i = 0;; i++) {
@@ -224,6 +294,14 @@ static int bake_prepare_standalone_sources(bake_context_t *ctx, ecs_entity_t pro
             continue;
         }
         if (dep_project->cfg->kind == BAKE_PROJECT_CONFIG || dep_project->cfg->kind == BAKE_PROJECT_TEMPLATE) {
+            continue;
+        }
+
+        if (!emit_sources) {
+            if (bake_write_standalone_dep_header(dep_project->cfg, deps_dir) != 0) {
+                ecs_os_free(deps_dir);
+                return -1;
+            }
             continue;
         }
 
@@ -319,7 +397,9 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     if ((request->standalone || cfg->standalone) && (cfg->kind == BAKE_PROJECT_APPLICATION || cfg->kind == BAKE_PROJECT_TEST)) {
-        if (bake_prepare_standalone_sources(ctx, project_entity, cfg) != 0) {
+        if (bake_prepare_standalone_sources(
+            ctx, project_entity, cfg, request->standalone) != 0)
+        {
             ecs_err("standalone amalgamation failed for %s", cfg->id);
             ecs_os_free(builtin_test_src);
             bake_build_paths_fini(&paths);
@@ -367,7 +447,18 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 
     bake_compile_list_t units;
     bake_compile_list_init(&units);
-    if (bake_collect_compile_units(cfg, &paths, cfg->kind == BAKE_PROJECT_TEST, &units) != 0) {
+    bool include_deps = true;
+    if (cfg->kind == BAKE_PROJECT_APPLICATION || cfg->kind == BAKE_PROJECT_TEST) {
+        include_deps = request->standalone;
+    }
+
+    if (bake_collect_compile_units(
+        cfg,
+        &paths,
+        cfg->kind == BAKE_PROJECT_TEST,
+        include_deps,
+        &units) != 0)
+    {
         ecs_err("failed to collect source files for %s", cfg->id);
         bake_compile_list_fini(&units);
         bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
@@ -489,10 +580,6 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
         return -1;
     }
 
-    if (bake_order_violations(ctx->world, order, count) > 0) {
-        bake_reverse_order(order, count);
-    }
-
     for (int32_t i = 0; i < count; i++) {
         const BakeBuildRequest *req = ecs_get(ctx->world, order[i], BakeBuildRequest);
         if (!req) {
@@ -516,10 +603,31 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
 }
 
 static int bake_prepare_discovery(bake_context_t *ctx) {
-    int discovered = bake_discover_projects(ctx, ctx->opts.cwd);
+    char *target_path = bake_resolve_target_path(ctx, ctx->opts.target);
+    char *target_root = NULL;
+    bool skip_special_dirs = true;
+    if (target_path) {
+        if (bake_is_dir(target_path)) {
+            target_root = bake_strdup(target_path);
+        } else {
+            target_root = bake_dirname(target_path);
+        }
+        skip_special_dirs = !bake_path_has_special_dir(target_path);
+    } else if (ctx->opts.target && ctx->opts.target[0]) {
+        /* Target by id: allow resolving projects from test/example folders */
+        skip_special_dirs = false;
+    }
+
+    const char *discovery_root = target_root ? target_root : ctx->opts.cwd;
+
+    int discovered = bake_discover_projects(ctx, discovery_root, skip_special_dirs);
     if (discovered < 0) {
+        ecs_os_free(target_path);
+        ecs_os_free(target_root);
         return -1;
     }
+    ecs_os_free(target_path);
+    ecs_os_free(target_root);
 
     ctx->compiler_kind = bake_detect_compiler_kind(ctx->opts.cc, ctx->opts.cxx);
     return 0;
@@ -573,7 +681,7 @@ int bake_build_clean(bake_context_t *ctx) {
             continue;
         }
 
-        ecs_trace("#[green][#[normal]clean#[green]  ]#[normal] %s", project->cfg->id);
+        ecs_trace("#[green][#[normal]  clean#[green]]#[normal] %s", project->cfg->id);
         if (bake_clean_project(project->cfg, ctx->opts.recursive) != 0) {
             ecs_os_free(order);
             ecs_os_free(target_path);

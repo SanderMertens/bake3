@@ -45,6 +45,7 @@ typedef struct bake_link_cmd_ctx_t {
     const bake_strlist_t *dep_artefacts;
     const bake_strlist_t *dep_libpaths;
     const bake_strlist_t *dep_libs;
+    const bake_strlist_t *dep_ldflags;
     const char *artefact;
     bool use_cpp;
 } bake_link_cmd_ctx_t;
@@ -61,7 +62,12 @@ int bake_compile_list_append(
 void bake_build_paths_fini(bake_build_paths_t *paths);
 int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_build_paths_t *paths);
 
-int bake_collect_compile_units(const bake_project_cfg_t *cfg, const bake_build_paths_t *paths, bool include_tests, bake_compile_list_t *units);
+int bake_collect_compile_units(
+    const bake_project_cfg_t *cfg,
+    const bake_build_paths_t *paths,
+    bool include_tests,
+    bool include_deps,
+    bake_compile_list_t *units);
 int bake_execute_rules(const bake_project_cfg_t *cfg, const bake_build_paths_t *paths);
 int bake_generate_dep_header(ecs_world_t *world, const bake_project_cfg_t *cfg, const bake_build_paths_t *paths);
 int bake_apply_dependee_config(

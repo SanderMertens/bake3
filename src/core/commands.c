@@ -71,6 +71,66 @@ static int bake_list_cmp_template(const void *a, const void *b) {
     return strcmp(lhs->id, rhs->id);
 }
 
+static bool bake_path_is_sep(char ch) {
+    return ch == '/' || ch == '\\';
+}
+
+static bool bake_path_has_special_dir(const char *path) {
+    if (!path || !path[0]) {
+        return false;
+    }
+
+    const char *seg = path;
+    for (const char *p = path;; p++) {
+        if (*p && !bake_path_is_sep(*p)) {
+            continue;
+        }
+
+        size_t len = (size_t)(p - seg);
+        if (len) {
+            if ((len == 4 && !strncmp(seg, "test", 4)) ||
+                (len == 5 && !strncmp(seg, "tests", 5)) ||
+                (len == 7 && !strncmp(seg, "example", 7)) ||
+                (len == 8 && !strncmp(seg, "examples", 8)))
+            {
+                return true;
+            }
+        }
+
+        if (!*p) {
+            break;
+        }
+        seg = p + 1;
+    }
+
+    return false;
+}
+
+static char* bake_list_meta_source_path(const char *meta_project_path) {
+    char *source_txt = bake_join_path(meta_project_path, "source.txt");
+    if (!source_txt) {
+        return NULL;
+    }
+
+    size_t len = 0;
+    char *source = bake_read_file(source_txt, &len);
+    ecs_os_free(source_txt);
+    if (!source) {
+        return NULL;
+    }
+
+    while (len > 0) {
+        char ch = source[len - 1];
+        if (ch != '\n' && ch != '\r') {
+            break;
+        }
+        source[len - 1] = '\0';
+        len--;
+    }
+
+    return source;
+}
+
 static char* bake_list_artefact_name(const bake_project_cfg_t *cfg) {
     if (cfg->kind != BAKE_PROJECT_PACKAGE &&
         cfg->kind != BAKE_PROJECT_APPLICATION &&
@@ -235,6 +295,15 @@ static int bake_list_collect_projects(
             bake_project_cfg_fini(&cfg);
             continue;
         }
+
+        char *source_path = bake_list_meta_source_path(entry->path);
+        const char *project_path = source_path ? source_path : cfg.path;
+        if (bake_path_has_special_dir(project_path)) {
+            ecs_os_free(source_path);
+            bake_project_cfg_fini(&cfg);
+            continue;
+        }
+        ecs_os_free(source_path);
 
         bake_strlist_t cfgs;
         if (bake_list_collect_cfgs(platform_dir, &cfg, &cfgs) != 0) {
@@ -534,7 +603,7 @@ static const BakeProject* bake_find_project_for_target(
 }
 
 static int bake_info_project(bake_context_t *ctx) {
-    if (bake_discover_projects(ctx, ctx->opts.cwd) < 0) {
+    if (bake_discover_projects(ctx, ctx->opts.cwd, false) < 0) {
         return -1;
     }
 

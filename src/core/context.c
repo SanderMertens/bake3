@@ -95,6 +95,7 @@ void bake_log(
 int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
     memset(ctx, 0, sizeof(*ctx));
     ctx->opts = *opts;
+    bake_project_cfg_set_eval_context(opts->mode, NULL);
     if (opts->jobs > 0) {
         ctx->thread_count = opts->jobs;
     } else {

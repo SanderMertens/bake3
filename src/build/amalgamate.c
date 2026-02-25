@@ -66,15 +66,15 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, 
         return -1;
     }
 
-    char *base = bake_stem(cfg->output_name);
+    char *base = bake_project_id_as_macro(cfg->id);
     if (!base) {
         return -1;
     }
 
-    char *h_name = bake_asprintf("%s_amalgamated.h", base);
-    char *c_name = bake_asprintf("%s_amalgamated.c", base);
-    ecs_os_free(base);
+    char *h_name = bake_asprintf("%s.h", base);
+    char *c_name = bake_asprintf("%s.c", base);
     if (!h_name || !c_name) {
+        ecs_os_free(base);
         ecs_os_free(h_name);
         ecs_os_free(c_name);
         return -1;
@@ -83,6 +83,7 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, 
     char *h_path = bake_join_path(dst_dir, h_name);
     char *c_path = bake_join_path(dst_dir, c_name);
     if (!h_path || !c_path) {
+        ecs_os_free(base);
         ecs_os_free(h_name);
         ecs_os_free(c_name);
         ecs_os_free(h_path);
@@ -94,8 +95,8 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, 
     ecs_strbuf_t c_buf = ECS_STRBUF_INIT;
 
     ecs_strbuf_append(&h_buf, "/* Amalgamated headers for %s */\n", cfg->id);
-    ecs_strbuf_append(&h_buf, "#ifndef %s_AMALGAMATED_H\n", cfg->output_name);
-    ecs_strbuf_append(&h_buf, "#define %s_AMALGAMATED_H\n", cfg->output_name);
+    ecs_strbuf_append(&h_buf, "#ifndef %s_H\n", base);
+    ecs_strbuf_append(&h_buf, "#define %s_H\n", base);
 
     char *include_dir = bake_join_path(cfg->path, "include");
     if (include_dir && bake_path_exists(include_dir)) {
@@ -105,6 +106,7 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, 
         };
         if (bake_dir_walk_recursive(include_dir, bake_concat_visit, &ctx) != 0) {
             ecs_os_free(include_dir);
+            ecs_os_free(base);
             ecs_os_free(h_name);
             ecs_os_free(c_name);
             ecs_os_free(h_path);
@@ -127,6 +129,7 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, 
         };
         if (bake_dir_walk_recursive(src_dir, bake_concat_visit, &ctx) != 0) {
             ecs_os_free(src_dir);
+            ecs_os_free(base);
             ecs_os_free(h_name);
             ecs_os_free(c_name);
             ecs_os_free(h_path);
@@ -146,6 +149,7 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, 
 
     ecs_os_free(h_content);
     ecs_os_free(c_content);
+    ecs_os_free(base);
     ecs_os_free(h_name);
     ecs_os_free(c_name);
 
@@ -549,6 +553,38 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
         return -1;
     }
 
+    char *include_path = bake_join_path(cfg->path, "include");
+    char *src_path = bake_join_path(cfg->path, "src");
+    char *main_header = include_path ? bake_asprintf("%s/%s.h", include_path, project_id) : NULL;
+    if (!include_path || !src_path || !main_header) {
+        ecs_os_free(project_id);
+        ecs_os_free(include_path);
+        ecs_os_free(src_path);
+        ecs_os_free(main_header);
+        return -1;
+    }
+
+    if (!bake_path_exists(main_header)) {
+        char *id_base = bake_project_id_base(cfg->id);
+        char *base_project_id = id_base ? bake_project_id_as_macro(id_base) : NULL;
+        char *base_header = (include_path && base_project_id)
+            ? bake_asprintf("%s/%s.h", include_path, base_project_id)
+            : NULL;
+
+        if (base_project_id && base_header && bake_path_exists(base_header)) {
+            ecs_os_free(project_id);
+            project_id = base_project_id;
+            base_project_id = NULL;
+            ecs_os_free(main_header);
+            main_header = base_header;
+            base_header = NULL;
+        }
+
+        ecs_os_free(id_base);
+        ecs_os_free(base_project_id);
+        ecs_os_free(base_header);
+    }
+
     char *output_path = NULL;
     if (cfg->amalgamate_path && cfg->amalgamate_path[0]) {
         output_path = bake_join_path(cfg->path, cfg->amalgamate_path);
@@ -566,11 +602,7 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
     char *include_tmp = bake_asprintf("%s/%s.h.tmp", output_path, project_id);
     char *src_out = bake_asprintf("%s/%s.%s", output_path, project_id, src_ext);
     char *src_tmp = bake_asprintf("%s/%s.%s.tmp", output_path, project_id, src_ext);
-    char *include_path = bake_join_path(cfg->path, "include");
-    char *src_path = bake_join_path(cfg->path, "src");
-    char *main_header = include_path ? bake_asprintf("%s/%s.h", include_path, project_id) : NULL;
-    if (!include_out || !include_tmp || !src_out || !src_tmp ||
-        !include_path || !src_path || !main_header)
+    if (!include_out || !include_tmp || !src_out || !src_tmp)
     {
         ecs_os_free(project_id);
         ecs_os_free(output_path);

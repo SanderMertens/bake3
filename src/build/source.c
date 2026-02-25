@@ -10,7 +10,7 @@ static int bake_has_suffix(const char *value, const char *suffix) {
     return strcmp(value + value_len - suffix_len, suffix) == 0;
 }
 
-static int bake_is_c_source(const char *path, bool *cpp_out) {
+static int bake_is_compile_source(const char *path, bool *cpp_out) {
     if (bake_has_suffix(path, ".c")) {
         *cpp_out = false;
         return 1;
@@ -20,6 +20,18 @@ static int bake_is_c_source(const char *path, bool *cpp_out) {
         *cpp_out = true;
         return 1;
     }
+
+#if defined(__APPLE__)
+    if (bake_has_suffix(path, ".m")) {
+        *cpp_out = false;
+        return 1;
+    }
+
+    if (bake_has_suffix(path, ".mm")) {
+        *cpp_out = true;
+        return 1;
+    }
+#endif
 
     return 0;
 }
@@ -139,7 +151,7 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     }
 
     bool cpp = false;
-    if (!bake_is_c_source(entry->path, &cpp)) {
+    if (!bake_is_compile_source(entry->path, &cpp)) {
         return 0;
     }
 
@@ -149,15 +161,9 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     }
 
     for (char *p = rel; *p; p++) {
-        if (*p == '/' || *p == '\\') {
+        if (*p == '/' || *p == '\\' || *p == '.' || *p == ':') {
             *p = '_';
         }
-    }
-
-    char *stem = bake_stem(rel);
-    ecs_os_free(rel);
-    if (!stem) {
-        return -1;
     }
 
 #if defined(_WIN32)
@@ -166,8 +172,8 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     const char *obj_ext = ".o";
 #endif
 
-    char *obj_file = bake_asprintf("%s%s", stem, obj_ext);
-    ecs_os_free(stem);
+    char *obj_file = bake_asprintf("%s%s", rel, obj_ext);
+    ecs_os_free(rel);
     if (!obj_file) {
         return -1;
     }
@@ -196,7 +202,13 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     return rc;
 }
 
-int bake_collect_compile_units(const bake_project_cfg_t *cfg, const bake_build_paths_t *paths, bool include_tests, bake_compile_list_t *units) {
+int bake_collect_compile_units(
+    const bake_project_cfg_t *cfg,
+    const bake_build_paths_t *paths,
+    bool include_tests,
+    bool include_deps,
+    bake_compile_list_t *units)
+{
     bake_collect_ctx_t ctx = {
         .cfg = cfg,
         .paths = paths,
@@ -212,14 +224,16 @@ int bake_collect_compile_units(const bake_project_cfg_t *cfg, const bake_build_p
     }
     ecs_os_free(src);
 
-    char *deps = bake_join_path(cfg->path, "deps");
-    if (deps && bake_path_exists(deps)) {
-        if (bake_dir_walk_recursive(deps, bake_collect_visit, &ctx) != 0) {
-            ecs_os_free(deps);
-            return -1;
+    if (include_deps) {
+        char *deps = bake_join_path(cfg->path, "deps");
+        if (deps && bake_path_exists(deps)) {
+            if (bake_dir_walk_recursive(deps, bake_collect_visit, &ctx) != 0) {
+                ecs_os_free(deps);
+                return -1;
+            }
         }
+        ecs_os_free(deps);
     }
-    ecs_os_free(deps);
 
     if (include_tests) {
         char *test = bake_join_path(cfg->path, "test");

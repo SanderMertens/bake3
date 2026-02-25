@@ -66,18 +66,15 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     return 0;
 }
 
-int bake_discover_projects(bake_context_t *ctx, const char *start_path) {
-    bool build_like_cmd =
-        !strcmp(ctx->opts.command, "build") ||
-        !strcmp(ctx->opts.command, "run") ||
-        !strcmp(ctx->opts.command, "test") ||
-        !strcmp(ctx->opts.command, "clean") ||
-        !strcmp(ctx->opts.command, "rebuild");
-
+int bake_discover_projects(
+    bake_context_t *ctx,
+    const char *start_path,
+    bool skip_special_dirs)
+{
     bake_discovery_ctx_t discovery = {
         .ctx = ctx,
         .discovered = 0,
-        .skip_special_dirs = build_like_cmd && ctx->opts.target == NULL
+        .skip_special_dirs = skip_special_dirs
     };
 
     if (bake_dir_walk_recursive(start_path, bake_discovery_visit, &discovery) != 0) {

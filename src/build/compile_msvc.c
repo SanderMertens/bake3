@@ -65,6 +65,7 @@ int bake_compose_link_command_msvc(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t 
     }
     bake_list_append_fmt(cmd, ctx->mode_ldflags, "", false);
     bake_list_append_fmt(cmd, &ctx->lang->ldflags, "", false);
+    bake_list_append_fmt(cmd, ctx->dep_ldflags, "", false);
     for (int32_t i = 0; i < ctx->lang->libpaths.count; i++) {
         ecs_strbuf_append(cmd, " /LIBPATH:\"%s\"", ctx->lang->libpaths.items[i]);
     }

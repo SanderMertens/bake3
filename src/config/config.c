@@ -8,12 +8,113 @@
 static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults);
 static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_dependee, bool set_defaults);
 static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_dependee);
+static char* bake_json_strdup(const char *json, const jsmntok_t *tok);
+static int bake_parse_project_cfg_object(
+    const char *json,
+    const jsmntok_t *toks,
+    int count,
+    int object,
+    bake_project_cfg_t *cfg,
+    bool parse_meta,
+    bool parse_dependee);
 static int bake_parse_rules(
     const char *json,
     const jsmntok_t *toks,
     int count,
     int rules_tok,
     bake_rule_list_t *rules);
+
+static const char *bake_cfg_eval_mode = "debug";
+static const char *bake_cfg_eval_target = NULL;
+
+void bake_project_cfg_set_eval_context(const char *mode, const char *target) {
+    bake_cfg_eval_mode = (mode && mode[0]) ? mode : "debug";
+    bake_cfg_eval_target = (target && target[0]) ? target : NULL;
+}
+
+static const char* bake_host_os(void) {
+#if defined(_WIN32)
+    return "windows";
+#elif defined(__APPLE__)
+    return "darwin";
+#else
+    return "linux";
+#endif
+}
+
+static char* bake_ltrim(char *str) {
+    while (str && *str && isspace((unsigned char)*str)) {
+        str++;
+    }
+    return str;
+}
+
+static void bake_rtrim(char *str) {
+    if (!str) {
+        return;
+    }
+
+    size_t len = strlen(str);
+    while (len > 0 && isspace((unsigned char)str[len - 1])) {
+        str[--len] = '\0';
+    }
+}
+
+static int bake_json_conditional_key_matches(
+    const char *json,
+    const jsmntok_t *toks,
+    int count,
+    int key_tok)
+{
+    if (key_tok < 0 || key_tok >= count || toks[key_tok].type != JSMN_STRING) {
+        return 0;
+    }
+
+    char *raw = bake_json_strdup(json, &toks[key_tok]);
+    if (!raw) {
+        return -1;
+    }
+
+    size_t len = strlen(raw);
+    if (len < 4 || raw[0] != '$' || raw[1] != '{' || raw[len - 1] != '}') {
+        ecs_os_free(raw);
+        return 0;
+    }
+
+    raw[len - 1] = '\0';
+    char *expr = bake_ltrim(raw + 2);
+    bake_rtrim(expr);
+
+    char *space = expr;
+    while (*space && !isspace((unsigned char)*space)) {
+        space++;
+    }
+
+    if (!*space) {
+        ecs_os_free(raw);
+        return 0;
+    }
+
+    *space = '\0';
+    char *kind = expr;
+    char *value = bake_ltrim(space + 1);
+    bake_rtrim(value);
+
+    int match = 0;
+    if (value[0]) {
+        if (!strcmp(kind, "os")) {
+            match = !strcmp(value, bake_host_os());
+        } else if (!strcmp(kind, "cfg")) {
+            const char *mode = bake_cfg_eval_mode ? bake_cfg_eval_mode : "debug";
+            match = !strcmp(value, mode);
+        } else if (!strcmp(kind, "target")) {
+            match = bake_cfg_eval_target && !strcmp(value, bake_cfg_eval_target);
+        }
+    }
+
+    ecs_os_free(raw);
+    return match;
+}
 
 static int bake_json_skip(const jsmntok_t *toks, int count, int index) {
     if (index < 0 || index >= count) {
@@ -492,6 +593,32 @@ static int bake_parse_lang_cfg(const char *json, const jsmntok_t *toks, int coun
     if (bake_json_get_bool(json, toks, count, object, "export-symbols", &cfg->export_symbols) < 0) return -1;
     if (bake_json_get_bool(json, toks, count, object, "precompile-header", &cfg->precompile_header) < 0) return -1;
 
+    int i = object + 1;
+    int end = bake_json_skip(toks, count, object);
+    while (i < end) {
+        int key_tok = i;
+        int val_tok = key_tok + 1;
+        if (val_tok >= end) {
+            break;
+        }
+
+        int cond = bake_json_conditional_key_matches(json, toks, count, key_tok);
+        if (cond < 0) {
+            return -1;
+        }
+
+        if (cond > 0) {
+            if (toks[val_tok].type != JSMN_OBJECT) {
+                return -1;
+            }
+            if (bake_parse_lang_cfg(json, toks, count, val_tok, cfg) != 0) {
+                return -1;
+            }
+        }
+
+        i = bake_json_skip(toks, count, val_tok);
+    }
+
     return 0;
 }
 
@@ -614,6 +741,53 @@ static int bake_parse_dependee_cfg(
     int object,
     bake_dependee_cfg_t *cfg);
 
+static int bake_parse_project_cfg_conditionals(
+    const char *json,
+    const jsmntok_t *toks,
+    int count,
+    int object,
+    bake_project_cfg_t *cfg,
+    bool parse_dependee)
+{
+    if (object < 0) {
+        return 0;
+    }
+
+    if (toks[object].type != JSMN_OBJECT) {
+        return -1;
+    }
+
+    int i = object + 1;
+    int end = bake_json_skip(toks, count, object);
+    while (i < end) {
+        int key_tok = i;
+        int val_tok = key_tok + 1;
+        if (val_tok >= end) {
+            break;
+        }
+
+        int cond = bake_json_conditional_key_matches(json, toks, count, key_tok);
+        if (cond < 0) {
+            return -1;
+        }
+
+        if (cond > 0) {
+            if (toks[val_tok].type != JSMN_OBJECT) {
+                return -1;
+            }
+            if (bake_parse_project_cfg_object(
+                json, toks, count, val_tok, cfg, false, parse_dependee) != 0)
+            {
+                return -1;
+            }
+        }
+
+        i = bake_json_skip(toks, count, val_tok);
+    }
+
+    return 0;
+}
+
 static int bake_parse_project_cfg_object(
     const char *json,
     const jsmntok_t *toks,
@@ -683,6 +857,18 @@ static int bake_parse_project_cfg_object(
         {
             return -1;
         }
+    }
+
+    if (bake_parse_project_cfg_conditionals(
+        json, toks, count, object, cfg, parse_dependee) != 0)
+    {
+        return -1;
+    }
+
+    if (bake_parse_project_cfg_conditionals(
+        json, toks, count, value_obj, cfg, parse_dependee) != 0)
+    {
+        return -1;
     }
 
     return 0;
