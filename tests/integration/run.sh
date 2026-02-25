@@ -16,7 +16,6 @@ CORE_SUITE="$CORE_TEST_DIR/math_suite.c"
 CORE_MAIN="$CORE_GEN_DIR/main.c"
 CORE_RT_C="$CORE_GEN_DIR/bake_test_runtime.c"
 CORE_RT_H="$CORE_GEN_DIR/bake_test_runtime.h"
-ENV_JSON="$ROOT/tests/tmp/bake_home/bake2_env.json"
 LIST_TXT="$ROOT/tests/tmp/list.txt"
 
 if [ ! -x "$BAKE_BIN" ]; then
@@ -30,9 +29,6 @@ cp "$CORE_SUITE" "$BACKUP_DIR/core_math_suite.c"
 cp "$CORE_MAIN" "$BACKUP_DIR/core_main.c"
 cp "$CORE_RT_C" "$BACKUP_DIR/core_runtime.c"
 cp "$CORE_RT_H" "$BACKUP_DIR/core_runtime.h"
-if [ -f "$ENV_JSON" ]; then
-    cp "$ENV_JSON" "$BACKUP_DIR/env.json"
-fi
 if [ -f "$LIST_TXT" ]; then
     cp "$LIST_TXT" "$BACKUP_DIR/list.txt"
 fi
@@ -43,9 +39,6 @@ restore_backups() {
     cp "$BACKUP_DIR/core_main.c" "$CORE_MAIN"
     cp "$BACKUP_DIR/core_runtime.c" "$CORE_RT_C"
     cp "$BACKUP_DIR/core_runtime.h" "$CORE_RT_H"
-    if [ -f "$BACKUP_DIR/env.json" ]; then
-        cp "$BACKUP_DIR/env.json" "$ENV_JSON"
-    fi
     if [ -f "$BACKUP_DIR/list.txt" ]; then
         cp "$BACKUP_DIR/list.txt" "$LIST_TXT"
     fi
@@ -105,6 +98,7 @@ BUILD_DEBUG="$ARCH_TAG-$OS_TAG-debug"
 BUILD_RELEASE="$ARCH_TAG-$OS_TAG-release"
 BUILD_PROFILE="$ARCH_TAG-$OS_TAG-profile"
 BUILD_SANITIZE="$ARCH_TAG-$OS_TAG-sanitize"
+PLATFORM_TAG="$ARCH_TAG-$OS_TAG"
 
 rm -rf \
     "$BAKE_HOME" \
@@ -130,17 +124,23 @@ mkdir -p "$BAKE_HOME"
 cd "$WS"
 
 $BAKE_BIN list > "$ROOT/tests/tmp/list.txt"
-grep -q "ws.apps.hello" "$ROOT/tests/tmp/list.txt"
-grep -q "ws.apps.hello[[:space:]]*application" "$ROOT/tests/tmp/list.txt"
-grep -q "ws.libs.core[[:space:]]*library" "$ROOT/tests/tmp/list.txt"
+grep -q "^Listing projects for platform:" "$ROOT/tests/tmp/list.txt"
+grep -q "^ \\* $PLATFORM_TAG$" "$ROOT/tests/tmp/list.txt"
+grep -q "^Packages & Applications:" "$ROOT/tests/tmp/list.txt"
 
 $BAKE_BIN build ws.apps.hello
 "$WS/apps/hello/.bake/$BUILD_DEBUG/hello$EXE_EXT"
 [ -f "$WS/apps/hello/.bake/$BUILD_DEBUG/generated/rule.txt" ]
+[ -f "$BAKE_HOME/meta/ws.apps.hello/project.json" ]
+[ -f "$BAKE_HOME/meta/ws.apps.hello/source.txt" ]
+[ -f "$BAKE_HOME/meta/ws.apps.hello/dependee.json" ]
+grep -q "$WS/apps/hello" "$BAKE_HOME/meta/ws.apps.hello/source.txt"
+[ -f "$BAKE_HOME/$PLATFORM_TAG/debug/bin/hello$EXE_EXT" ]
 
 $BAKE_BIN test ws.tests.core
 [ -f "$WS/tests/core_tests/test/generated/main.c" ]
 [ -f "$WS/tests/core_tests/test/math_suite.c" ]
+[ ! -d "$BAKE_HOME/meta/ws.tests.core" ]
 
 grep -q "void math_add(void)" "$WS/tests/core_tests/test/math_suite.c"
 
@@ -176,6 +176,17 @@ $BAKE_BIN --strict build ws.libs.core
 [ -f "$WS/libs/core/.bake/$BUILD_RELEASE/${LIB_PREFIX}ws_core${LIB_EXT}" ]
 [ -f "$WS/libs/core/.bake/$BUILD_PROFILE/${LIB_PREFIX}ws_core${LIB_EXT}" ]
 [ -f "$WS/libs/core/.bake/$BUILD_SANITIZE/${LIB_PREFIX}ws_core${LIB_EXT}" ]
+[ -f "$BAKE_HOME/meta/ws.libs.core/project.json" ]
+[ -f "$BAKE_HOME/include/ws.libs.core/ws/core.h" ]
+[ -f "$BAKE_HOME/$PLATFORM_TAG/debug/lib/${LIB_PREFIX}ws_core${LIB_EXT}" ]
+[ -f "$BAKE_HOME/$PLATFORM_TAG/release/lib/${LIB_PREFIX}ws_core${LIB_EXT}" ]
+[ -f "$BAKE_HOME/$PLATFORM_TAG/profile/lib/${LIB_PREFIX}ws_core${LIB_EXT}" ]
+[ -f "$BAKE_HOME/$PLATFORM_TAG/sanitize/lib/${LIB_PREFIX}ws_core${LIB_EXT}" ]
+[ -f "$BAKE_HOME/meta/ws.libs.core/dependee.json" ]
+grep -q '"defines"[[:space:]]*:[[:space:]]*\["WS_CORE_DEP"\]' "$BAKE_HOME/meta/ws.libs.core/dependee.json"
+
+$BAKE_BIN build ws.config.shared
+[ -f "$BAKE_HOME/meta/ws.config.shared/project.json" ]
 
 $BAKE_BIN clean ws.apps.hello -r
 [ ! -d "$WS/apps/hello/.bake" ]
@@ -216,16 +227,28 @@ done
 cd "$ENVPKGS"
 $BAKE_BIN build env.libs.math
 [ -f "$ENVPKGS/libmath/.bake/$BUILD_DEBUG/${LIB_PREFIX}envmath${LIB_EXT}" ]
+[ -f "$BAKE_HOME/meta/env.libs.math/project.json" ]
+[ -f "$BAKE_HOME/$PLATFORM_TAG/debug/lib/${LIB_PREFIX}envmath${LIB_EXT}" ]
 
 cd "$WS"
 $BAKE_BIN build ws.apps.use_env
 "$WS/apps/use_env/.bake/$BUILD_DEBUG/use_env$EXE_EXT"
+[ -f "$BAKE_HOME/$PLATFORM_TAG/debug/bin/use_env$EXE_EXT" ]
 
 cd "$ROOT"
 $BAKE_BIN build flecs
 [ -f "$ROOT/flecs/.bake/$BUILD_DEBUG/libflecs.a" ]
 [ -f "$ROOT/flecs/distr/flecs.h" ]
 [ -f "$ROOT/flecs/distr/flecs.c" ]
+[ -f "$BAKE_HOME/meta/flecs/project.json" ]
+[ -f "$BAKE_HOME/meta/flecs/dependee.json" ]
+[ -f "$BAKE_HOME/include/flecs/flecs.h" ]
+[ -d "$BAKE_HOME/template/flecs/c" ]
+[ -d "$BAKE_HOME/template/flecs/cpp" ]
+[ -f "$BAKE_HOME/$PLATFORM_TAG/debug/lib/libflecs.a" ]
+grep -q '"lang.c"' "$BAKE_HOME/meta/flecs/dependee.json"
+grep -q '"lang.cpp"' "$BAKE_HOME/meta/flecs/dependee.json"
+grep -q '"\${cfg sanitize}"' "$BAKE_HOME/meta/flecs/dependee.json"
 
 "${CC:-cc}" \
     -I"$ROOT/flecs/distr" \
@@ -236,6 +259,18 @@ if [ ! -f "$ROOT/flecs/.bake/$BUILD_DEBUG/libflecs.a" ]; then
     echo "flecs artefact not found" >&2
     exit 1
 fi
+
+$BAKE_BIN list > "$ROOT/tests/tmp/list.txt"
+grep -q "^Listing projects for platform:" "$ROOT/tests/tmp/list.txt"
+grep -q "^ \\* $PLATFORM_TAG$" "$ROOT/tests/tmp/list.txt"
+grep -q "^Packages & Applications:" "$ROOT/tests/tmp/list.txt"
+grep -q "^Templates:" "$ROOT/tests/tmp/list.txt"
+grep -q "^P  flecs => \\[debug\\]$" "$ROOT/tests/tmp/list.txt"
+grep -q "^P  ws.libs.core => \\[debug, profile, release, sanitize\\]$" "$ROOT/tests/tmp/list.txt"
+grep -q "^A  ws.apps.hello => \\[debug\\]$" "$ROOT/tests/tmp/list.txt"
+grep -q "^C  ws.config.shared => \\[all\\]$" "$ROOT/tests/tmp/list.txt"
+grep -q "^T  flecs => \\[c, cpp\\]$" "$ROOT/tests/tmp/list.txt"
+grep -Eq "^applications: [0-9]+, packages: [0-9]+, templates: [0-9]+$" "$ROOT/tests/tmp/list.txt"
 
 mkdir -p "$TMP/stale_proj/src"
 cat > "$TMP/stale_proj/project.json" <<'JSON'
@@ -252,17 +287,18 @@ int main(void) { return 0; }
 SRC
 
 cd "$TMP/stale_proj"
-$BAKE_BIN list >/dev/null
+$BAKE_BIN build tmp.stale >/dev/null
 cd "$ROOT"
 rm -rf "$TMP/stale_proj"
 
 $BAKE_BIN cleanup
-if grep -q "tmp.stale" "$BAKE_HOME/bake2_env.json"; then
-    echo "cleanup failed to remove stale project" >&2
-    exit 1
-fi
+[ ! -d "$BAKE_HOME/meta/tmp.stale" ]
+[ ! -f "$BAKE_HOME/$PLATFORM_TAG/debug/bin/tmp_stale$EXE_EXT" ]
 
 $BAKE_BIN reset
-[ ! -f "$BAKE_HOME/bake2_env.json" ]
+[ ! -d "$BAKE_HOME/meta" ]
+[ ! -d "$BAKE_HOME/include" ]
+[ ! -d "$BAKE_HOME/template" ]
+[ ! -d "$BAKE_HOME/$PLATFORM_TAG" ]
 
 echo "integration tests passed"

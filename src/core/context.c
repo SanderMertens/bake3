@@ -133,11 +133,6 @@ int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
         return -1;
     }
 
-    if (bake_environment_load(ctx) != 0) {
-        bake_context_fini(ctx);
-        return -1;
-    }
-
     return 0;
 }
 

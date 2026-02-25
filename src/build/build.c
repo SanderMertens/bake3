@@ -1,4 +1,5 @@
 #include "build_internal.h"
+#include "bake2/environment.h"
 #include "bake2/os.h"
 
 static int bake_strlist_copy(bake_strlist_t *dst, const bake_strlist_t *src) {
@@ -258,9 +259,17 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     if (cfg->kind == BAKE_PROJECT_CONFIG || cfg->kind == BAKE_PROJECT_TEMPLATE) {
+        const BakeBuildResult *prev_result = ecs_get(ctx->world, project_entity, BakeBuildResult);
+        if (prev_result && prev_result->artefact) {
+            ecs_os_free((char*)prev_result->artefact);
+        }
+
         BakeBuildResult result = { .status = 0, .artefact = NULL };
         ecs_set_ptr(ctx->world, project_entity, BakeBuildResult, &result);
         ecs_add(ctx->world, project_entity, BakeBuilt);
+        if (bake_environment_sync_project(ctx, project_entity, &result, request, false) != 0) {
+            return -1;
+        }
         return 0;
     }
 
@@ -327,8 +336,8 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         return -1;
     }
 
-    bake_apply_dependee_config(ctx->world, project_entity, &c_lang);
-    bake_apply_dependee_config(ctx->world, project_entity, &cpp_lang);
+    bake_apply_dependee_config(ctx->world, project_entity, &c_lang, false);
+    bake_apply_dependee_config(ctx->world, project_entity, &cpp_lang, true);
 
     if (cfg->kind == BAKE_PROJECT_TEST) {
         if (!bake_strlist_contains(&c_lang.include_paths, paths.gen_dir)) {
@@ -401,7 +410,11 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         base_cpp = &cpp_lang;
     }
 
-    if (bake_compile_units_parallel(ctx, cfg, &paths, &units, base_lang, base_cpp, &mode_cflags, &mode_cxxflags) != 0) {
+    int32_t compiled_count = 0;
+    if (bake_compile_units_parallel(
+        ctx, cfg, &paths, &units, base_lang, base_cpp,
+        &mode_cflags, &mode_cxxflags, &compiled_count) != 0)
+    {
         ecs_err("compilation failed for %s", cfg->id);
         bake_compile_list_fini(&units);
         bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
@@ -413,7 +426,11 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     char *artefact = NULL;
-    if (bake_link_project_binary(ctx, project_entity, cfg, &paths, &units, base_cpp, &mode_ldflags, &artefact) != 0) {
+    bool linked = false;
+    if (bake_link_project_binary(
+        ctx, project_entity, cfg, &paths, &units, base_cpp, &mode_ldflags,
+        &artefact, &linked) != 0)
+    {
         ecs_err("link failed for %s", cfg->id);
         bake_compile_list_fini(&units);
         bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
@@ -435,6 +452,17 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     };
     ecs_set_ptr(ctx->world, project_entity, BakeBuildResult, &result);
     ecs_add(ctx->world, project_entity, BakeBuilt);
+
+    bool rebuilt = compiled_count > 0 || linked;
+    if (bake_environment_sync_project(ctx, project_entity, &result, request, rebuilt) != 0) {
+        bake_compile_list_fini(&units);
+        bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
+        bake_lang_cfg_fini(&c_lang);
+        bake_lang_cfg_fini(&cpp_lang);
+        ecs_os_free(builtin_test_src);
+        bake_build_paths_fini(&paths);
+        return -1;
+    }
 
     bake_compile_list_fini(&units);
     bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);

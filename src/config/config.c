@@ -5,6 +5,16 @@
 
 #include "jsmn.h"
 
+static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults);
+static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_dependee, bool set_defaults);
+static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_dependee);
+static int bake_parse_rules(
+    const char *json,
+    const jsmntok_t *toks,
+    int count,
+    int rules_tok,
+    bake_rule_list_t *rules);
+
 static int bake_json_skip(const jsmntok_t *toks, int count, int index) {
     if (index < 0 || index >= count) {
         return index + 1;
@@ -325,7 +335,7 @@ int bake_rule_list_append(bake_rule_list_t *list, const char *ext, const char *c
     return (rule->ext && rule->command) ? 0 : -1;
 }
 
-void bake_lang_cfg_init(bake_lang_cfg_t *cfg) {
+static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults) {
     bake_strlist_init(&cfg->cflags);
     bake_strlist_init(&cfg->cxxflags);
     bake_strlist_init(&cfg->defines);
@@ -335,11 +345,15 @@ void bake_lang_cfg_init(bake_lang_cfg_t *cfg) {
     bake_strlist_init(&cfg->libpaths);
     bake_strlist_init(&cfg->links);
     bake_strlist_init(&cfg->include_paths);
-    cfg->c_standard = bake_strdup("c99");
-    cfg->cpp_standard = bake_strdup("c++17");
+    cfg->c_standard = set_defaults ? bake_strdup("c99") : NULL;
+    cfg->cpp_standard = set_defaults ? bake_strdup("c++17") : NULL;
     cfg->static_lib = false;
     cfg->export_symbols = false;
-    cfg->precompile_header = true;
+    cfg->precompile_header = set_defaults;
+}
+
+void bake_lang_cfg_init(bake_lang_cfg_t *cfg) {
+    bake_lang_cfg_init_impl(cfg, true);
 }
 
 void bake_lang_cfg_fini(bake_lang_cfg_t *cfg) {
@@ -359,28 +373,28 @@ void bake_lang_cfg_fini(bake_lang_cfg_t *cfg) {
 }
 
 void bake_dependee_cfg_init(bake_dependee_cfg_t *cfg) {
-    bake_strlist_init(&cfg->use);
-    bake_strlist_init(&cfg->defines);
-    bake_strlist_init(&cfg->include_paths);
-    bake_strlist_init(&cfg->cflags);
-    bake_strlist_init(&cfg->ldflags);
-    bake_strlist_init(&cfg->libs);
+    cfg->cfg = ecs_os_calloc_t(bake_project_cfg_t);
+    if (cfg->cfg) {
+        bake_project_cfg_init_impl(cfg->cfg, false, false);
+    }
+    cfg->json = NULL;
 }
 
 void bake_dependee_cfg_fini(bake_dependee_cfg_t *cfg) {
-    bake_strlist_fini(&cfg->use);
-    bake_strlist_fini(&cfg->defines);
-    bake_strlist_fini(&cfg->include_paths);
-    bake_strlist_fini(&cfg->cflags);
-    bake_strlist_fini(&cfg->ldflags);
-    bake_strlist_fini(&cfg->libs);
+    if (cfg->cfg) {
+        bake_project_cfg_fini_impl(cfg->cfg, false);
+        ecs_os_free(cfg->cfg);
+    }
+    ecs_os_free(cfg->json);
+    memset(cfg, 0, sizeof(*cfg));
 }
 
-void bake_project_cfg_init(bake_project_cfg_t *cfg) {
+static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_dependee, bool set_defaults) {
     memset(cfg, 0, sizeof(*cfg));
     cfg->kind = BAKE_PROJECT_APPLICATION;
     cfg->has_test_spec = false;
-    cfg->language = bake_strdup("c");
+    cfg->public_project = set_defaults;
+    cfg->language = set_defaults ? bake_strdup("c") : NULL;
     cfg->amalgamate = false;
     cfg->amalgamate_path = NULL;
 
@@ -391,13 +405,21 @@ void bake_project_cfg_init(bake_project_cfg_t *cfg) {
     bake_strlist_init(&cfg->drivers);
     bake_strlist_init(&cfg->plugins);
 
-    bake_dependee_cfg_init(&cfg->dependee);
-    bake_lang_cfg_init(&cfg->c_lang);
-    bake_lang_cfg_init(&cfg->cpp_lang);
+    if (init_dependee) {
+        bake_dependee_cfg_init(&cfg->dependee);
+    } else {
+        memset(&cfg->dependee, 0, sizeof(cfg->dependee));
+    }
+    bake_lang_cfg_init_impl(&cfg->c_lang, set_defaults);
+    bake_lang_cfg_init_impl(&cfg->cpp_lang, set_defaults);
     bake_rule_list_init(&cfg->rules);
 }
 
-void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
+void bake_project_cfg_init(bake_project_cfg_t *cfg) {
+    bake_project_cfg_init_impl(cfg, true, true);
+}
+
+static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_dependee) {
     ecs_os_free(cfg->id);
     ecs_os_free(cfg->path);
     ecs_os_free(cfg->language);
@@ -411,12 +433,24 @@ void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
     bake_strlist_fini(&cfg->drivers);
     bake_strlist_fini(&cfg->plugins);
 
-    bake_dependee_cfg_fini(&cfg->dependee);
+    if (fini_dependee) {
+        bake_dependee_cfg_fini(&cfg->dependee);
+    } else {
+        if (cfg->dependee.cfg) {
+            bake_project_cfg_fini_impl(cfg->dependee.cfg, false);
+            ecs_os_free(cfg->dependee.cfg);
+        }
+        ecs_os_free(cfg->dependee.json);
+    }
     bake_lang_cfg_fini(&cfg->c_lang);
     bake_lang_cfg_fini(&cfg->cpp_lang);
     bake_rule_list_fini(&cfg->rules);
 
     memset(cfg, 0, sizeof(*cfg));
+}
+
+void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
+    bake_project_cfg_fini_impl(cfg, true);
 }
 
 void bake_build_mode_init(bake_build_mode_t *mode, const char *id) {
@@ -441,15 +475,15 @@ static int bake_parse_lang_cfg(const char *json, const jsmntok_t *toks, int coun
         return -1;
     }
 
-    if (bake_json_get_array(json, toks, count, object, "cflags", &cfg->cflags) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "cxxflags", &cfg->cxxflags) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "defines", &cfg->defines) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "ldflags", &cfg->ldflags) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "lib", &cfg->libs) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "static-lib", &cfg->static_libs) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "libpath", &cfg->libpaths) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "link", &cfg->links) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "include", &cfg->include_paths) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "cflags", NULL, &cfg->cflags) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "cxxflags", NULL, &cfg->cxxflags) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "defines", NULL, &cfg->defines) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "ldflags", NULL, &cfg->ldflags) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "lib", "libs", &cfg->libs) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "static-lib", "static_lib", &cfg->static_libs) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "libpath", "libpaths", &cfg->libpaths) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "link", "links", &cfg->links) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "include", NULL, &cfg->include_paths) < 0) return -1;
 
     if (bake_json_get_string(json, toks, count, object, "c-standard", &cfg->c_standard) < 0) return -1;
     if (bake_json_get_string(json, toks, count, object, "cpp-standard", &cfg->cpp_standard) < 0) return -1;
@@ -461,23 +495,12 @@ static int bake_parse_lang_cfg(const char *json, const jsmntok_t *toks, int coun
     return 0;
 }
 
-static int bake_strlist_merge_unique(bake_strlist_t *dst, const bake_strlist_t *src) {
-    for (int32_t i = 0; i < src->count; i++) {
-        if (!bake_strlist_contains(dst, src->items[i])) {
-            if (bake_strlist_append(dst, src->items[i]) != 0) {
-                return -1;
-            }
-        }
-    }
-    return 0;
-}
-
-static int bake_parse_dependee_value_cfg(
+static int bake_parse_project_value_cfg(
     const char *json,
     const jsmntok_t *toks,
     int count,
     int object,
-    bake_dependee_cfg_t *cfg)
+    bake_project_cfg_t *cfg)
 {
     if (object < 0) {
         return 0;
@@ -487,74 +510,220 @@ static int bake_parse_dependee_value_cfg(
         return -1;
     }
 
-    if (bake_json_get_array(json, toks, count, object, "use", &cfg->use) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "defines", &cfg->defines) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "include", &cfg->include_paths) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "cflags", &cfg->cflags) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "ldflags", &cfg->ldflags) < 0) return -1;
-    if (bake_json_get_array(json, toks, count, object, "lib", &cfg->libs) < 0) return -1;
+    if (bake_json_get_string(json, toks, count, object, "language", &cfg->language) < 0) return -1;
+    if (bake_json_get_string(json, toks, count, object, "output", &cfg->output_name) < 0) return -1;
+    if (bake_json_get_string(json, toks, count, object, "artefact", &cfg->output_name) < 0) return -1;
+
+    if (bake_json_get_bool(json, toks, count, object, "private", &cfg->private_project) < 0) return -1;
+    if (bake_json_get_bool(json, toks, count, object, "public", &cfg->public_project) < 0) return -1;
+    if (bake_json_get_bool(json, toks, count, object, "standalone", &cfg->standalone) < 0) return -1;
+    if (bake_json_get_bool(json, toks, count, object, "amalgamate", &cfg->amalgamate) < 0) return -1;
+    if (bake_json_get_string_alias(
+        json, toks, count, object,
+        "amalgamate-path", "amalgamate_path",
+        &cfg->amalgamate_path) < 0)
+    {
+        return -1;
+    }
+
+    if (bake_json_get_array_alias(json, toks, count, object, "use", NULL, &cfg->use) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "use-private", "use_private", &cfg->use_private) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "use-build", "use_build", &cfg->use_build) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "use-runtime", "use_runtime", &cfg->use_runtime) < 0) return -1;
+
+    if (bake_json_get_array_alias(json, toks, count, object, "cflags", NULL, &cfg->c_lang.cflags) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "cflags", NULL, &cfg->cpp_lang.cflags) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "cxxflags", NULL, &cfg->c_lang.cxxflags) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "cxxflags", NULL, &cfg->cpp_lang.cxxflags) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "defines", NULL, &cfg->c_lang.defines) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "defines", NULL, &cfg->cpp_lang.defines) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "ldflags", NULL, &cfg->c_lang.ldflags) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "ldflags", NULL, &cfg->cpp_lang.ldflags) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "lib", "libs", &cfg->c_lang.libs) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "lib", "libs", &cfg->cpp_lang.libs) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "static-lib", "static_lib", &cfg->c_lang.static_libs) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "static-lib", "static_lib", &cfg->cpp_lang.static_libs) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "libpath", "libpaths", &cfg->c_lang.libpaths) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "libpath", "libpaths", &cfg->cpp_lang.libpaths) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "link", "links", &cfg->c_lang.links) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "link", "links", &cfg->cpp_lang.links) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "include", NULL, &cfg->c_lang.include_paths) < 0) return -1;
+    if (bake_json_get_array_alias(json, toks, count, object, "include", NULL, &cfg->cpp_lang.include_paths) < 0) return -1;
+
+    if (bake_json_get_string(json, toks, count, object, "c-standard", &cfg->c_lang.c_standard) < 0) return -1;
+    if (bake_json_get_string(json, toks, count, object, "cpp-standard", &cfg->cpp_lang.cpp_standard) < 0) return -1;
+
+    bool value = false;
+    int bool_rc = bake_json_get_bool(json, toks, count, object, "static", &value);
+    if (bool_rc < 0) return -1;
+    if (bool_rc == 0) {
+        cfg->c_lang.static_lib = value;
+        cfg->cpp_lang.static_lib = value;
+    }
+
+    bool_rc = bake_json_get_bool(json, toks, count, object, "export-symbols", &value);
+    if (bool_rc < 0) return -1;
+    if (bool_rc == 0) {
+        cfg->c_lang.export_symbols = value;
+        cfg->cpp_lang.export_symbols = value;
+    }
+
+    bool_rc = bake_json_get_bool(json, toks, count, object, "precompile-header", &value);
+    if (bool_rc < 0) return -1;
+    if (bool_rc == 0) {
+        cfg->c_lang.precompile_header = value;
+        cfg->cpp_lang.precompile_header = value;
+    }
 
     return 0;
 }
 
-static int bake_parse_dependee_lang_cfg(
+static int bake_parse_project_lang_cfg(
     const char *json,
     const jsmntok_t *toks,
     int count,
     int object,
-    bake_dependee_cfg_t *cfg)
+    bake_project_cfg_t *cfg)
 {
-    if (object < 0) {
-        return 0;
-    }
-
-    bake_lang_cfg_t lang_cfg;
-    bake_lang_cfg_init(&lang_cfg);
-
-    int rc = bake_parse_lang_cfg(json, toks, count, object, &lang_cfg);
-    if (rc == 0) {
-        if (bake_strlist_merge_unique(&cfg->defines, &lang_cfg.defines) != 0 ||
-            bake_strlist_merge_unique(&cfg->include_paths, &lang_cfg.include_paths) != 0 ||
-            bake_strlist_merge_unique(&cfg->cflags, &lang_cfg.cflags) != 0 ||
-            bake_strlist_merge_unique(&cfg->ldflags, &lang_cfg.ldflags) != 0 ||
-            bake_strlist_merge_unique(&cfg->libs, &lang_cfg.libs) != 0)
-        {
-            rc = -1;
-        }
-    }
-
-    bake_lang_cfg_fini(&lang_cfg);
-    return rc;
-}
-
-static int bake_parse_dependee_cfg(const char *json, const jsmntok_t *toks, int count, int object, bake_dependee_cfg_t *cfg) {
-    if (object < 0) {
-        return 0;
-    }
-
-    if (toks[object].type != JSMN_OBJECT) {
-        return -1;
-    }
-
-    if (bake_parse_dependee_value_cfg(json, toks, count, object, cfg) != 0) {
-        return -1;
-    }
-
-    int value_obj = bake_json_find_object_key(json, toks, count, object, "value");
-    if (bake_parse_dependee_value_cfg(json, toks, count, value_obj, cfg) != 0) {
-        return -1;
-    }
-
     int c_obj = bake_json_find_object_key(json, toks, count, object, "lang.c");
-    if (bake_parse_dependee_lang_cfg(json, toks, count, c_obj, cfg) != 0) {
-        return -1;
-    }
+    if (bake_parse_lang_cfg(json, toks, count, c_obj, &cfg->c_lang) != 0) return -1;
 
     int cpp_obj = bake_json_find_object_key(json, toks, count, object, "lang.cpp");
-    if (bake_parse_dependee_lang_cfg(json, toks, count, cpp_obj, cfg) != 0) {
+    if (bake_parse_lang_cfg(json, toks, count, cpp_obj, &cfg->cpp_lang) != 0) return -1;
+
+    int lang_obj = bake_json_find_object_key(json, toks, count, object, "lang");
+    if (lang_obj >= 0) {
+        if (toks[lang_obj].type != JSMN_OBJECT) {
+            return -1;
+        }
+
+        int lang_c_obj = bake_json_find_object_key(json, toks, count, lang_obj, "c");
+        if (bake_parse_lang_cfg(json, toks, count, lang_c_obj, &cfg->c_lang) != 0) return -1;
+
+        int lang_cpp_obj = bake_json_find_object_key(json, toks, count, lang_obj, "cpp");
+        if (bake_parse_lang_cfg(json, toks, count, lang_cpp_obj, &cfg->cpp_lang) != 0) return -1;
+    }
+
+    return 0;
+}
+
+static int bake_parse_dependee_cfg(
+    const char *json,
+    const jsmntok_t *toks,
+    int count,
+    int object,
+    bake_dependee_cfg_t *cfg);
+
+static int bake_parse_project_cfg_object(
+    const char *json,
+    const jsmntok_t *toks,
+    int count,
+    int object,
+    bake_project_cfg_t *cfg,
+    bool parse_meta,
+    bool parse_dependee)
+{
+    if (object < 0) {
+        return 0;
+    }
+
+    if (toks[object].type != JSMN_OBJECT) {
         return -1;
     }
 
+    if (parse_meta) {
+        if (bake_json_get_string(json, toks, count, object, "id", &cfg->id) < 0) return -1;
+
+        char *type = NULL;
+        if (bake_json_get_string(json, toks, count, object, "type", &type) < 0) return -1;
+        if (type) {
+            cfg->kind = bake_project_kind_parse(type);
+            ecs_os_free(type);
+        }
+
+        if (bake_json_get_array(json, toks, count, object, "drivers", &cfg->drivers) < 0) return -1;
+        if (bake_json_get_array(json, toks, count, object, "plugins", &cfg->plugins) < 0) return -1;
+
+        int test_obj = bake_json_find_object_key(json, toks, count, object, "test");
+        if (test_obj >= 0) {
+            if (toks[test_obj].type != JSMN_OBJECT) return -1;
+            cfg->has_test_spec = true;
+            if (cfg->kind == BAKE_PROJECT_APPLICATION) {
+                cfg->kind = BAKE_PROJECT_TEST;
+            }
+        }
+
+        int rules_tok = bake_json_find_object_key(json, toks, count, object, "rules");
+        if (bake_parse_rules(json, toks, count, rules_tok, &cfg->rules) != 0) return -1;
+    }
+
+    if (bake_parse_project_value_cfg(json, toks, count, object, cfg) != 0) return -1;
+
+    int value_obj = bake_json_find_object_key(json, toks, count, object, "value");
+    if (bake_parse_project_value_cfg(json, toks, count, value_obj, cfg) != 0) return -1;
+
+    if (bake_parse_project_lang_cfg(json, toks, count, object, cfg) != 0) return -1;
+
+    if (parse_dependee) {
+        int value_dependee_obj = -1;
+        if (value_obj >= 0) {
+            value_dependee_obj = bake_json_find_object_key(
+                json, toks, count, value_obj, "dependee");
+        }
+        if (bake_parse_dependee_cfg(
+            json, toks, count, value_dependee_obj, &cfg->dependee) != 0)
+        {
+            return -1;
+        }
+
+        int root_dependee_obj = bake_json_find_object_key(
+            json, toks, count, object, "dependee");
+        if (bake_parse_dependee_cfg(
+            json, toks, count, root_dependee_obj, &cfg->dependee) != 0)
+        {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+static int bake_parse_dependee_cfg(
+    const char *json,
+    const jsmntok_t *toks,
+    int count,
+    int object,
+    bake_dependee_cfg_t *cfg)
+{
+    if (object < 0) {
+        return 0;
+    }
+
+    if (toks[object].type != JSMN_OBJECT) {
+        return -1;
+    }
+
+    if (!cfg->cfg) {
+        cfg->cfg = ecs_os_calloc_t(bake_project_cfg_t);
+        if (!cfg->cfg) {
+            return -1;
+        }
+        bake_project_cfg_init_impl(cfg->cfg, false, false);
+    }
+
+    if (bake_parse_project_cfg_object(
+        json, toks, count, object, cfg->cfg, false, false) != 0)
+    {
+        return -1;
+    }
+
+    char *dependee_json = bake_json_strdup(json, &toks[object]);
+    if (!dependee_json) {
+        return -1;
+    }
+
+    ecs_os_free(cfg->json);
+    cfg->json = dependee_json;
     return 0;
 }
 
@@ -595,6 +764,10 @@ static int bake_parse_rules(const char *json, const jsmntok_t *toks, int count, 
 }
 
 static int bake_project_cfg_finalize_defaults(const char *project_json_path, bake_project_cfg_t *cfg) {
+    if (cfg->kind == BAKE_PROJECT_TEST) {
+        cfg->public_project = false;
+    }
+
     if (!cfg->path) {
         cfg->path = bake_dirname(project_json_path);
     }
@@ -662,64 +835,11 @@ int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t
     }
 
     int root = 0;
-    if (bake_json_get_string(json, tokens, parsed, root, "id", &cfg->id) < 0) goto error;
-
-    char *type = NULL;
-    if (bake_json_get_string(json, tokens, parsed, root, "type", &type) < 0) goto error;
-    if (type) {
-        cfg->kind = bake_project_kind_parse(type);
-        ecs_os_free(type);
+    if (bake_parse_project_cfg_object(
+        json, tokens, parsed, root, cfg, true, true) != 0)
+    {
+        goto error;
     }
-
-    if (bake_json_get_array(json, tokens, parsed, root, "drivers", &cfg->drivers) < 0) goto error;
-    if (bake_json_get_array(json, tokens, parsed, root, "plugins", &cfg->plugins) < 0) goto error;
-
-    int test_obj = bake_json_find_object_key(json, tokens, parsed, root, "test");
-    if (test_obj >= 0 && tokens[test_obj].type == JSMN_OBJECT) {
-        cfg->has_test_spec = true;
-        if (cfg->kind == BAKE_PROJECT_APPLICATION) {
-            cfg->kind = BAKE_PROJECT_TEST;
-        }
-    }
-
-    int rules_tok = bake_json_find_object_key(json, tokens, parsed, root, "rules");
-    if (bake_parse_rules(json, tokens, parsed, rules_tok, &cfg->rules) != 0) goto error;
-
-    int value_obj = bake_json_find_object_key(json, tokens, parsed, root, "value");
-    if (value_obj >= 0) {
-        if (tokens[value_obj].type != JSMN_OBJECT) goto error;
-        if (bake_json_get_string(json, tokens, parsed, value_obj, "language", &cfg->language) < 0) goto error;
-        if (bake_json_get_string(json, tokens, parsed, value_obj, "output", &cfg->output_name) < 0) goto error;
-        if (bake_json_get_string(json, tokens, parsed, value_obj, "artefact", &cfg->output_name) < 0) goto error;
-
-        if (bake_json_get_bool(json, tokens, parsed, value_obj, "private", &cfg->private_project) < 0) goto error;
-        if (bake_json_get_bool(json, tokens, parsed, value_obj, "standalone", &cfg->standalone) < 0) goto error;
-        if (bake_json_get_bool(json, tokens, parsed, value_obj, "amalgamate", &cfg->amalgamate) < 0) goto error;
-        if (bake_json_get_string_alias(
-            json, tokens, parsed, value_obj,
-            "amalgamate-path", "amalgamate_path",
-            &cfg->amalgamate_path) < 0)
-        {
-            goto error;
-        }
-
-        if (bake_json_get_array_alias(json, tokens, parsed, value_obj, "use", NULL, &cfg->use) < 0) goto error;
-        if (bake_json_get_array_alias(json, tokens, parsed, value_obj, "use-private", "use_private", &cfg->use_private) < 0) goto error;
-        if (bake_json_get_array_alias(json, tokens, parsed, value_obj, "use-build", "use_build", &cfg->use_build) < 0) goto error;
-        if (bake_json_get_array_alias(json, tokens, parsed, value_obj, "use-runtime", "use_runtime", &cfg->use_runtime) < 0) goto error;
-
-        int dependee_obj = bake_json_find_object_key(json, tokens, parsed, value_obj, "dependee");
-        if (bake_parse_dependee_cfg(json, tokens, parsed, dependee_obj, &cfg->dependee) != 0) goto error;
-    }
-
-    int c_obj = bake_json_find_object_key(json, tokens, parsed, root, "lang.c");
-    if (bake_parse_lang_cfg(json, tokens, parsed, c_obj, &cfg->c_lang) != 0) goto error;
-
-    int cpp_obj = bake_json_find_object_key(json, tokens, parsed, root, "lang.cpp");
-    if (bake_parse_lang_cfg(json, tokens, parsed, cpp_obj, &cfg->cpp_lang) != 0) goto error;
-
-    int root_dependee_obj = bake_json_find_object_key(json, tokens, parsed, root, "dependee");
-    if (bake_parse_dependee_cfg(json, tokens, parsed, root_dependee_obj, &cfg->dependee) != 0) goto error;
 
     cfg->path = bake_dirname(project_json_path);
 

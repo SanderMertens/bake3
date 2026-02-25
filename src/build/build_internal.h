@@ -64,7 +64,11 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
 int bake_collect_compile_units(const bake_project_cfg_t *cfg, const bake_build_paths_t *paths, bool include_tests, bake_compile_list_t *units);
 int bake_execute_rules(const bake_project_cfg_t *cfg, const bake_build_paths_t *paths);
 int bake_generate_dep_header(ecs_world_t *world, const bake_project_cfg_t *cfg, const bake_build_paths_t *paths);
-int bake_apply_dependee_config(ecs_world_t *world, ecs_entity_t project_entity, bake_lang_cfg_t *dst);
+int bake_apply_dependee_config(
+    ecs_world_t *world,
+    ecs_entity_t project_entity,
+    bake_lang_cfg_t *dst,
+    bool cpp_lang);
 
 bake_compiler_kind_t bake_detect_compiler_kind(const char *cc, const char *cxx);
 void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strlist_t *cflags, bake_strlist_t *cxxflags, bake_strlist_t *ldflags);
@@ -72,9 +76,27 @@ void bake_add_strict_flags(bool strict, bake_compiler_kind_t kind, bake_strlist_
 int bake_list_append_fmt(ecs_strbuf_t *buf, const bake_strlist_t *list, const char *prefix, bool quote);
 char* bake_project_id_as_macro(const char *id);
 
-int bake_compile_units_parallel(bake_context_t *ctx, const bake_project_cfg_t *cfg, const bake_build_paths_t *paths, const bake_compile_list_t *units, const bake_lang_cfg_t *lang, const bake_lang_cfg_t *cpp_lang, const bake_strlist_t *mode_cflags, const bake_strlist_t *mode_cxxflags);
+int bake_compile_units_parallel(
+    bake_context_t *ctx,
+    const bake_project_cfg_t *cfg,
+    const bake_build_paths_t *paths,
+    const bake_compile_list_t *units,
+    const bake_lang_cfg_t *lang,
+    const bake_lang_cfg_t *cpp_lang,
+    const bake_strlist_t *mode_cflags,
+    const bake_strlist_t *mode_cxxflags,
+    int32_t *compiled_count_out);
 
-int bake_link_project_binary(bake_context_t *ctx, ecs_entity_t project_entity, const bake_project_cfg_t *cfg, const bake_build_paths_t *paths, const bake_compile_list_t *units, const bake_lang_cfg_t *lang, const bake_strlist_t *mode_ldflags, char **artefact_out);
+int bake_link_project_binary(
+    bake_context_t *ctx,
+    ecs_entity_t project_entity,
+    const bake_project_cfg_t *cfg,
+    const bake_build_paths_t *paths,
+    const bake_compile_list_t *units,
+    const bake_lang_cfg_t *lang,
+    const bake_strlist_t *mode_ldflags,
+    char **artefact_out,
+    bool *linked_out);
 
 int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_strbuf_t *cmd);
 int bake_compose_compile_command_msvc(const bake_compile_cmd_ctx_t *ctx, ecs_strbuf_t *cmd);

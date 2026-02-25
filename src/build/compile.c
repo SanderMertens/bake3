@@ -303,7 +303,70 @@ void bake_add_strict_flags(
     bake_strlist_append(ldflags, "-Wpedantic");
 }
 
-static void bake_collect_dependency_include_dirs(ecs_world_t *world, ecs_entity_t project_entity, bake_strlist_t *paths) {
+static void bake_add_project_include_path(
+    const bake_context_t *ctx,
+    const BakeProject *project,
+    bake_strlist_t *paths)
+{
+    if (!project || !project->cfg) {
+        return;
+    }
+
+    char *include = NULL;
+    if (project->external && ctx->bake_home && project->cfg->id) {
+        include = bake_join3_path(ctx->bake_home, "include", project->cfg->id);
+    }
+
+    if (!include && project->cfg->path) {
+        include = bake_join_path(project->cfg->path, "include");
+    }
+
+    if (include) {
+        if (bake_path_exists(include) && !bake_strlist_contains(paths, include)) {
+            bake_strlist_append(paths, include);
+        }
+        ecs_os_free(include);
+    }
+}
+
+static void bake_collect_dependee_use_include_dirs(
+    const bake_context_t *ctx,
+    ecs_world_t *world,
+    const bake_project_cfg_t *dependee_cfg,
+    bake_strlist_t *paths)
+{
+    if (!dependee_cfg) {
+        return;
+    }
+
+    const bake_strlist_t *lists[] = {
+        &dependee_cfg->use,
+        &dependee_cfg->use_private,
+        &dependee_cfg->use_build,
+        &dependee_cfg->use_runtime
+    };
+
+    for (int32_t l = 0; l < 4; l++) {
+        const bake_strlist_t *list = lists[l];
+        for (int32_t u = 0; u < list->count; u++) {
+            const BakeProject *dependee_use = bake_model_find_project(
+                world,
+                list->items[u],
+                NULL);
+            if (!dependee_use || !dependee_use->cfg) {
+                continue;
+            }
+            bake_add_project_include_path(ctx, dependee_use, paths);
+        }
+    }
+}
+
+static void bake_collect_dependency_include_dirs(
+    const bake_context_t *ctx,
+    ecs_world_t *world,
+    ecs_entity_t project_entity,
+    bake_strlist_t *paths)
+{
     for (int32_t i = 0;; i++) {
         ecs_entity_t dep = ecs_get_target(world, project_entity, BakeDependsOn, i);
         if (!dep) {
@@ -315,37 +378,17 @@ static void bake_collect_dependency_include_dirs(ecs_world_t *world, ecs_entity_
             continue;
         }
 
-        if (dep_project->cfg->path) {
-            char *include = bake_join_path(dep_project->cfg->path, "include");
-            if (include) {
-                if (bake_path_exists(include) && !bake_strlist_contains(paths, include)) {
-                    bake_strlist_append(paths, include);
-                }
-                ecs_os_free(include);
-            }
-        }
+        bake_add_project_include_path(ctx, dep_project, paths);
 
-        for (int32_t u = 0; u < dep_project->cfg->dependee.use.count; u++) {
-            const BakeProject *dependee_use = bake_model_find_project(
-                world,
-                dep_project->cfg->dependee.use.items[u],
-                NULL);
-            if (!dependee_use || !dependee_use->cfg || !dependee_use->cfg->path) {
-                continue;
-            }
-
-            char *include = bake_join_path(dependee_use->cfg->path, "include");
-            if (include) {
-                if (bake_path_exists(include) && !bake_strlist_contains(paths, include)) {
-                    bake_strlist_append(paths, include);
-                }
-                ecs_os_free(include);
-            }
+        if (dep_project->cfg->dependee.cfg) {
+            bake_collect_dependee_use_include_dirs(
+                ctx, world, dep_project->cfg->dependee.cfg, paths);
         }
     }
 }
 
 static void bake_collect_dependency_link_inputs(
+    const bake_context_t *ctx,
     ecs_world_t *world,
     ecs_entity_t project_entity,
     const char *mode,
@@ -353,6 +396,11 @@ static void bake_collect_dependency_link_inputs(
     bake_strlist_t *libpaths,
     bake_strlist_t *libs)
 {
+    bake_strlist_t artefact_libpaths;
+    bake_strlist_init(&artefact_libpaths);
+
+    const bake_strlist_t *dependee_use_lists[4];
+
     for (int32_t i = 0;; i++) {
         ecs_entity_t dep = ecs_get_target(world, project_entity, BakeDependsOn, i);
         if (!dep) {
@@ -362,10 +410,19 @@ static void bake_collect_dependency_link_inputs(
         const BakeBuildResult *result = ecs_get(world, dep, BakeBuildResult);
         if (result && result->artefact && !bake_strlist_contains(artefacts, result->artefact)) {
             bake_strlist_append(artefacts, result->artefact);
+            char *libdir = bake_dirname(result->artefact);
+            if (libdir) {
+                if (!bake_strlist_contains(&artefact_libpaths, libdir)) {
+                    bake_strlist_append(&artefact_libpaths, libdir);
+                }
+                ecs_os_free(libdir);
+            }
         }
 
         const BakeProject *dep_project = ecs_get(world, dep, BakeProject);
-        if (dep_project && dep_project->cfg && dep_project->cfg->path) {
+        if (dep_project && dep_project->cfg && dep_project->cfg->path &&
+            !dep_project->external)
+        {
             char *lib = bake_project_build_root(dep_project->cfg->path, mode);
             if (lib && bake_path_exists(lib) && !bake_strlist_contains(libpaths, lib)) {
                 bake_strlist_append(libpaths, lib);
@@ -374,40 +431,72 @@ static void bake_collect_dependency_link_inputs(
         }
 
         if (dep_project && dep_project->cfg) {
-            bake_merge_strlist_unique_local(libs, &dep_project->cfg->dependee.libs);
+            const bake_project_cfg_t *dependee_cfg = dep_project->cfg->dependee.cfg;
+            if (dependee_cfg) {
+                bake_merge_strlist_unique_local(libs, &dependee_cfg->c_lang.libs);
+                bake_merge_strlist_unique_local(libs, &dependee_cfg->cpp_lang.libs);
 
-            for (int32_t u = 0; u < dep_project->cfg->dependee.use.count; u++) {
-                ecs_entity_t dependee_use_e = 0;
-                const BakeProject *use_project = bake_model_find_project(
-                    world,
-                    dep_project->cfg->dependee.use.items[u],
-                    &dependee_use_e);
-                if (use_project && use_project->cfg) {
-                    const BakeBuildResult *use_result = ecs_get(
-                        world, dependee_use_e, BakeBuildResult);
-                    if (use_result && use_result->artefact &&
-                        !bake_strlist_contains(artefacts, use_result->artefact))
-                    {
-                        bake_strlist_append(artefacts, use_result->artefact);
-                    }
+                dependee_use_lists[0] = &dependee_cfg->use;
+                dependee_use_lists[1] = &dependee_cfg->use_private;
+                dependee_use_lists[2] = &dependee_cfg->use_build;
+                dependee_use_lists[3] = &dependee_cfg->use_runtime;
 
-                    if (use_project->cfg->path) {
-                        char *lib = bake_project_build_root(
-                            use_project->cfg->path, mode);
-                        if (lib && bake_path_exists(lib) &&
-                            !bake_strlist_contains(libpaths, lib))
-                        {
-                            bake_strlist_append(libpaths, lib);
+                for (int32_t l = 0; l < 4; l++) {
+                    const bake_strlist_t *dependee_use = dependee_use_lists[l];
+                    for (int32_t u = 0; u < dependee_use->count; u++) {
+                        ecs_entity_t dependee_use_e = 0;
+                        const BakeProject *use_project = bake_model_find_project(
+                            world,
+                            dependee_use->items[u],
+                            &dependee_use_e);
+                        if (use_project && use_project->cfg) {
+                            const BakeBuildResult *use_result = ecs_get(
+                                world, dependee_use_e, BakeBuildResult);
+                            if (use_result && use_result->artefact &&
+                                !bake_strlist_contains(artefacts, use_result->artefact))
+                            {
+                                bake_strlist_append(artefacts, use_result->artefact);
+                                char *libdir = bake_dirname(use_result->artefact);
+                                if (libdir) {
+                                    if (!bake_strlist_contains(&artefact_libpaths, libdir)) {
+                                        bake_strlist_append(&artefact_libpaths, libdir);
+                                    }
+                                    ecs_os_free(libdir);
+                                }
+                            }
+
+                            if (use_project->cfg->path && !use_project->external) {
+                                char *lib = bake_project_build_root(
+                                    use_project->cfg->path, mode);
+                                if (lib && bake_path_exists(lib) &&
+                                    !bake_strlist_contains(libpaths, lib))
+                                {
+                                    bake_strlist_append(libpaths, lib);
+                                }
+                                ecs_os_free(lib);
+                            }
+
+                            if (use_project->cfg->dependee.cfg) {
+                                bake_merge_strlist_unique_local(
+                                    libs, &use_project->cfg->dependee.cfg->c_lang.libs);
+                                bake_merge_strlist_unique_local(
+                                    libs, &use_project->cfg->dependee.cfg->cpp_lang.libs);
+                            }
                         }
-                        ecs_os_free(lib);
                     }
-
-                    bake_merge_strlist_unique_local(
-                        libs, &use_project->cfg->dependee.libs);
                 }
             }
         }
     }
+
+    for (int32_t i = 0; i < artefact_libpaths.count; i++) {
+        if (!bake_strlist_contains(libpaths, artefact_libpaths.items[i])) {
+            bake_strlist_append(libpaths, artefact_libpaths.items[i]);
+        }
+    }
+    bake_strlist_fini(&artefact_libpaths);
+
+    BAKE_UNUSED(ctx);
 }
 
 typedef struct bake_compile_ctx_t {
@@ -593,9 +682,13 @@ int bake_compile_units_parallel(
     const bake_lang_cfg_t *lang,
     const bake_lang_cfg_t *cpp_lang,
     const bake_strlist_t *mode_cflags,
-    const bake_strlist_t *mode_cxxflags)
+    const bake_strlist_t *mode_cxxflags,
+    int32_t *compiled_count_out)
 {
     bake_proc_clear_interrupt();
+    if (compiled_count_out) {
+        *compiled_count_out = 0;
+    }
 
     if (units->count == 0) {
         return 0;
@@ -639,7 +732,8 @@ int bake_compile_units_parallel(
     }
 
     bake_strlist_init(&compile_ctx.dep_includes);
-    bake_collect_dependency_include_dirs(ctx->world, project_entity, &compile_ctx.dep_includes);
+    bake_collect_dependency_include_dirs(
+        ctx, ctx->world, project_entity, &compile_ctx.dep_includes);
     compile_ctx.print_lock = ecs_os_mutex_new();
 
     int32_t workers = ctx->thread_count;
@@ -675,7 +769,42 @@ int bake_compile_units_parallel(
     }
     ecs_os_free(compile_ctx.compile_mask);
 
+    if (!compile_ctx.failed && compiled_count_out) {
+        *compiled_count_out = compile_ctx.compile_total;
+    }
+
     return compile_ctx.failed ? -1 : 0;
+}
+
+static bool bake_link_inputs_outdated(
+    const char *artefact,
+    const bake_compile_list_t *units,
+    const bake_strlist_t *dep_artefacts)
+{
+    if (!artefact || !bake_path_exists(artefact)) {
+        return true;
+    }
+
+    int64_t artefact_mtime = bake_file_mtime(artefact);
+    if (artefact_mtime < 0) {
+        return true;
+    }
+
+    for (int32_t i = 0; i < units->count; i++) {
+        int64_t mtime = bake_file_mtime(units->items[i].obj);
+        if (mtime < 0 || mtime > artefact_mtime) {
+            return true;
+        }
+    }
+
+    for (int32_t i = 0; i < dep_artefacts->count; i++) {
+        int64_t mtime = bake_file_mtime(dep_artefacts->items[i]);
+        if (mtime < 0 || mtime > artefact_mtime) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 int bake_link_project_binary(
@@ -686,8 +815,13 @@ int bake_link_project_binary(
     const bake_compile_list_t *units,
     const bake_lang_cfg_t *lang,
     const bake_strlist_t *mode_ldflags,
-    char **artefact_out)
+    char **artefact_out,
+    bool *linked_out)
 {
+    if (linked_out) {
+        *linked_out = false;
+    }
+
     if (cfg->kind == BAKE_PROJECT_CONFIG || cfg->kind == BAKE_PROJECT_TEMPLATE) {
         *artefact_out = NULL;
         return 0;
@@ -701,6 +835,7 @@ int bake_link_project_binary(
     bake_strlist_init(&dep_libs);
 
     bake_collect_dependency_link_inputs(
+        ctx,
         ctx->world,
         project_entity,
         ctx->opts.mode,
@@ -740,6 +875,14 @@ int bake_link_project_binary(
         bake_strlist_fini(&dep_libpaths);
         bake_strlist_fini(&dep_libs);
         return -1;
+    }
+
+    if (!bake_link_inputs_outdated(artefact, units, &dep_artefacts)) {
+        bake_strlist_fini(&dep_artefacts);
+        bake_strlist_fini(&dep_libpaths);
+        bake_strlist_fini(&dep_libs);
+        *artefact_out = artefact;
+        return 0;
     }
 
     bool use_cpp = false;
@@ -792,6 +935,9 @@ int bake_link_project_binary(
         return -1;
     }
 
+    if (linked_out) {
+        *linked_out = true;
+    }
     *artefact_out = artefact;
     return 0;
 }

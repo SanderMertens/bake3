@@ -223,7 +223,12 @@ void bake_model_link_dependencies(ecs_world_t *world) {
             bake_model_link_project_list(world, e, &cfg->use_private);
             bake_model_link_project_list(world, e, &cfg->use_build);
             bake_model_link_project_list(world, e, &cfg->use_runtime);
-            bake_model_link_project_list(world, e, &cfg->dependee.use);
+            if (cfg->dependee.cfg) {
+                bake_model_link_project_list(world, e, &cfg->dependee.cfg->use);
+                bake_model_link_project_list(world, e, &cfg->dependee.cfg->use_private);
+                bake_model_link_project_list(world, e, &cfg->dependee.cfg->use_build);
+                bake_model_link_project_list(world, e, &cfg->dependee.cfg->use_runtime);
+            }
         }
     }
 }

@@ -93,6 +93,10 @@ char* bake_host_triplet(const char *mode) {
     return bake_asprintf("%s-%s-%s", bake_host_arch(), bake_os_host(), cfg);
 }
 
+char* bake_host_platform(void) {
+    return bake_asprintf("%s-%s", bake_host_arch(), bake_os_host());
+}
+
 char* bake_project_build_root(const char *project_path, const char *mode) {
     if (!project_path || !project_path[0]) {
         return NULL;

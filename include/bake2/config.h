@@ -29,13 +29,11 @@ typedef struct bake_rule_list_t {
     int32_t capacity;
 } bake_rule_list_t;
 
+typedef struct bake_project_cfg_t bake_project_cfg_t;
+
 typedef struct bake_dependee_cfg_t {
-    bake_strlist_t use;
-    bake_strlist_t defines;
-    bake_strlist_t include_paths;
-    bake_strlist_t cflags;
-    bake_strlist_t ldflags;
-    bake_strlist_t libs;
+    bake_project_cfg_t *cfg;
+    char *json;
 } bake_dependee_cfg_t;
 
 typedef struct bake_lang_cfg_t {
@@ -55,11 +53,12 @@ typedef struct bake_lang_cfg_t {
     bool precompile_header;
 } bake_lang_cfg_t;
 
-typedef struct bake_project_cfg_t {
+struct bake_project_cfg_t {
     char *id;
     char *path;
     bake_project_kind_t kind;
     bool has_test_spec;
+    bool public_project;
     char *language;
     char *output_name;
 
@@ -81,7 +80,7 @@ typedef struct bake_project_cfg_t {
     bake_lang_cfg_t cpp_lang;
 
     bake_rule_list_t rules;
-} bake_project_cfg_t;
+};
 
 typedef struct bake_build_mode_t {
     const char *id;

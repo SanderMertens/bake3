@@ -84,15 +84,11 @@ int bake_discover_projects(bake_context_t *ctx, const char *start_path) {
         return -1;
     }
 
-    if (bake_environment_import_projects(ctx) < 0) {
+    if (bake_environment_import_dependency_closure(ctx) < 0) {
         return -1;
     }
 
     bake_model_link_dependencies(ctx->world);
-
-    if (bake_environment_save(ctx) != 0) {
-        ecs_warn("failed to save bake environment");
-    }
 
     return discovery.discovered;
 }

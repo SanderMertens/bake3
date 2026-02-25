@@ -26,7 +26,7 @@ static int bake_is_c_source(const char *path, bool *cpp_out) {
 
 static char* bake_rel_path(const char *base, const char *path) {
     size_t base_len = strlen(base);
-    if (!strncmp(base, path, base_len) && (path[base_len] == BAKE_PATH_SEP || path[base_len] == '/')) {
+    if (!strncmp(base, path, base_len) && (path[base_len] == bake_os_path_sep() || path[base_len] == '/')) {
         return bake_strdup(path + base_len + 1);
     }
     return bake_basename(path);
@@ -399,7 +399,27 @@ static void bake_merge_strlist_unique(bake_strlist_t *dst, const bake_strlist_t 
     }
 }
 
-int bake_apply_dependee_config(ecs_world_t *world, ecs_entity_t project_entity, bake_lang_cfg_t *dst) {
+static void bake_merge_lang_cfg_unique(
+    bake_lang_cfg_t *dst,
+    const bake_lang_cfg_t *src)
+{
+    bake_merge_strlist_unique(&dst->cflags, &src->cflags);
+    bake_merge_strlist_unique(&dst->cxxflags, &src->cxxflags);
+    bake_merge_strlist_unique(&dst->defines, &src->defines);
+    bake_merge_strlist_unique(&dst->ldflags, &src->ldflags);
+    bake_merge_strlist_unique(&dst->libs, &src->libs);
+    bake_merge_strlist_unique(&dst->static_libs, &src->static_libs);
+    bake_merge_strlist_unique(&dst->libpaths, &src->libpaths);
+    bake_merge_strlist_unique(&dst->links, &src->links);
+    bake_merge_strlist_unique(&dst->include_paths, &src->include_paths);
+}
+
+int bake_apply_dependee_config(
+    ecs_world_t *world,
+    ecs_entity_t project_entity,
+    bake_lang_cfg_t *dst,
+    bool cpp_lang)
+{
     for (int32_t i = 0;; i++) {
         ecs_entity_t dep = ecs_get_target(world, project_entity, BakeDependsOn, i);
         if (!dep) {
@@ -411,11 +431,14 @@ int bake_apply_dependee_config(ecs_world_t *world, ecs_entity_t project_entity, 
             continue;
         }
 
-        bake_merge_strlist_unique(&dst->defines, &dep_p->cfg->dependee.defines);
-        bake_merge_strlist_unique(&dst->include_paths, &dep_p->cfg->dependee.include_paths);
-        bake_merge_strlist_unique(&dst->cflags, &dep_p->cfg->dependee.cflags);
-        bake_merge_strlist_unique(&dst->ldflags, &dep_p->cfg->dependee.ldflags);
-        bake_merge_strlist_unique(&dst->libs, &dep_p->cfg->dependee.libs);
+        if (!dep_p->cfg->dependee.cfg) {
+            continue;
+        }
+
+        const bake_lang_cfg_t *dep_lang = cpp_lang
+            ? &dep_p->cfg->dependee.cfg->cpp_lang
+            : &dep_p->cfg->dependee.cfg->c_lang;
+        bake_merge_lang_cfg_unique(dst, dep_lang);
     }
 
     return 0;
