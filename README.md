@@ -231,7 +231,7 @@ If one of the discovered projects have a dependency on a project that is not dis
 If the project also cannot be found in the bake environment, the build cannot proceed, and an error will be thrown.
 
 ## Bake Environment
-When a project is built with bake, an entry for it will be stored in the bake environment. The location of the bake environment is read from the `BAKE_HOME` environment variable. If the variable is not set, `~/bake` is used.
+When a project is built with bake, an entry for it will be stored in the bake environment. The location of the bake environment is read from the `BAKE_HOME` environment variable. If the variable is not set, `~/bake3` is used.
 
 The bake environment has the following directories:
 

@@ -435,7 +435,7 @@ int bake_environment_init_paths(bake_context_t *ctx) {
         if (!home) {
             return -1;
         }
-        ctx->bake_home = bake_join_path(home, "bake");
+        ctx->bake_home = bake_join_path(home, "bake3");
         ecs_os_free(home);
     }
 
