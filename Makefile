@@ -1,5 +1,12 @@
 CC ?= cc
-CFLAGS ?= -std=c99 -Wall -Wextra -Werror -pedantic -g
+OPTIMIZE ?= 0
+ifeq ($(OPTIMIZE),1)
+  OPTFLAGS ?= -O3
+else
+  OPTFLAGS ?= -g
+endif
+
+CFLAGS ?= -std=c99 -Wall -Wextra -Werror -pedantic $(OPTFLAGS)
 LDFLAGS ?=
 
 SRC := $(shell find src -name '*.c' | sort)
