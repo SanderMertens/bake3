@@ -646,7 +646,9 @@ int bake_build_run(bake_context_t *ctx) {
         goto cleanup;
     }
 
-    if (!strcmp(ctx->opts.command, "build")) {
+    if (!strcmp(ctx->opts.command, "build") ||
+        !strcmp(ctx->opts.command, "rebuild"))
+    {
         goto cleanup;
     }
 
