@@ -1,5 +1,6 @@
 /build/
-**/.bake/
+.bake
+.bake_cache
 **/.bake_flecs_cache/
 **/bin/
 test/tmp

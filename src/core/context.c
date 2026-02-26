@@ -4,6 +4,23 @@
 #include "bake/os.h"
 
 static
+void bake_context_init_env(const bake_options_t *opts) {
+
+    if (!opts || !opts->mode || strcmp(opts->mode, "sanitize")) {
+        return;
+    }
+
+    if (strcmp(bake_host_os(), "Darwin")) {
+        return;
+    }
+
+    /* ASan on macOS can spam nano-zone warnings; default this off for sanitize. */
+    if (!getenv("MallocNanoZone")) {
+        bake_setenv("MallocNanoZone", "0");
+    }
+}
+
+static
 void bake_print_header(
     FILE *stream,
     int level,
@@ -95,7 +112,10 @@ void bake_log(
 int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
     memset(ctx, 0, sizeof(*ctx));
     ctx->opts = *opts;
+
     bake_project_cfg_set_eval_context(opts->mode, NULL);
+    bake_context_init_env(opts);
+
     if (opts->jobs > 0) {
         ctx->thread_count = opts->jobs;
     } else {
