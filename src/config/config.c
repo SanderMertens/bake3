@@ -104,82 +104,6 @@ static int bake_json_conditional_key_matches(const char *key) {
     return match;
 }
 
-static char* bake_json_strip_comments(const char *json, size_t len, size_t *len_out) {
-    if (!json) {
-        return NULL;
-    }
-
-    char *out = ecs_os_malloc(len + 1);
-    if (!out) {
-        return NULL;
-    }
-
-    size_t r = 0;
-    size_t w = 0;
-    bool in_string = false;
-    bool escaped = false;
-
-    while (r < len) {
-        char ch = json[r];
-
-        if (in_string) {
-            out[w++] = ch;
-            if (escaped) {
-                escaped = false;
-            } else if (ch == '\\') {
-                escaped = true;
-            } else if (ch == '"') {
-                in_string = false;
-            }
-            r++;
-            continue;
-        }
-
-        if (ch == '"') {
-            in_string = true;
-            out[w++] = ch;
-            r++;
-            continue;
-        }
-
-        if (ch == '/' && (r + 1) < len) {
-            char next = json[r + 1];
-
-            if (next == '/') {
-                r += 2;
-                while (r < len && json[r] != '\n') {
-                    r++;
-                }
-                continue;
-            }
-
-            if (next == '*') {
-                r += 2;
-                while ((r + 1) < len) {
-                    if (json[r] == '\n') {
-                        out[w++] = '\n';
-                    }
-                    if (json[r] == '*' && json[r + 1] == '/') {
-                        r += 2;
-                        break;
-                    }
-                    r++;
-                }
-                continue;
-            }
-        }
-
-        out[w++] = ch;
-        r++;
-    }
-
-    out[w] = '\0';
-    if (len_out) {
-        *len_out = w;
-    }
-    return out;
-}
-
 static char* bake_json_strdup_value(const JSON_Value *value) {
     if (!value) {
         return NULL;
@@ -942,24 +866,16 @@ static int bake_project_cfg_finalize_defaults(const char *project_json_path, bak
 
 int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t *cfg) {
     size_t len = 0;
-    char *json_raw = bake_read_file(project_json_path, &len);
-    if (!json_raw) {
-        return -1;
-    }
-
-    size_t json_len = len;
-    char *json = bake_json_strip_comments(json_raw, len, &json_len);
+    char *json = bake_read_file(project_json_path, &len);
     if (!json) {
-        ecs_os_free(json_raw);
         return -1;
     }
 
-    JSON_Value *root_value = json_parse_string(json);
+    JSON_Value *root_value = json_parse_string_with_comments(json);
     const JSON_Object *root = root_value ? json_value_get_object(root_value) : NULL;
     if (!root) {
         json_value_free(root_value);
         ecs_os_free(json);
-        ecs_os_free(json_raw);
         return -1;
     }
 
@@ -975,12 +891,10 @@ int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t
 
     json_value_free(root_value);
     ecs_os_free(json);
-    ecs_os_free(json_raw);
     return 0;
 
 error:
     json_value_free(root_value);
     ecs_os_free(json);
-    ecs_os_free(json_raw);
     return -1;
 }
