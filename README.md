@@ -272,4 +272,4 @@ Then run this command to initialize the bake environment:
 ```
 
 ## Testing
-To test bake, run `run_tests.sh` in the root folder of the project.
+To test bake, run `python3 run_tests.py` in the root folder of the project.
