@@ -5,6 +5,8 @@ Bake accomplishes this by creating entries for projects in a bake environment (s
 
 Bake is not yet-another-cmake-or-make wrapper. Instead, it emits compiler commands directly which speeds up builds and simplifies installation. Bake supports clang, gcc and msvc on MacOS, Linux and Windows.
 
+**WARNING: Heavy work in progress. If you are looking for a stable build system, do not use this!! Take a look instead at https://github.com/SanderMertens/bake**
+
 ## Commands
 Build project in current directory:
 ```
