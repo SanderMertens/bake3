@@ -18,13 +18,13 @@ endif
 
 all: $(BIN)
 
-build/flecs.o: flecs/distr/flecs.c
+build/flecs.o: deps/flecs.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -I flecs/distr -c $< -o $@
+	$(CC) $(CFLAGS) -I deps -c $< -o $@
 
 build/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -I include -I flecs/distr -c $< -o $@
+	$(CC) $(CFLAGS) -I include -I deps -c $< -o $@
 
 $(BIN): $(OBJ)
 	@mkdir -p $(dir $@)

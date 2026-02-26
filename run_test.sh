@@ -2,21 +2,81 @@
 
 # Build bake
 make clean
-make
+make -j 8
 
-# Clean all test projects
-./build/bake clean
+## ---
+echo
+echo "Reset environment"
+./build/bake clean test
+./build/bake reset
+echo "Listing (should be empty)"
+./build/bake list
+echo
 
-# Build test projects
-./build/bake test/projects
+# ---
+echo
+echo "Build test"
+./build/bake build test
+echo "Listing (should show flecs + modules)"
+./build/bake list
+echo
 
-# Build integration tests
-./build/bake test/integration
+## ---
+echo
+echo "Reset environment"
+./build/bake clean test
+./build/bake reset
+echo "Listing (should be empty)"
+./build/bake list
+echo
 
-# Build projects and integration from test root
-./build/bake clean
-./build/bake test
+## ---
+echo
+echo "Build test/projects"
+./build/bake build test/projects
+echo "Listing (should be empty)"
+./build/bake list
+echo
 
-# Build module folder directly
-./build/bake clean
-./build/bake test/integration/flecs-module-test
+## ---
+echo
+echo "Reset environment"
+./build/bake clean test
+./build/bake reset
+echo "Listing (should be empty)"
+./build/bake list
+echo
+
+## ---
+echo
+echo "Build test/integration"
+./build/bake build test/integration
+echo "Listing (should show flecs + modules)"
+./build/bake list
+echo
+
+## ---
+echo
+echo "Reset environment"
+./build/bake clean test
+./build/bake reset
+echo "Listing (should be empty)"
+./build/bake list
+echo
+
+# ---
+echo
+echo "Build test/integration/flecs-modules-test"
+./build/bake build test/integration/flecs-modules-test
+echo "Listing (should show flecs + modules)"
+./build/bake list
+echo
+
+## ---
+echo
+echo "Reset environment"
+./build/bake clean test
+./build/bake reset
+echo "Listing (should be empty)"
+./build/bake list
+echo
