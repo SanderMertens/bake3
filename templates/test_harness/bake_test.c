@@ -12,6 +12,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #else
+#include <io.h>
 #include <windows.h>
 #endif
 
@@ -21,6 +22,10 @@
 #define BAKE_JMP_QUARANTINE (3)
 #define BAKE_TEST_EMPTY (2)
 #define BAKE_TEST_QUARANTINED (3)
+#define BAKE_COLOR_GREEN "\033[32m"
+#define BAKE_COLOR_YELLOW "\033[33m"
+#define BAKE_COLOR_RED "\033[31m"
+#define BAKE_COLOR_RESET "\033[0m"
 
 static bake_test_suite *g_current_suite = NULL;
 static bake_test_case *g_current_case = NULL;
@@ -36,6 +41,36 @@ static int g_cli_param_count = 0;
 static volatile sig_atomic_t g_interrupted = 0;
 static void bake_abort_handler(int sig);
 static void bake_interrupt_handler(int sig);
+
+static bool bake_use_colors(void) {
+    static int initialized = 0;
+    static bool enabled = false;
+    if (initialized) {
+        return enabled;
+    }
+
+    const char *no_color = getenv("NO_COLOR");
+    if (no_color && no_color[0]) {
+        initialized = 1;
+        return false;
+    }
+
+#if defined(_WIN32)
+    enabled = _isatty(_fileno(stdout)) != 0;
+#else
+    enabled = isatty(STDOUT_FILENO) != 0;
+#endif
+    initialized = 1;
+    return enabled;
+}
+
+static void bake_print_status(const char *status, const char *color) {
+    if (color && bake_use_colors()) {
+        printf("%s%s%s", color, status, BAKE_COLOR_RESET);
+    } else {
+        fputs(status, stdout);
+    }
+}
 
 static void bake_interrupt_handler(int sig) {
     (void)sig;
@@ -112,7 +147,12 @@ static void bake_print_debug_command(const char *exec, bake_test_suite *suite, b
 }
 
 static void bake_print_report(const char *test_id, const char *suite_id, const char *param_str, int pass, int fail, int empty) {
-    printf("PASS:%3d, FAIL:%3d, EMPTY:%3d (%s.%s%s)\n", pass, fail, empty, test_id, suite_id, param_str ? param_str : "");
+    bake_print_status("PASS", BAKE_COLOR_GREEN);
+    printf(":%3d, ", pass);
+    bake_print_status("FAIL", fail ? BAKE_COLOR_RED : NULL);
+    printf(":%3d, ", fail);
+    bake_print_status("EMPTY", empty ? BAKE_COLOR_YELLOW : NULL);
+    printf(":%3d (%s.%s%s)\n", empty, test_id, suite_id, param_str ? param_str : "");
 }
 
 static bool bake_char_is_space(char ch) {
@@ -325,9 +365,11 @@ static int bake_run_subprocess(const char *cmd, int *sig_out) {
 static void bake_set_failure(const char *file, int line, const char *msg, bool jump) {
     g_failed = true;
     if (g_current_suite && g_current_case) {
-        printf("FAIL: %s.%s:%d: %s\n", g_current_suite->id, g_current_case->id, line, msg);
+        bake_print_status("FAIL", BAKE_COLOR_RED);
+        printf(": %s.%s:%d: %s\n", g_current_suite->id, g_current_case->id, line, msg);
     } else {
-        printf("FAIL: %s:%d: %s\n", file, line, msg);
+        bake_print_status("FAIL", BAKE_COLOR_RED);
+        printf(": %s:%d: %s\n", file, line, msg);
     }
     if (jump && g_jmp_active) {
         longjmp(g_jmp, BAKE_JMP_FAIL);
@@ -561,7 +603,8 @@ static int bake_run_case(bake_test_suite *suite, bake_test_case *tc) {
     }
 
     if (g_quarantine_date) {
-        printf("SKIP: %s.%s: test was quarantined on %s\n", suite->id, tc->id, g_quarantine_date);
+        bake_print_status("SKIP", BAKE_COLOR_YELLOW);
+        printf(": %s.%s: test was quarantined on %s\n", suite->id, tc->id, g_quarantine_date);
         return BAKE_TEST_QUARANTINED;
     }
 
@@ -654,12 +697,15 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
 
         if (test_rc == BAKE_TEST_EMPTY) {
             empty ++;
+            bake_print_status("EMPTY", BAKE_COLOR_YELLOW);
+            printf(" %s.%s (add test statements)\n", suite->id, suite->testcases[i].id);
             bake_print_debug_command(exec, suite, &suite->testcases[i]);
             continue;
         }
 
         if (sig) {
-            printf("FAIL: %s.%s exited with signal %d\n", suite->id, suite->testcases[i].id, sig);
+            bake_print_status("FAIL", BAKE_COLOR_RED);
+            printf(": %s.%s exited with signal %d\n", suite->id, suite->testcases[i].id, sig);
         }
         fail ++;
         rc = -1;

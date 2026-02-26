@@ -1,12 +1,51 @@
 #include "bake_test_runtime.h"
 #include <stdio.h>
 #include <stdlib.h>
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
+#define BAKE_COLOR_RED "\033[31m"
+#define BAKE_COLOR_RESET "\033[0m"
+
+static bool bake_use_colors(void) {
+    static int initialized = 0;
+    static bool enabled = false;
+    if (initialized) {
+        return enabled;
+    }
+
+    const char *no_color = getenv("NO_COLOR");
+    if (no_color && no_color[0]) {
+        initialized = 1;
+        return false;
+    }
+
+#if defined(_WIN32)
+    enabled = _isatty(_fileno(stdout)) != 0;
+#else
+    enabled = isatty(STDOUT_FILENO) != 0;
+#endif
+    initialized = 1;
+    return enabled;
+}
+
+static void bake_print_fail_label(void) {
+    if (bake_use_colors()) {
+        printf("%sFAIL%s", BAKE_COLOR_RED, BAKE_COLOR_RESET);
+    } else {
+        fputs("FAIL", stdout);
+    }
+}
 
 #if defined(_WIN32)
 static int g_fail = 0;
 
 void bake_test_fail(const char *file, int32_t line, const char *expr) {
-    printf("FAIL %s:%d %s\n", file, line, expr);
+    bake_print_fail_label();
+    printf(" %s:%d %s\n", file, line, expr);
     g_fail ++;
 }
 
@@ -53,7 +92,8 @@ static void bake_test_case_from_index(bake_test_ctx_t *ctx, int32_t index, bake_
 }
 
 void bake_test_fail(const char *file, int32_t line, const char *expr) {
-    printf("FAIL %s:%d %s\n", file, line, expr);
+    bake_print_fail_label();
+    printf(" %s:%d %s\n", file, line, expr);
     if (g_ctx) {
         pthread_mutex_lock(&g_ctx->lock);
         g_ctx->fail ++;
