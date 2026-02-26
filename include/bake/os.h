@@ -38,7 +38,8 @@ int bake_os_unsetenv(const char *name);
 char* bake_os_get_home(void);
 const char* bake_os_executable_name(void);
 int32_t bake_os_default_threads(void);
-const char* bake_os_host(void);
+const char* bake_host_os(void);
+const char* bake_host_arch(void);
 
 int bake_os_path_exists(const char *path);
 int64_t bake_os_file_mtime(const char *path);

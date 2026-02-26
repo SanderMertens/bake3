@@ -82,7 +82,7 @@ static int bake_json_conditional_key_matches(const char *key) {
     int match = 0;
     if (value[0]) {
         if (!strcmp(kind, "os")) {
-            match = !strcasecmp(value, bake_os_host());
+            match = !strcasecmp(value, bake_host_os());
         } else if (!strcmp(kind, "cfg")) {
             const char *mode = bake_cfg_eval_mode ? bake_cfg_eval_mode : "debug";
             match = !strcasecmp(value, mode);

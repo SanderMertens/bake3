@@ -74,20 +74,6 @@ char* bake_asprintf(const char *fmt, ...) {
     return out;
 }
 
-static const char* bake_host_arch(void) {
-#if defined(__aarch64__) || defined(__arm64__) || defined(_M_ARM64)
-    return "arm64";
-#elif defined(__x86_64__) || defined(__amd64__) || defined(_M_X64)
-    return "x64";
-#elif defined(__i386__) || defined(_M_IX86)
-    return "x86";
-#elif defined(__arm__) || defined(_M_ARM)
-    return "arm";
-#else
-    return "unknown";
-#endif
-}
-
 static bool bake_common_path_is_sep(char ch) {
     return ch == '/' || ch == '\\';
 }
@@ -166,11 +152,11 @@ int bake_entity_list_append_unique(
 
 char* bake_host_triplet(const char *mode) {
     const char *cfg = mode && mode[0] ? mode : "debug";
-    return bake_asprintf("%s-%s-%s", bake_host_arch(), bake_os_host(), cfg);
+    return bake_asprintf("%s-%s-%s", bake_host_arch(), bake_host_os(), cfg);
 }
 
 char* bake_host_platform(void) {
-    return bake_asprintf("%s-%s", bake_host_arch(), bake_os_host());
+    return bake_asprintf("%s-%s", bake_host_arch(), bake_host_os());
 }
 
 char* bake_project_build_root(const char *project_path, const char *mode) {
