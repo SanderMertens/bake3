@@ -197,47 +197,39 @@ static char* bake_text_replace(const char *input, const char *needle, const char
     return out;
 }
 
-static char* bake_test_template_file(const char *file) {
+static char* bake_test_template_file(const bake_context_t *ctx, const char *file) {
+    if (!ctx || !ctx->bake_home || !ctx->bake_home[0]) {
+        ecs_err("cannot resolve test harness template '%s': BAKE_HOME is not initialized", file ? file : "<null>");
+        return NULL;
+    }
+
     if (!file || !file[0]) {
+        ecs_err("cannot resolve test harness template: invalid file name");
         return NULL;
     }
 
-    char *candidate = bake_join_path("templates/test_harness", file);
-    if (candidate && bake_path_exists(candidate)) {
-        return candidate;
-    }
-    ecs_os_free(candidate);
-
-    const char *exe_path = getenv("BAKE2_EXEC_PATH");
-    if (!exe_path || !exe_path[0]) {
+    char *template_root = bake_join_path(ctx->bake_home, "test");
+    if (!template_root) {
         return NULL;
     }
 
-    char *exe_dir = bake_dirname(exe_path);
-    if (!exe_dir) {
+    char *candidate = bake_join_path(template_root, file);
+    if (!candidate) {
+        ecs_os_free(template_root);
         return NULL;
     }
 
-    char *root_dir = bake_dirname(exe_dir);
-    ecs_os_free(exe_dir);
-    if (!root_dir) {
-        return NULL;
+    if (!bake_path_exists(candidate)) {
+        ecs_err(
+            "missing test harness template '%s' at '%s'; run 'bake setup' (or 'bake setup --local') to install templates into BAKE_HOME",
+            file,
+            candidate);
+        ecs_os_free(candidate);
+        candidate = NULL;
     }
 
-    char *template_dir = bake_join_path(root_dir, "templates/test_harness");
-    ecs_os_free(root_dir);
-    if (!template_dir) {
-        return NULL;
-    }
-
-    candidate = bake_join_path(template_dir, file);
-    ecs_os_free(template_dir);
-    if (candidate && bake_path_exists(candidate)) {
-        return candidate;
-    }
-
-    ecs_os_free(candidate);
-    return NULL;
+    ecs_os_free(template_root);
+    return candidate;
 }
 
 static int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_suite_spec_t *suite) {
@@ -303,11 +295,11 @@ static int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_su
     return rc;
 }
 
-static int bake_generate_runtime(const bake_project_cfg_t *cfg) {
+static int bake_generate_runtime(const bake_context_t *ctx, const bake_project_cfg_t *cfg) {
     char *hdr = bake_join3_path(cfg->path, "test/generated", "bake_test_runtime.h");
     char *src = bake_join3_path(cfg->path, "test/generated", "bake_test_runtime.c");
-    char *tmpl_hdr = bake_test_template_file("bake_test_runtime.h");
-    char *tmpl_src = bake_test_template_file("bake_test_runtime.c");
+    char *tmpl_hdr = bake_test_template_file(ctx, "bake_test_runtime.h");
+    char *tmpl_src = bake_test_template_file(ctx, "bake_test_runtime.c");
 
     if (!hdr || !src || !tmpl_hdr || !tmpl_src) {
         ecs_os_free(hdr);
@@ -397,7 +389,7 @@ static int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_li
     return rc;
 }
 
-int bake_test_generate_harness(const bake_project_cfg_t *cfg) {
+int bake_test_generate_harness(bake_context_t *ctx, const bake_project_cfg_t *cfg) {
     char *tests_json = bake_join3_path(cfg->path, "test", "tests.json");
     if (!tests_json) {
         return -1;
@@ -423,7 +415,7 @@ int bake_test_generate_harness(const bake_project_cfg_t *cfg) {
         }
     }
 
-    int rc = bake_generate_runtime(cfg);
+    int rc = bake_generate_runtime(ctx, cfg);
     if (rc == 0) {
         rc = bake_generate_main(cfg, &suites);
     }
@@ -433,7 +425,12 @@ int bake_test_generate_harness(const bake_project_cfg_t *cfg) {
     return rc;
 }
 
-int bake_test_generate_builtin_api(const bake_project_cfg_t *cfg, const char *gen_dir, char **src_out) {
+int bake_test_generate_builtin_api(
+    bake_context_t *ctx,
+    const bake_project_cfg_t *cfg,
+    const char *gen_dir,
+    char **src_out)
+{
     BAKE_UNUSED(cfg);
     if (!gen_dir || !src_out) {
         return -1;
@@ -441,8 +438,8 @@ int bake_test_generate_builtin_api(const bake_project_cfg_t *cfg, const char *ge
 
     char *hdr_path = bake_join_path(gen_dir, "bake_test.h");
     char *src_path = bake_join_path(gen_dir, "bake_test.c");
-    char *tmpl_hdr = bake_test_template_file("bake_test.h");
-    char *tmpl_src = bake_test_template_file("bake_test.c");
+    char *tmpl_hdr = bake_test_template_file(ctx, "bake_test.h");
+    char *tmpl_src = bake_test_template_file(ctx, "bake_test.c");
     if (!hdr_path || !src_path || !tmpl_hdr || !tmpl_src) {
         ecs_os_free(hdr_path);
         ecs_os_free(src_path);

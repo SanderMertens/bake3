@@ -82,6 +82,7 @@ Options:
   --cc <compiler>     Override C compiler
   --cxx <compiler>    Override C++ compiler
   --run-prefix <cmd>  Prefix command when running binaries
+  --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)
   --standalone        Use amalgamated dependency sources in deps/
   --strict            Enable strict compiler warnings and checks
   --trace             Enable trace logging (Flecs log level 0)

@@ -15,6 +15,7 @@ typedef struct bake_options_t {
     bool standalone;
     bool strict;
     bool trace;
+    bool setup_local;
     int32_t jobs;
     int run_argc;
     const char **run_argv;
@@ -24,7 +25,6 @@ typedef struct bake_context_t {
     ecs_world_t *world;
     bake_options_t opts;
     char *bake_home;
-    char *env_path;
     bake_compiler_kind_t compiler_kind;
     int32_t thread_count;
 } bake_context_t;

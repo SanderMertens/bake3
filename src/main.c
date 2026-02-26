@@ -33,6 +33,7 @@ int main(int argc, char *argv[]) {
         .standalone = false,
         .strict = false,
         .trace = false,
+        .setup_local = false,
         .jobs = 0,
         .run_argc = 0,
         .run_argv = NULL
@@ -96,6 +97,11 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        if (!strcmp(arg, "--local")) {
+            opts.setup_local = true;
+            continue;
+        }
+
         if (!strcmp(arg, "-j")) {
             if ((i + 1) >= argc) {
                 ecs_err("missing value for -j");
@@ -143,6 +149,12 @@ int main(int argc, char *argv[]) {
             opts.target = arg;
             continue;
         }
+    }
+
+    if (opts.setup_local && strcmp(opts.command, "setup")) {
+        ecs_err("--local can only be used with the setup command");
+        ecs_os_free(cwd);
+        return 1;
     }
 
     bake_context_t ctx;

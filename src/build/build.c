@@ -317,13 +317,13 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     if (cfg->kind == BAKE_PROJECT_TEST) {
-        if (bake_test_generate_harness(cfg) != 0) {
+        if (bake_test_generate_harness(ctx, cfg) != 0) {
             ecs_err("test harness generation failed for %s", cfg->id);
             goto cleanup;
         }
 
         if (cfg->has_test_spec) {
-            if (bake_test_generate_builtin_api(cfg, paths.gen_dir, &builtin_test_src) != 0) {
+            if (bake_test_generate_builtin_api(ctx, cfg, paths.gen_dir, &builtin_test_src) != 0) {
                 ecs_err("failed to generate test API for %s", cfg->id);
                 goto cleanup;
             }

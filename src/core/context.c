@@ -145,7 +145,5 @@ void bake_context_fini(bake_context_t *ctx) {
     }
 
     ecs_os_free(ctx->bake_home);
-    ecs_os_free(ctx->env_path);
     ctx->bake_home = NULL;
-    ctx->env_path = NULL;
 }
