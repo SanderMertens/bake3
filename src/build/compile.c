@@ -224,7 +224,7 @@ void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strli
     static const char *gnu_release[] = {"-O3", "-DNDEBUG", NULL};
     static const char *gnu_profile[] = {"-O2", "-pg", NULL};
     static const char *gnu_sanitize[] = {
-        "-O1", "-g", "-fsanitize=address", "-fsanitize=undefined", NULL
+        "-O0", "-g", "-fsanitize=address", "-fsanitize=undefined", NULL
     };
     static const char *gnu_sanitize_ld[] = {"-fsanitize=address", "-fsanitize=undefined", NULL};
 
