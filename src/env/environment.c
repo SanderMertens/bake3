@@ -331,10 +331,70 @@ static bool bake_env_external_placeholder_project(const BakeProject *project) {
     return cfg->id && !cfg->path && !cfg->output_name;
 }
 
+static char* bake_env_resolve_home_path(const char *env_home) {
+    if (!env_home || !env_home[0]) {
+        return NULL;
+    }
+
+    if (bake_os_path_is_abs(env_home)) {
+        return bake_strdup(env_home);
+    }
+
+    char *cwd = bake_getcwd();
+    if (!cwd) {
+        return NULL;
+    }
+
+    /* Use cwd-relative path as fallback, but prefer an existing ancestor match.
+     * This keeps a relative BAKE_HOME stable when invoking bake from subdirs. */
+    char *resolved = bake_join_path(cwd, env_home);
+    if (!resolved) {
+        ecs_os_free(cwd);
+        return NULL;
+    }
+
+    char *probe = bake_strdup(cwd);
+    ecs_os_free(cwd);
+    if (!probe) {
+        return resolved;
+    }
+
+    while (probe[0]) {
+        char *candidate = bake_join_path(probe, env_home);
+        if (!candidate) {
+            break;
+        }
+
+        if (bake_path_exists(candidate)) {
+            ecs_os_free(resolved);
+            resolved = candidate;
+            candidate = NULL;
+        }
+        ecs_os_free(candidate);
+
+        char *parent = bake_dirname(probe);
+        if (parent && !parent[0] && bake_os_path_is_abs(probe)) {
+            ecs_os_free(parent);
+            parent = bake_strdup("/");
+        }
+
+        if (!parent || !parent[0] || !strcmp(parent, ".") || !strcmp(parent, probe)) {
+            ecs_os_free(parent);
+            break;
+        }
+
+        ecs_os_free(probe);
+        probe = parent;
+    }
+
+    ecs_os_free(probe);
+    return resolved;
+}
+
 int bake_environment_init_paths(bake_context_t *ctx) {
     const char *env_home = getenv("BAKE_HOME");
     if (env_home && env_home[0]) {
-        ctx->bake_home = bake_strdup(env_home);
+        ctx->bake_home = bake_env_resolve_home_path(env_home);
     } else {
         char *home = bake_os_get_home();
         if (!home) {
@@ -347,6 +407,8 @@ int bake_environment_init_paths(bake_context_t *ctx) {
     if (!ctx->bake_home) {
         return -1;
     }
+
+    bake_os_setenv("BAKE_HOME", ctx->bake_home);
 
     if (bake_mkdirs(ctx->bake_home) != 0) {
         return -1;
