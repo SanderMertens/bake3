@@ -31,7 +31,7 @@ static int bake_env_copy_tree_recursive(const char *src, const char *dst) {
             continue;
         }
 
-        char *dst_path = bake_join_path(dst, entry->name);
+        char *dst_path = bake_path_join(dst, entry->name);
         if (!dst_path) {
             bake_dir_entries_free(entries, count);
             return -1;
@@ -97,7 +97,7 @@ static bool bake_env_has_required_test_templates(const char *dir, const char **m
         sizeof(bake_env_required_test_templates) / sizeof(bake_env_required_test_templates[0]);
     for (size_t i = 0; i < template_count; i++) {
         const char *name = bake_env_required_test_templates[i];
-        char *path = bake_join_path(dir, name);
+        char *path = bake_path_join(dir, name);
         bool exists = path && bake_path_exists(path);
         ecs_os_free(path);
 
@@ -118,11 +118,11 @@ static char* bake_env_executable_path(const char *argv0) {
     }
 
     if (bake_path_exists(argv0)) {
-        return bake_strdup(argv0);
+        return ecs_os_strdup(argv0);
     }
 
     char *cwd = bake_getcwd();
-    char *candidate = cwd ? bake_join_path(cwd, argv0) : NULL;
+    char *candidate = cwd ? bake_path_join(cwd, argv0) : NULL;
     ecs_os_free(cwd);
     if (candidate && bake_path_exists(candidate)) {
         return candidate;
@@ -136,7 +136,7 @@ static char* bake_env_find_test_template_source(const bake_context_t *ctx, const
     const char *missing = NULL;
 
     char *cwd = bake_getcwd();
-    char *cwd_templates = cwd ? bake_join_path(cwd, "templates/test_harness") : NULL;
+    char *cwd_templates = cwd ? bake_path_join(cwd, "templates/test_harness") : NULL;
     ecs_os_free(cwd);
     if (cwd_templates && bake_env_has_required_test_templates(cwd_templates, NULL)) {
         return cwd_templates;
@@ -146,7 +146,7 @@ static char* bake_env_find_test_template_source(const bake_context_t *ctx, const
     if (exe_path && exe_path[0]) {
         char *exe_dir = bake_dirname(exe_path);
         char *root_dir = exe_dir ? bake_dirname(exe_dir) : NULL;
-        char *root_templates = root_dir ? bake_join_path(root_dir, "templates/test_harness") : NULL;
+        char *root_templates = root_dir ? bake_path_join(root_dir, "templates/test_harness") : NULL;
 
         ecs_os_free(exe_dir);
         ecs_os_free(root_dir);
@@ -157,13 +157,13 @@ static char* bake_env_find_test_template_source(const bake_context_t *ctx, const
         ecs_os_free(root_templates);
     }
 
-    char *installed_templates = bake_join_path(ctx->bake_home, "test");
+    char *installed_templates = bake_path_join(ctx->bake_home, "test");
     if (installed_templates && bake_env_has_required_test_templates(installed_templates, NULL)) {
         return installed_templates;
     }
     ecs_os_free(installed_templates);
 
-    char *expected = bake_join_path(ctx->bake_home, "test");
+    char *expected = bake_path_join(ctx->bake_home, "test");
     if (expected) {
         bake_env_has_required_test_templates(expected, &missing);
         ecs_err(
@@ -185,19 +185,19 @@ static int bake_env_install_bake3_wrapper(const bake_context_t *ctx) {
         "exec $HOME/bake3/bake3 \"$@\"\n";
 
     size_t current_len = 0;
-    char *current = bake_read_file(script_path, &current_len);
+    char *current = bake_file_read(script_path, &current_len);
     if (current && !strcmp(current, script_content)) {
         ecs_os_free(current);
         return 0;
     }
     ecs_os_free(current);
 
-    char *tmp_script = bake_join_path(ctx->bake_home, ".bake3-wrapper.sh");
+    char *tmp_script = bake_path_join(ctx->bake_home, ".bake3-wrapper.sh");
     if (!tmp_script) {
         return -1;
     }
 
-    if (bake_write_file(tmp_script, script_content) != 0) {
+    if (bake_file_write(tmp_script, script_content) != 0) {
         ecs_os_free(tmp_script);
         return -1;
     }
@@ -221,13 +221,13 @@ int bake_environment_setup(bake_context_t *ctx, const char *argv0) {
         return -1;
     }
 
-    char *dst = bake_join_path(ctx->bake_home, "bake3");
+    char *dst = bake_path_join(ctx->bake_home, "bake3");
     if (!dst) {
         return -1;
     }
 
     char *src = bake_env_executable_path(argv0);
-    char *test_dst = bake_join_path(ctx->bake_home, "test");
+    char *test_dst = bake_path_join(ctx->bake_home, "test");
 
     if (!src || !test_dst) {
         ecs_err("failed to resolve setup paths");

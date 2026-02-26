@@ -5,7 +5,7 @@
 #include <windows.h>
 
 int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *count_out) {
-    char *pattern = bake_join_path(path, "*");
+    char *pattern = bake_path_join(path, "*");
     if (!pattern) {
         return -1;
     }
@@ -40,8 +40,8 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
         }
 
         bake_dir_entry_t *entry = &entries[count++];
-        entry->name = bake_strdup(ffd.cFileName);
-        entry->path = bake_join_path(path, ffd.cFileName);
+        entry->name = ecs_os_strdup(ffd.cFileName);
+        entry->path = bake_path_join(path, ffd.cFileName);
         entry->is_dir = (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
     } while (FindNextFileA(handle, &ffd) != 0);
 

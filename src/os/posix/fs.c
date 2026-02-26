@@ -6,22 +6,22 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-char bake_os_path_sep(void) {
+char bake_path_sep(void) {
     return '/';
 }
 
-const char* bake_os_path_last_sep(const char *path) {
+const char* bake_path_last_sep(const char *path) {
     if (!path) {
         return NULL;
     }
     return strrchr(path, '/');
 }
 
-bool bake_os_path_is_abs(const char *path) {
+bool bake_path_is_abs(const char *path) {
     return path && path[0] == '/';
 }
 
-int bake_os_path_exists(const char *path) {
+int bake_path_exists(const char *path) {
     struct stat st;
     return stat(path, &st) == 0;
 }
@@ -39,7 +39,7 @@ int64_t bake_os_file_mtime(const char *path) {
 #endif
 }
 
-int bake_os_path_is_dir(const char *path) {
+int bake_path_is_dir(const char *path) {
     struct stat st;
     if (stat(path, &st) != 0) {
         return 0;
@@ -56,7 +56,7 @@ char* bake_os_getcwd(void) {
     if (!getcwd(buf, sizeof(buf))) {
         return NULL;
     }
-    return bake_strdup(buf);
+    return ecs_os_strdup(buf);
 }
 
 int bake_os_rmdir(const char *path) {

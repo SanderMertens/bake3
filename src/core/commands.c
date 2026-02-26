@@ -138,8 +138,8 @@ static int bake_list_collect_cfgs(
             continue;
         }
 
-        char *base = bake_join_path(cfg_dir->path, subdir);
-        char *artefact_path = base ? bake_join_path(base, artefact_name) : NULL;
+        char *base = bake_path_join(cfg_dir->path, subdir);
+        char *artefact_path = base ? bake_path_join(base, artefact_name) : NULL;
         ecs_os_free(base);
         if (!artefact_path) {
             bake_dir_entries_free(cfg_dirs, cfg_count);
@@ -184,7 +184,7 @@ static int bake_list_collect_projects(
     int32_t count = 0;
     int32_t capacity = 16;
     bake_list_project_t *projects = NULL;
-    char *meta_dir = bake_join_path(ctx->bake_home, "meta");
+    char *meta_dir = bake_path_join(ctx->bake_home, "meta");
     if (!meta_dir) {
         goto cleanup;
     }
@@ -209,7 +209,7 @@ static int bake_list_collect_projects(
             continue;
         }
 
-        char *project_json = bake_join_path(entry->path, "project.json");
+        char *project_json = bake_path_join(entry->path, "project.json");
         if (!project_json || !bake_path_exists(project_json)) {
             ecs_os_free(project_json);
             continue;
@@ -254,7 +254,7 @@ static int bake_list_collect_projects(
             capacity = next;
         }
 
-        projects[count].id = bake_strdup(entry->name);
+        projects[count].id = ecs_os_strdup(entry->name);
         projects[count].kind = cfg.kind;
         projects[count].cfgs = cfgs;
         if (!projects[count].id) {
@@ -298,7 +298,7 @@ static int bake_list_collect_templates(
     int32_t count = 0;
     int32_t capacity = 8;
     bake_list_template_t *templates = NULL;
-    char *template_root = bake_join_path(ctx->bake_home, "template");
+    char *template_root = bake_path_join(ctx->bake_home, "template");
     if (!template_root) {
         goto cleanup;
     }
@@ -363,7 +363,7 @@ static int bake_list_collect_templates(
             capacity = next;
         }
 
-        templates[count].id = bake_strdup(entry->name);
+        templates[count].id = ecs_os_strdup(entry->name);
         templates[count].entries = items;
         if (!templates[count].id) {
             bake_strlist_fini(&templates[count].entries);
@@ -396,7 +396,7 @@ static int bake_list_projects(bake_context_t *ctx) {
         return -1;
     }
 
-    char *platform_dir = bake_join_path(ctx->bake_home, platform);
+    char *platform_dir = bake_path_join(ctx->bake_home, platform);
     if (!platform_dir) {
         ecs_os_free(platform);
         return -1;
@@ -490,10 +490,10 @@ static const BakeProject* bake_find_project_for_target(
     }
 
     char *abs = NULL;
-    if (bake_os_path_is_abs(target)) {
-        abs = bake_strdup(target);
+    if (bake_path_is_abs(target)) {
+        abs = ecs_os_strdup(target);
     } else {
-        abs = bake_join_path(ctx->opts.cwd, target);
+        abs = bake_path_join(ctx->opts.cwd, target);
     }
     if (!abs) {
         return NULL;

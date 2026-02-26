@@ -26,7 +26,7 @@ static void bake_proc_install_signal_handler(void) {
 
 static char* bake_proc_quote_arg(const char *arg) {
     if (!arg) {
-        return bake_strdup("\"\"");
+        return ecs_os_strdup("\"\"");
     }
 
     bool needs_quote = false;
@@ -38,7 +38,7 @@ static char* bake_proc_quote_arg(const char *arg) {
     }
 
     if (!needs_quote) {
-        return bake_strdup(arg);
+        return ecs_os_strdup(arg);
     }
 
     size_t len = strlen(arg);

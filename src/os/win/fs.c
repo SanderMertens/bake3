@@ -7,11 +7,11 @@
 #include <sys/stat.h>
 #include <windows.h>
 
-char bake_os_path_sep(void) {
+char bake_path_sep(void) {
     return '\\';
 }
 
-const char* bake_os_path_last_sep(const char *path) {
+const char* bake_path_last_sep(const char *path) {
     if (!path) {
         return NULL;
     }
@@ -24,7 +24,7 @@ const char* bake_os_path_last_sep(const char *path) {
     return slash;
 }
 
-bool bake_os_path_is_abs(const char *path) {
+bool bake_path_is_abs(const char *path) {
     if (!path || !path[0]) {
         return false;
     }
@@ -34,7 +34,7 @@ bool bake_os_path_is_abs(const char *path) {
     return path[0] && path[1] == ':';
 }
 
-int bake_os_path_exists(const char *path) {
+int bake_path_exists(const char *path) {
     struct _stat st;
     return _stat(path, &st) == 0;
 }
@@ -47,7 +47,7 @@ int64_t bake_os_file_mtime(const char *path) {
     return (int64_t)st.st_mtime;
 }
 
-int bake_os_path_is_dir(const char *path) {
+int bake_path_is_dir(const char *path) {
     struct _stat st;
     if (_stat(path, &st) != 0) {
         return 0;
@@ -64,7 +64,7 @@ char* bake_os_getcwd(void) {
     if (!_getcwd(buf, (int)sizeof(buf))) {
         return NULL;
     }
-    return bake_strdup(buf);
+    return ecs_os_strdup(buf);
 }
 
 int bake_os_rmdir(const char *path) {

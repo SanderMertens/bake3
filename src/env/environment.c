@@ -6,7 +6,7 @@ static bool bake_env_is_dot(const char *name) {
 }
 
 static char* bake_env_meta_dir(const bake_context_t *ctx) {
-    return bake_join_path(ctx->bake_home, "meta");
+    return bake_path_join(ctx->bake_home, "meta");
 }
 
 static char* bake_env_meta_project_json_path(const bake_context_t *ctx, const char *id) {
@@ -14,12 +14,12 @@ static char* bake_env_meta_project_json_path(const bake_context_t *ctx, const ch
         return NULL;
     }
 
-    char *meta_dir = bake_join3_path(ctx->bake_home, "meta", id);
+    char *meta_dir = bake_path_join3(ctx->bake_home, "meta", id);
     if (!meta_dir) {
         return NULL;
     }
 
-    char *project_json = bake_join_path(meta_dir, "project.json");
+    char *project_json = bake_path_join(meta_dir, "project.json");
     ecs_os_free(meta_dir);
     return project_json;
 }
@@ -44,7 +44,7 @@ static int bake_env_copy_tree_recursive(const char *src, const char *dst) {
             continue;
         }
 
-        char *dst_path = bake_join_path(dst, entry->name);
+        char *dst_path = bake_path_join(dst, entry->name);
         if (!dst_path) {
             bake_dir_entries_free(entries, count);
             return -1;
@@ -89,7 +89,7 @@ static int bake_env_copy_tree_exact(const char *src, const char *dst) {
 
 static char* bake_env_read_trimmed_file(const char *path) {
     size_t len = 0;
-    char *text = bake_read_file(path, &len);
+    char *text = bake_file_read(path, &len);
     if (!text) {
         return NULL;
     }
@@ -117,7 +117,7 @@ static int bake_env_write_dependee_json(const char *path, const bake_project_cfg
         return -1;
     }
 
-    int rc = bake_write_file(path, json);
+    int rc = bake_file_write(path, json);
     ecs_os_free(json);
     return rc;
 }
@@ -146,13 +146,13 @@ static char* bake_env_artefact_path_impl(
     }
 
     platform = bake_host_platform();
-    platform_dir = platform ? bake_join_path(ctx->bake_home, platform) : NULL;
-    cfg_dir = platform_dir ? bake_join_path(platform_dir, mode && mode[0] ? mode : "debug") : NULL;
+    platform_dir = platform ? bake_path_join(ctx->bake_home, platform) : NULL;
+    cfg_dir = platform_dir ? bake_path_join(platform_dir, mode && mode[0] ? mode : "debug") : NULL;
     const char *subdir = cfg->kind == BAKE_PROJECT_PACKAGE ? "lib" : "bin";
-    out_dir = cfg_dir ? bake_join_path(cfg_dir, subdir) : NULL;
-    id_dir = scoped ? (out_dir ? bake_join_path(out_dir, cfg->id) : NULL) : NULL;
-    out_path = scoped ? (id_dir ? bake_join_path(id_dir, file_name) : NULL) :
-        (out_dir ? bake_join_path(out_dir, file_name) : NULL);
+    out_dir = cfg_dir ? bake_path_join(cfg_dir, subdir) : NULL;
+    id_dir = scoped ? (out_dir ? bake_path_join(out_dir, cfg->id) : NULL) : NULL;
+    out_path = scoped ? (id_dir ? bake_path_join(id_dir, file_name) : NULL) :
+        (out_dir ? bake_path_join(out_dir, file_name) : NULL);
 
 cleanup:
     ecs_os_free(file_name);
@@ -238,8 +238,8 @@ static int bake_env_copy_artefact_to_path(const char *src_artefact, const char *
 
 static int bake_env_copy_required_file(const char *src_dir, const char *dst_dir, const char *name) {
     int rc = -1;
-    char *src = bake_join_path(src_dir, name);
-    char *dst = bake_join_path(dst_dir, name);
+    char *src = bake_path_join(src_dir, name);
+    char *dst = bake_path_join(dst_dir, name);
     if (src && dst && bake_path_exists(src)) {
         rc = bake_copy_file(src, dst);
     }
@@ -250,8 +250,8 @@ static int bake_env_copy_required_file(const char *src_dir, const char *dst_dir,
 
 static int bake_env_copy_optional_file(const char *src_dir, const char *dst_dir, const char *name) {
     int rc = -1;
-    char *src = bake_join_path(src_dir, name);
-    char *dst = bake_join_path(dst_dir, name);
+    char *src = bake_path_join(src_dir, name);
+    char *dst = bake_path_join(dst_dir, name);
     if (src && dst) {
         rc = bake_path_exists(src) ? bake_copy_file(src, dst) : bake_env_remove_if_exists(dst);
     }
@@ -261,13 +261,13 @@ static int bake_env_copy_optional_file(const char *src_dir, const char *dst_dir,
 }
 
 static char* bake_env_templates_dir(const bake_project_cfg_t *cfg) {
-    char *path = bake_join_path(cfg->path, "templates");
+    char *path = bake_path_join(cfg->path, "templates");
     if (path && bake_path_exists(path) && bake_is_dir(path)) {
         return path;
     }
     ecs_os_free(path);
 
-    path = bake_join_path(cfg->path, "template");
+    path = bake_path_join(cfg->path, "template");
     if (path && bake_path_exists(path) && bake_is_dir(path)) {
         return path;
     }
@@ -280,14 +280,14 @@ static int bake_env_project_entry_complete(
     const bake_project_cfg_t *cfg,
     const char *mode)
 {
-    char *meta_dir = bake_join3_path(ctx->bake_home, "meta", cfg->id);
+    char *meta_dir = bake_path_join3(ctx->bake_home, "meta", cfg->id);
     if (!meta_dir) {
         return 0;
     }
 
-    char *project_json = bake_join_path(meta_dir, "project.json");
-    char *source_txt = bake_join_path(meta_dir, "source.txt");
-    char *dependee_json = bake_join_path(meta_dir, "dependee.json");
+    char *project_json = bake_path_join(meta_dir, "project.json");
+    char *source_txt = bake_path_join(meta_dir, "source.txt");
+    char *dependee_json = bake_path_join(meta_dir, "dependee.json");
     bool has_meta = project_json && source_txt && dependee_json &&
         bake_path_exists(project_json) &&
         bake_path_exists(source_txt) &&
@@ -371,8 +371,8 @@ static char* bake_env_resolve_home_path(const char *env_home) {
         return NULL;
     }
 
-    if (bake_os_path_is_abs(env_home)) {
-        return bake_strdup(env_home);
+    if (bake_path_is_abs(env_home)) {
+        return ecs_os_strdup(env_home);
     }
 
     char *cwd = bake_getcwd();
@@ -382,20 +382,20 @@ static char* bake_env_resolve_home_path(const char *env_home) {
 
     /* Use cwd-relative path as fallback, but prefer an existing ancestor match.
      * This keeps a relative BAKE_HOME stable when invoking bake from subdirs. */
-    char *resolved = bake_join_path(cwd, env_home);
+    char *resolved = bake_path_join(cwd, env_home);
     if (!resolved) {
         ecs_os_free(cwd);
         return NULL;
     }
 
-    char *probe = bake_strdup(cwd);
+    char *probe = ecs_os_strdup(cwd);
     ecs_os_free(cwd);
     if (!probe) {
         return resolved;
     }
 
     while (probe[0]) {
-        char *candidate = bake_join_path(probe, env_home);
+        char *candidate = bake_path_join(probe, env_home);
         if (!candidate) {
             break;
         }
@@ -408,9 +408,9 @@ static char* bake_env_resolve_home_path(const char *env_home) {
         ecs_os_free(candidate);
 
         char *parent = bake_dirname(probe);
-        if (parent && !parent[0] && bake_os_path_is_abs(probe)) {
+        if (parent && !parent[0] && bake_path_is_abs(probe)) {
             ecs_os_free(parent);
-            parent = bake_strdup("/");
+            parent = ecs_os_strdup("/");
         }
 
         if (!parent || !parent[0] || !strcmp(parent, ".") || !strcmp(parent, probe)) {
@@ -431,11 +431,11 @@ int bake_environment_init_paths(bake_context_t *ctx) {
     if (env_home && env_home[0]) {
         ctx->bake_home = bake_env_resolve_home_path(env_home);
     } else {
-        char *home = bake_os_get_home();
+        char *home = bake_get_home();
         if (!home) {
             return -1;
         }
-        ctx->bake_home = bake_join_path(home, "bake3");
+        ctx->bake_home = bake_path_join(home, "bake3");
         ecs_os_free(home);
     }
 
@@ -443,7 +443,7 @@ int bake_environment_init_paths(bake_context_t *ctx) {
         return -1;
     }
 
-    bake_os_setenv("BAKE_HOME", ctx->bake_home);
+    bake_setenv("BAKE_HOME", ctx->bake_home);
 
     if (bake_mkdirs(ctx->bake_home) != 0) {
         return -1;
@@ -492,7 +492,7 @@ int bake_environment_import_project_by_id(bake_context_t *ctx, const char *id) {
     }
 
     ecs_os_free(cfg->id);
-    cfg->id = bake_strdup(id);
+    cfg->id = ecs_os_strdup(id);
     if (!cfg->id) {
         rc = -1;
         goto cleanup;
@@ -502,8 +502,8 @@ int bake_environment_import_project_by_id(bake_context_t *ctx, const char *id) {
         goto cleanup;
     }
 
-    meta_dir = bake_join3_path(ctx->bake_home, "meta", id);
-    source_txt = meta_dir ? bake_join_path(meta_dir, "source.txt") : NULL;
+    meta_dir = bake_path_join3(ctx->bake_home, "meta", id);
+    source_txt = meta_dir ? bake_path_join(meta_dir, "source.txt") : NULL;
     source_path = source_txt ? bake_env_read_trimmed_file(source_txt) : NULL;
     if (source_path && source_path[0]) {
         ecs_os_free(cfg->path);
@@ -617,7 +617,7 @@ static int bake_env_resolve_external_dep_entity(
         return 0;
     }
 
-    dep_id = bake_strdup(dep_project->cfg->id);
+    dep_id = ecs_os_strdup(dep_project->cfg->id);
     if (!dep_id) {
         return -1;
     }
@@ -715,9 +715,9 @@ int bake_environment_sync_project(
     }
 
     int rc = -1;
-    char *meta_dir = bake_join3_path(ctx->bake_home, "meta", cfg->id);
-    char *include_dst = bake_join3_path(ctx->bake_home, "include", cfg->id);
-    char *template_dst = bake_join3_path(ctx->bake_home, "template", cfg->id);
+    char *meta_dir = bake_path_join3(ctx->bake_home, "meta", cfg->id);
+    char *include_dst = bake_path_join3(ctx->bake_home, "include", cfg->id);
+    char *template_dst = bake_path_join3(ctx->bake_home, "template", cfg->id);
     char *source_txt = NULL;
     char *source_text = NULL;
     char *dependee_json = NULL;
@@ -738,15 +738,15 @@ int bake_environment_sync_project(
         goto cleanup;
     }
 
-    source_txt = bake_join_path(meta_dir, "source.txt");
+    source_txt = bake_path_join(meta_dir, "source.txt");
     source_text = flecs_asprintf("%s\n", cfg->path);
-    if (!source_txt || !source_text || bake_write_file(source_txt, source_text) != 0) {
+    if (!source_txt || !source_text || bake_file_write(source_txt, source_text) != 0) {
         goto cleanup;
     }
     ecs_os_free(source_txt); source_txt = NULL;
     ecs_os_free(source_text); source_text = NULL;
 
-    dependee_json = bake_join_path(meta_dir, "dependee.json");
+    dependee_json = bake_path_join(meta_dir, "dependee.json");
     if (!dependee_json || bake_env_write_dependee_json(dependee_json, cfg) != 0) {
         goto cleanup;
     }
@@ -756,7 +756,7 @@ int bake_environment_sync_project(
         goto cleanup;
     }
 
-    src_include = bake_join_path(cfg->path, "include");
+    src_include = bake_path_join(cfg->path, "include");
     if (!src_include) {
         goto cleanup;
     }
@@ -814,10 +814,10 @@ static int bake_env_remove_cfg_artefacts(
     const char *file_name)
 {
     const char *subdir = (cfg->kind == BAKE_PROJECT_PACKAGE) ? "lib" : "bin";
-    char *base = bake_join_path(cfg_path, subdir);
-    char *path = base ? bake_join_path(base, file_name) : NULL;
-    char *scoped_dir = (base && cfg->id && cfg->id[0]) ? bake_join_path(base, cfg->id) : NULL;
-    char *scoped_path = scoped_dir ? bake_join_path(scoped_dir, file_name) : NULL;
+    char *base = bake_path_join(cfg_path, subdir);
+    char *path = base ? bake_path_join(base, file_name) : NULL;
+    char *scoped_dir = (base && cfg->id && cfg->id[0]) ? bake_path_join(base, cfg->id) : NULL;
+    char *scoped_path = scoped_dir ? bake_path_join(scoped_dir, file_name) : NULL;
     int rc = -1;
 
     if (!base || !path || !scoped_dir || !scoped_path) {
@@ -899,9 +899,9 @@ cleanup:
 
 static int bake_env_remove_project_entry(const bake_context_t *ctx, const char *id) {
     int rc = -1;
-    char *meta_dir = bake_join3_path(ctx->bake_home, "meta", id);
-    char *include_dir = bake_join3_path(ctx->bake_home, "include", id);
-    char *template_dir = bake_join3_path(ctx->bake_home, "template", id);
+    char *meta_dir = bake_path_join3(ctx->bake_home, "meta", id);
+    char *include_dir = bake_path_join3(ctx->bake_home, "include", id);
+    char *template_dir = bake_path_join3(ctx->bake_home, "template", id);
     if (!meta_dir || !include_dir || !template_dir) {
         goto cleanup;
     }
@@ -910,7 +910,7 @@ static int bake_env_remove_project_entry(const bake_context_t *ctx, const char *
     bake_project_cfg_init(&cfg);
     bool has_cfg = false;
 
-    char *project_json = bake_join_path(meta_dir, "project.json");
+    char *project_json = bake_path_join(meta_dir, "project.json");
     if (project_json && bake_path_exists(project_json)) {
         has_cfg = bake_project_cfg_load_file(project_json, &cfg) == 0;
     }
@@ -1000,7 +1000,7 @@ int bake_environment_cleanup(bake_context_t *ctx, int32_t *removed_out) {
             continue;
         }
 
-        char *source_txt = bake_join_path(entry->path, "source.txt");
+        char *source_txt = bake_path_join(entry->path, "source.txt");
         char *source_path = source_txt ? bake_env_read_trimmed_file(source_txt) : NULL;
         ecs_os_free(source_txt);
 

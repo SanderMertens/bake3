@@ -49,7 +49,7 @@ static int bake_json_conditional_key_matches(const char *key) {
         return 0;
     }
 
-    char *raw = bake_strdup(key);
+    char *raw = ecs_os_strdup(key);
     if (!raw) {
         return -1;
     }
@@ -103,15 +103,15 @@ static char* bake_json_strdup_value(const JSON_Value *value) {
     JSON_Value_Type type = json_value_get_type(value);
     if (type == JSONString) {
         const char *str = json_value_get_string(value);
-        return str ? bake_strdup(str) : NULL;
+        return str ? ecs_os_strdup(str) : NULL;
     }
 
     if (type == JSONBoolean) {
-        return bake_strdup(json_value_get_boolean(value) ? "true" : "false");
+        return ecs_os_strdup(json_value_get_boolean(value) ? "true" : "false");
     }
 
     if (type == JSONNull) {
-        return bake_strdup("null");
+        return ecs_os_strdup("null");
     }
 
     char *serialized = json_serialize_to_string(value);
@@ -119,7 +119,7 @@ static char* bake_json_strdup_value(const JSON_Value *value) {
         return NULL;
     }
 
-    char *out = bake_strdup(serialized);
+    char *out = ecs_os_strdup(serialized);
     json_free_serialized_string(serialized);
     return out;
 }
@@ -329,8 +329,8 @@ int bake_rule_list_append(bake_rule_list_t *list, const char *ext, const char *c
     }
 
     bake_rule_t *rule = &list->items[list->count++];
-    rule->ext = bake_strdup(ext);
-    rule->command = bake_strdup(command);
+    rule->ext = ecs_os_strdup(ext);
+    rule->command = ecs_os_strdup(command);
 
     return (rule->ext && rule->command) ? 0 : -1;
 }
@@ -345,8 +345,8 @@ static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults) {
     bake_strlist_init(&cfg->libpaths);
     bake_strlist_init(&cfg->links);
     bake_strlist_init(&cfg->include_paths);
-    cfg->c_standard = set_defaults ? bake_strdup("c99") : NULL;
-    cfg->cpp_standard = set_defaults ? bake_strdup("c++17") : NULL;
+    cfg->c_standard = set_defaults ? ecs_os_strdup("c99") : NULL;
+    cfg->cpp_standard = set_defaults ? ecs_os_strdup("c++17") : NULL;
     cfg->static_lib = false;
     cfg->export_symbols = false;
     cfg->precompile_header = set_defaults;
@@ -394,7 +394,7 @@ static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_depend
     cfg->kind = BAKE_PROJECT_APPLICATION;
     cfg->has_test_spec = false;
     cfg->public_project = set_defaults;
-    cfg->language = set_defaults ? bake_strdup("c") : NULL;
+    cfg->language = set_defaults ? ecs_os_strdup("c") : NULL;
     cfg->amalgamate = false;
     cfg->amalgamate_path = NULL;
 
@@ -785,7 +785,7 @@ static int bake_parse_dependee_cfg(
         return -1;
     }
 
-    char *dependee_json = bake_strdup(serialized);
+    char *dependee_json = ecs_os_strdup(serialized);
     json_free_serialized_string(serialized);
     if (!dependee_json) {
         return -1;
@@ -832,7 +832,7 @@ static int bake_project_cfg_finalize_defaults(const char *project_json_path, bak
     }
 
     if (!cfg->id) {
-        cfg->id = bake_strdup(cfg->path);
+        cfg->id = ecs_os_strdup(cfg->path);
         if (!cfg->id) {
             return -1;
         }
@@ -857,7 +857,7 @@ static int bake_project_cfg_finalize_defaults(const char *project_json_path, bak
 
 int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t *cfg) {
     size_t len = 0;
-    char *json = bake_read_file(project_json_path, &len);
+    char *json = bake_file_read(project_json_path, &len);
     if (!json) {
         return -1;
     }

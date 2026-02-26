@@ -1,4 +1,5 @@
 #include "build_internal.h"
+#include "bake/os.h"
 
 int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_strbuf_t *cmd) {
     const char *compiler = ctx->unit->cpp
@@ -28,7 +29,7 @@ int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_st
         ecs_os_free(macro);
     }
 
-    char *include = bake_join_path(ctx->cfg->path, "include");
+    char *include = bake_path_join(ctx->cfg->path, "include");
     if (include && bake_path_exists(include)) {
         ecs_strbuf_append(cmd, " -I\"%s\"", include);
     }

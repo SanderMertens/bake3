@@ -1,107 +1,6 @@
 #include "bake/common.h"
 #include "bake/os.h"
 
-char* bake_strdup(const char *str) {
-    if (!str) {
-        return NULL;
-    }
-    size_t len = strlen(str);
-    char *out = ecs_os_malloc(len + 1);
-    if (!out) {
-        return NULL;
-    }
-    memcpy(out, str, len + 1);
-    return out;
-}
-
-char* bake_join_path(const char *lhs, const char *rhs) {
-    if (!lhs || !lhs[0]) {
-        return bake_strdup(rhs);
-    }
-    if (!rhs || !rhs[0]) {
-        return bake_strdup(lhs);
-    }
-
-    size_t lhs_len = strlen(lhs);
-    size_t rhs_len = strlen(rhs);
-    char path_sep = bake_os_path_sep();
-    bool has_sep = lhs[lhs_len - 1] == path_sep;
-
-    char *out = ecs_os_malloc(lhs_len + rhs_len + (has_sep ? 1 : 2));
-    if (!out) {
-        return NULL;
-    }
-
-    memcpy(out, lhs, lhs_len);
-    out[lhs_len] = '\0';
-    if (!has_sep) {
-        out[lhs_len] = path_sep;
-        out[lhs_len + 1] = '\0';
-    }
-    strcat(out, rhs);
-    return out;
-}
-
-char* bake_join3_path(const char *a, const char *b, const char *c) {
-    char *ab = bake_join_path(a, b);
-    if (!ab) {
-        return NULL;
-    }
-    char *abc = bake_join_path(ab, c);
-    ecs_os_free(ab);
-    return abc;
-}
-
-static bool bake_common_path_is_sep(char ch) {
-    return ch == '/' || ch == '\\';
-}
-
-static size_t bake_common_trim_path_len(const char *path) {
-    size_t len = strlen(path);
-    while (len > 0 && bake_common_path_is_sep(path[len - 1])) {
-        len--;
-    }
-    return len;
-}
-
-bool bake_path_has_prefix_normalized(const char *path, const char *prefix, size_t *prefix_len_out) {
-    if (!path || !prefix) {
-        return false;
-    }
-
-    size_t prefix_len = bake_common_trim_path_len(prefix);
-    if (!prefix_len) {
-        return false;
-    }
-
-    if (strncmp(path, prefix, prefix_len)) {
-        return false;
-    }
-
-    if (path[prefix_len] && !bake_common_path_is_sep(path[prefix_len])) {
-        return false;
-    }
-
-    if (prefix_len_out) {
-        *prefix_len_out = prefix_len;
-    }
-    return true;
-}
-
-bool bake_path_equal_normalized(const char *lhs, const char *rhs) {
-    if (!lhs || !rhs) {
-        return false;
-    }
-
-    size_t lhs_len = bake_common_trim_path_len(lhs);
-    size_t rhs_len = bake_common_trim_path_len(rhs);
-    if (lhs_len != rhs_len) {
-        return false;
-    }
-
-    return strncmp(lhs, rhs, lhs_len) == 0;
-}
-
 int bake_entity_list_append_unique(
     ecs_entity_t **entities,
     int32_t *count,
@@ -128,15 +27,6 @@ int bake_entity_list_append_unique(
     return 1;
 }
 
-char* bake_host_triplet(const char *mode) {
-    const char *cfg = mode && mode[0] ? mode : "debug";
-    return flecs_asprintf("%s-%s-%s", bake_host_arch(), bake_host_os(), cfg);
-}
-
-char* bake_host_platform(void) {
-    return flecs_asprintf("%s-%s", bake_host_arch(), bake_host_os());
-}
-
 char* bake_project_build_root(const char *project_path, const char *mode) {
     if (!project_path || !project_path[0]) {
         return NULL;
@@ -147,267 +37,16 @@ char* bake_project_build_root(const char *project_path, const char *mode) {
         return NULL;
     }
 
-    char *bake_dir = bake_join_path(project_path, ".bake");
+    char *bake_dir = bake_path_join(project_path, ".bake");
     if (!bake_dir) {
         ecs_os_free(triplet);
         return NULL;
     }
 
-    char *root = bake_join_path(bake_dir, triplet);
+    char *root = bake_path_join(bake_dir, triplet);
     ecs_os_free(triplet);
     ecs_os_free(bake_dir);
     return root;
-}
-
-char* bake_read_file(const char *path, size_t *len_out) {
-    FILE *f = fopen(path, "rb");
-    if (!f) {
-        return NULL;
-    }
-
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        return NULL;
-    }
-
-    long len = ftell(f);
-    if (len < 0) {
-        fclose(f);
-        return NULL;
-    }
-
-    if (fseek(f, 0, SEEK_SET) != 0) {
-        fclose(f);
-        return NULL;
-    }
-
-    char *buf = ecs_os_malloc((size_t)len + 1);
-    if (!buf) {
-        fclose(f);
-        return NULL;
-    }
-
-    size_t read_len = fread(buf, 1, (size_t)len, f);
-    fclose(f);
-    if (read_len != (size_t)len) {
-        ecs_os_free(buf);
-        return NULL;
-    }
-
-    buf[len] = '\0';
-    if (len_out) {
-        *len_out = (size_t)len;
-    }
-    return buf;
-}
-
-int bake_write_file(const char *path, const char *content) {
-    if (!path || !content) {
-        return -1;
-    }
-
-    char *dir = bake_dirname(path);
-    if (!dir) {
-        return -1;
-    }
-
-    if (bake_mkdirs(dir) != 0) {
-        ecs_os_free(dir);
-        return -1;
-    }
-    ecs_os_free(dir);
-
-    size_t len = strlen(content);
-    if (bake_path_exists(path)) {
-        size_t existing_len = 0;
-        char *existing = bake_read_file(path, &existing_len);
-        if (existing) {
-            if (existing_len == len && !memcmp(existing, content, len)) {
-                ecs_os_free(existing);
-                return 0;
-            }
-            ecs_os_free(existing);
-        }
-    }
-
-    FILE *f = fopen(path, "wb");
-    if (!f) {
-        return -1;
-    }
-
-    size_t written = fwrite(content, 1, len, f);
-    fclose(f);
-    return written == len ? 0 : -1;
-}
-
-int bake_path_exists(const char *path) {
-    return bake_os_path_exists(path);
-}
-
-int64_t bake_file_mtime(const char *path) {
-    return bake_os_file_mtime(path);
-}
-
-int bake_is_dir(const char *path) {
-    return bake_os_path_is_dir(path);
-}
-
-int bake_mkdirs(const char *path) {
-    if (!path || !path[0]) {
-        return -1;
-    }
-
-    if (bake_path_exists(path)) {
-        return 0;
-    }
-
-    char *tmp = bake_strdup(path);
-    if (!tmp) {
-        return -1;
-    }
-
-    size_t len = strlen(tmp);
-    for (size_t i = 1; i < len; i++) {
-        if (tmp[i] == '/' || tmp[i] == '\\') {
-            char prev = tmp[i];
-            tmp[i] = '\0';
-            if (tmp[0] && !bake_path_exists(tmp) && bake_os_mkdir(tmp) != 0 && errno != EEXIST) {
-                ecs_os_free(tmp);
-                return -1;
-            }
-            tmp[i] = prev;
-        }
-    }
-
-    if (!bake_path_exists(tmp) && bake_os_mkdir(tmp) != 0 && errno != EEXIST) {
-        ecs_os_free(tmp);
-        return -1;
-    }
-
-    ecs_os_free(tmp);
-    return 0;
-}
-
-char* bake_dirname(const char *path) {
-    if (!path) {
-        return NULL;
-    }
-
-    const char *slash = bake_os_path_last_sep(path);
-
-    if (!slash) {
-        return bake_strdup(".");
-    }
-
-    size_t len = (size_t)(slash - path);
-    char *out = ecs_os_malloc(len + 1);
-    if (!out) {
-        return NULL;
-    }
-    memcpy(out, path, len);
-    out[len] = '\0';
-    return out;
-}
-
-char* bake_basename(const char *path) {
-    if (!path) {
-        return NULL;
-    }
-
-    const char *slash = bake_os_path_last_sep(path);
-
-    if (!slash) {
-        return bake_strdup(path);
-    }
-
-    return bake_strdup(slash + 1);
-}
-
-char* bake_stem(const char *path) {
-    char *base = bake_basename(path);
-    if (!base) {
-        return NULL;
-    }
-
-    char *dot = strrchr(base, '.');
-    if (dot) {
-        dot[0] = '\0';
-    }
-
-    return base;
-}
-
-char* bake_getcwd(void) {
-    return bake_os_getcwd();
-}
-
-int bake_remove_tree(const char *path) {
-    if (!bake_path_exists(path)) {
-        return 0;
-    }
-
-    if (!bake_is_dir(path)) {
-        return remove(path);
-    }
-
-    bake_dir_entry_t *entries = NULL;
-    int32_t count = 0;
-    if (bake_dir_list(path, &entries, &count) != 0) {
-        return -1;
-    }
-
-    for (int32_t i = 0; i < count; i++) {
-        if (!strcmp(entries[i].name, ".") || !strcmp(entries[i].name, "..")) {
-            continue;
-        }
-        if (bake_remove_tree(entries[i].path) != 0) {
-            bake_dir_entries_free(entries, count);
-            return -1;
-        }
-    }
-    bake_dir_entries_free(entries, count);
-
-    return bake_os_rmdir(path);
-}
-
-int bake_copy_file(const char *src, const char *dst) {
-    size_t len = 0;
-    char *content = bake_read_file(src, &len);
-    if (!content) {
-        return -1;
-    }
-
-    char *dir = bake_dirname(dst);
-    if (!dir || bake_mkdirs(dir) != 0) {
-        ecs_os_free(content);
-        ecs_os_free(dir);
-        return -1;
-    }
-    ecs_os_free(dir);
-
-    if (bake_path_exists(dst)) {
-        size_t existing_len = 0;
-        char *existing = bake_read_file(dst, &existing_len);
-        if (existing) {
-            if (existing_len == len && !memcmp(existing, content, len)) {
-                ecs_os_free(existing);
-                ecs_os_free(content);
-                return 0;
-            }
-            ecs_os_free(existing);
-        }
-    }
-
-    FILE *f = fopen(dst, "wb");
-    if (!f) {
-        ecs_os_free(content);
-        return -1;
-    }
-
-    size_t written = fwrite(content, 1, len, f);
-    fclose(f);
-    ecs_os_free(content);
-    return written == len ? 0 : -1;
 }
 
 typedef enum bake_cmd_redir_t {
@@ -451,7 +90,7 @@ static int bake_cmd_set_redirect(char **dst, const char *path) {
         return -1;
     }
 
-    char *str = bake_strdup(path);
+    char *str = ecs_os_strdup(path);
     if (!str) {
         return -1;
     }
@@ -557,7 +196,7 @@ static int bake_cmd_append_arg(bake_cmd_line_t *cmd, const char *arg) {
         cmd->argv_cap = next;
     }
 
-    cmd->argv[cmd->argc] = bake_strdup(arg);
+    cmd->argv[cmd->argc] = ecs_os_strdup(arg);
     if (!cmd->argv[cmd->argc]) {
         return -1;
     }

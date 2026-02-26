@@ -48,14 +48,14 @@ int main(int argc, char *argv[]) {
 
     if (argv[0] && argv[0][0]) {
         char *exe_path = NULL;
-        if (bake_os_path_is_abs(argv[0])) {
-            exe_path = bake_strdup(argv[0]);
+        if (bake_path_is_abs(argv[0])) {
+            exe_path = ecs_os_strdup(argv[0]);
         } else {
-            exe_path = bake_join_path(cwd, argv[0]);
+            exe_path = bake_path_join(cwd, argv[0]);
         }
 
         if (exe_path) {
-            bake_os_setenv("BAKE2_EXEC_PATH", exe_path);
+            bake_setenv("BAKE2_EXEC_PATH", exe_path);
             ecs_os_free(exe_path);
         }
     }

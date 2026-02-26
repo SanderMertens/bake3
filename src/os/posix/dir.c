@@ -34,8 +34,8 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
         }
 
         bake_dir_entry_t *entry = &entries[count++];
-        entry->name = bake_strdup(de->d_name);
-        entry->path = bake_join_path(path, de->d_name);
+        entry->name = ecs_os_strdup(de->d_name);
+        entry->path = bake_path_join(path, de->d_name);
 
         struct stat st;
         entry->is_dir = false;

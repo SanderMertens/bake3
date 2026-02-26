@@ -40,8 +40,8 @@ static int bake_is_compile_source(const char *path, bool *cpp_out) {
 
 static char* bake_rel_path(const char *base, const char *path) {
     size_t base_len = strlen(base);
-    if (!strncmp(base, path, base_len) && (path[base_len] == bake_os_path_sep() || path[base_len] == '/')) {
-        return bake_strdup(path + base_len + 1);
+    if (!strncmp(base, path, base_len) && (path[base_len] == bake_path_sep() || path[base_len] == '/')) {
+        return ecs_os_strdup(path + base_len + 1);
     }
     return bake_basename(path);
 }
@@ -82,9 +82,9 @@ int bake_compile_list_append(
     }
 
     bake_compile_unit_t *unit = &list->items[list->count++];
-    unit->src = bake_strdup(src);
-    unit->obj = bake_strdup(obj);
-    unit->dep = dep ? bake_strdup(dep) : NULL;
+    unit->src = ecs_os_strdup(src);
+    unit->obj = ecs_os_strdup(obj);
+    unit->dep = dep ? ecs_os_strdup(dep) : NULL;
     unit->cpp = cpp;
     if (!unit->src || !unit->obj || (dep && !unit->dep)) {
         return -1;
@@ -110,10 +110,10 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
         return -1;
     }
 
-    paths->obj_dir = bake_join_path(paths->build_root, "obj");
-    paths->bin_dir = bake_strdup(paths->build_root);
-    paths->lib_dir = bake_strdup(paths->build_root);
-    paths->gen_dir = bake_join_path(paths->build_root, "generated");
+    paths->obj_dir = bake_path_join(paths->build_root, "obj");
+    paths->bin_dir = ecs_os_strdup(paths->build_root);
+    paths->lib_dir = ecs_os_strdup(paths->build_root);
+    paths->gen_dir = bake_path_join(paths->build_root, "generated");
 
     if (!paths->obj_dir || !paths->bin_dir || !paths->lib_dir || !paths->gen_dir) {
         ecs_err("bake_build_paths_init: failed to allocate path(s)");
@@ -180,7 +180,7 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return -1;
     }
 
-    char *obj_path = bake_join_path(ctx->paths->obj_dir, obj_file);
+    char *obj_path = bake_path_join(ctx->paths->obj_dir, obj_file);
     ecs_os_free(obj_file);
     if (!obj_path) {
         return -1;
@@ -217,7 +217,7 @@ int bake_collect_compile_units(
         .units = units
     };
 
-    char *src = bake_join_path(cfg->path, "src");
+    char *src = bake_path_join(cfg->path, "src");
     if (src && bake_path_exists(src)) {
         if (bake_dir_walk_recursive(src, bake_collect_visit, &ctx) != 0) {
             ecs_os_free(src);
@@ -227,7 +227,7 @@ int bake_collect_compile_units(
     ecs_os_free(src);
 
     if (include_deps) {
-        char *deps = bake_join_path(cfg->path, "deps");
+        char *deps = bake_path_join(cfg->path, "deps");
         if (deps && bake_path_exists(deps)) {
             if (bake_dir_walk_recursive(deps, bake_collect_visit, &ctx) != 0) {
                 ecs_os_free(deps);
@@ -238,7 +238,7 @@ int bake_collect_compile_units(
     }
 
     if (include_tests) {
-        char *test = bake_join_path(cfg->path, "test");
+        char *test = bake_path_join(cfg->path, "test");
         if (test && bake_path_exists(test)) {
             if (bake_dir_walk_recursive(test, bake_collect_visit, &ctx) != 0) {
                 ecs_os_free(test);
@@ -398,7 +398,7 @@ static char* bake_macro_upper(const char *value) {
         return NULL;
     }
 
-    char *out = bake_strdup(value);
+    char *out = ecs_os_strdup(value);
     if (!out) {
         return NULL;
     }
@@ -474,7 +474,7 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
         goto cleanup;
     }
 
-    include_root = bake_join_path(cfg->path, "include");
+    include_root = bake_path_join(cfg->path, "include");
     if (!include_root) {
         goto cleanup;
     }
@@ -489,7 +489,7 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
         goto cleanup;
     }
 
-    char *tmp = bake_join_path(include_root, project_dir);
+    char *tmp = bake_path_join(include_root, project_dir);
     if (!tmp) {
         goto cleanup;
     }
@@ -501,7 +501,7 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
         goto cleanup;
     }
 
-    header_path = bake_join_path(project_dir, "bake_config.h");
+    header_path = bake_path_join(project_dir, "bake_config.h");
     project_macro = bake_project_id_as_macro(cfg->id);
     project_macro_upper = bake_macro_upper(project_macro);
     guard_macro = project_macro_upper ? flecs_asprintf("%s_BAKE_CONFIG_H", project_macro_upper) : NULL;
@@ -615,14 +615,14 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     }
 
     if (bake_path_exists(header_path)) {
-        existing_content = bake_read_file(header_path, NULL);
+        existing_content = bake_file_read(header_path, NULL);
         if (existing_content && !strcmp(existing_content, content)) {
             rc = 0;
             goto cleanup;
         }
     }
 
-    if (bake_write_file(header_path, content) != 0) {
+    if (bake_file_write(header_path, content) != 0) {
         goto cleanup;
     }
 

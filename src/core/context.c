@@ -108,7 +108,7 @@ int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
         }
 
         if (ctx->thread_count == 0) {
-            ctx->thread_count = bake_os_default_threads();
+            ctx->thread_count = bake_default_threads();
         }
     }
 

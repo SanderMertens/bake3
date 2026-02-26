@@ -1,4 +1,5 @@
 #include "bake/model.h"
+#include "bake/os.h"
 
 ECS_COMPONENT_DECLARE(BakeProject);
 ECS_COMPONENT_DECLARE(BakeBuildRequest);
@@ -105,11 +106,11 @@ static void bake_model_try_append_include_path(
 {
     char *include = NULL;
     if (external && bake_home && cfg && cfg->id) {
-        include = bake_join3_path(bake_home, "include", cfg->id);
+        include = bake_path_join3(bake_home, "include", cfg->id);
     }
 
     if (!include && cfg && cfg->path) {
-        include = bake_join_path(cfg->path, "include");
+        include = bake_path_join(cfg->path, "include");
     }
 
     if (include && bake_path_exists(include) &&
@@ -229,7 +230,7 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
         ecs_entity_t drv = ecs_entity(world, {
             .parent = entity
         });
-        ecs_set(world, drv, BakeDriver, { .id = bake_strdup(cfg->drivers.items[i]) });
+        ecs_set(world, drv, BakeDriver, { .id = ecs_os_strdup(cfg->drivers.items[i]) });
     }
 
     for (int32_t i = 0; i < cfg->rules.count; i++) {
@@ -237,8 +238,8 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
             .parent = entity
         });
         ecs_set(world, rule, BakeBuildRule, {
-            .ext = bake_strdup(cfg->rules.items[i].ext),
-            .command = bake_strdup(cfg->rules.items[i].command)
+            .ext = ecs_os_strdup(cfg->rules.items[i].ext),
+            .command = ecs_os_strdup(cfg->rules.items[i].command)
         });
     }
 
@@ -295,7 +296,7 @@ static ecs_entity_t bake_model_ensure_dependency(ecs_world_t *world, const char 
     }
     bake_project_cfg_init(cfg);
     ecs_os_free(cfg->id);
-    cfg->id = bake_strdup(id);
+    cfg->id = ecs_os_strdup(id);
     cfg->kind = BAKE_PROJECT_PACKAGE;
     cfg->path = NULL;
     cfg->private_project = false;

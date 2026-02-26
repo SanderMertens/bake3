@@ -37,7 +37,7 @@ void bake_strlist_fini(bake_strlist_t *list) {
 }
 
 int bake_strlist_append(bake_strlist_t *list, const char *value) {
-    char *dup = bake_strdup(value);
+    char *dup = ecs_os_strdup(value);
     if (!dup) {
         return -1;
     }
@@ -64,7 +64,7 @@ int bake_strlist_contains(const bake_strlist_t *list, const char *value) {
 
 char* bake_strlist_join(const bake_strlist_t *list, const char *separator) {
     if (list->count == 0) {
-        return bake_strdup("");
+        return ecs_os_strdup("");
     }
 
     size_t sep_len = strlen(separator);

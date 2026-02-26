@@ -22,7 +22,7 @@ static bool bake_dep_token_outdated(const char *token, int64_t obj_mtime) {
 
 static bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
     size_t len = 0;
-    char *content = bake_read_file(dep_path, &len);
+    char *content = bake_file_read(dep_path, &len);
     if (!content) {
         return true;
     }
@@ -391,7 +391,7 @@ static char* bake_compile_display_path(const bake_project_cfg_t *cfg, const char
         return bake_basename(src);
     }
 
-    char *out = bake_strdup(display);
+    char *out = ecs_os_strdup(display);
     if (!out) {
         return bake_basename(src);
     }
@@ -670,7 +670,7 @@ int bake_link_project_binary(
         goto cleanup;
     }
 
-    artefact = bake_join_path(is_lib ? paths->lib_dir : paths->bin_dir, file_name);
+    artefact = bake_path_join(is_lib ? paths->lib_dir : paths->bin_dir, file_name);
     ecs_os_free(file_name);
     file_name = NULL;
     if (!artefact) {

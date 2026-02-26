@@ -24,15 +24,15 @@ static char* bake_json_strdup_value(const JSON_Value *value) {
     JSON_Value_Type type = json_value_get_type(value);
     if (type == JSONString) {
         const char *str = json_value_get_string(value);
-        return str ? bake_strdup(str) : NULL;
+        return str ? ecs_os_strdup(str) : NULL;
     }
 
     if (type == JSONBoolean) {
-        return bake_strdup(json_value_get_boolean(value) ? "true" : "false");
+        return ecs_os_strdup(json_value_get_boolean(value) ? "true" : "false");
     }
 
     if (type == JSONNull) {
-        return bake_strdup("null");
+        return ecs_os_strdup("null");
     }
 
     char *serialized = json_serialize_to_string(value);
@@ -40,7 +40,7 @@ static char* bake_json_strdup_value(const JSON_Value *value) {
         return NULL;
     }
 
-    char *out = bake_strdup(serialized);
+    char *out = ecs_os_strdup(serialized);
     json_free_serialized_string(serialized);
     return out;
 }
@@ -74,7 +74,7 @@ static int bake_suite_list_append(bake_suite_list_t *list, bake_suite_spec_t *su
 
 static int bake_parse_tests_json(const char *path, bake_suite_list_t *out) {
     size_t len = 0;
-    char *json = bake_read_file(path, &len);
+    char *json = bake_file_read(path, &len);
     if (!json) {
         return -1;
     }
@@ -115,7 +115,7 @@ static int bake_parse_tests_json(const char *path, bake_suite_list_t *out) {
             return -1;
         }
 
-        suite.id = bake_strdup(id);
+        suite.id = ecs_os_strdup(id);
         if (!suite.id) {
             bake_strlist_fini(&suite.testcases);
             json_value_free(root_value);
@@ -208,12 +208,12 @@ static char* bake_test_template_file(const bake_context_t *ctx, const char *file
         return NULL;
     }
 
-    char *template_root = bake_join_path(ctx->bake_home, "test");
+    char *template_root = bake_path_join(ctx->bake_home, "test");
     if (!template_root) {
         return NULL;
     }
 
-    char *candidate = bake_join_path(template_root, file);
+    char *candidate = bake_path_join(template_root, file);
     if (!candidate) {
         ecs_os_free(template_root);
         return NULL;
@@ -233,14 +233,14 @@ static char* bake_test_template_file(const bake_context_t *ctx, const char *file
 }
 
 static int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_suite_spec_t *suite) {
-    char *test_dir = bake_join_path(cfg->path, "test");
+    char *test_dir = bake_path_join(cfg->path, "test");
     char *file_name = flecs_asprintf("%s_suite.c", suite->id);
-    char *suite_file = bake_join_path(test_dir, file_name);
+    char *suite_file = bake_path_join(test_dir, file_name);
     ecs_os_free(file_name);
 
     char *existing = NULL;
     if (bake_path_exists(suite_file)) {
-        existing = bake_read_file(suite_file, NULL);
+        existing = bake_file_read(suite_file, NULL);
     }
 
     ecs_strbuf_t out = ECS_STRBUF_INIT;
@@ -258,7 +258,7 @@ static int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_su
             "test/generated/bake_test_runtime.h",
             "generated/bake_test_runtime.h");
         if (!normalized) {
-            normalized = bake_strdup(existing);
+            normalized = ecs_os_strdup(existing);
         }
 
         ecs_strbuf_appendstr(&out, normalized);
@@ -285,7 +285,7 @@ static int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_su
     }
 
     char *content = ecs_strbuf_get(&out);
-    int rc = bake_write_file(suite_file, content);
+    int rc = bake_file_write(suite_file, content);
 
     ecs_os_free(content);
     ecs_os_free(existing);
@@ -296,8 +296,8 @@ static int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_su
 }
 
 static int bake_generate_runtime(const bake_context_t *ctx, const bake_project_cfg_t *cfg) {
-    char *hdr = bake_join3_path(cfg->path, "test/generated", "bake_test_runtime.h");
-    char *src = bake_join3_path(cfg->path, "test/generated", "bake_test_runtime.c");
+    char *hdr = bake_path_join3(cfg->path, "test/generated", "bake_test_runtime.h");
+    char *src = bake_path_join3(cfg->path, "test/generated", "bake_test_runtime.c");
     char *tmpl_hdr = bake_test_template_file(ctx, "bake_test_runtime.h");
     char *tmpl_src = bake_test_template_file(ctx, "bake_test_runtime.c");
 
@@ -322,7 +322,7 @@ static int bake_generate_runtime(const bake_context_t *ctx, const bake_project_c
 }
 
 static int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *suites) {
-    char *main_path = bake_join3_path(cfg->path, "test/generated", "main.c");
+    char *main_path = bake_path_join3(cfg->path, "test/generated", "main.c");
 
     ecs_strbuf_t out = ECS_STRBUF_INIT;
     ecs_strbuf_appendstr(&out, "#include \"bake_test_runtime.h\"\n");
@@ -382,7 +382,7 @@ static int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_li
         "}\n");
 
     char *content = ecs_strbuf_get(&out);
-    int rc = bake_write_file(main_path, content);
+    int rc = bake_file_write(main_path, content);
 
     ecs_os_free(content);
     ecs_os_free(main_path);
@@ -390,7 +390,7 @@ static int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_li
 }
 
 int bake_test_generate_harness(bake_context_t *ctx, const bake_project_cfg_t *cfg) {
-    char *tests_json = bake_join3_path(cfg->path, "test", "tests.json");
+    char *tests_json = bake_path_join3(cfg->path, "test", "tests.json");
     if (!tests_json) {
         return -1;
     }
@@ -436,8 +436,8 @@ int bake_test_generate_builtin_api(
         return -1;
     }
 
-    char *hdr_path = bake_join_path(gen_dir, "bake_test.h");
-    char *src_path = bake_join_path(gen_dir, "bake_test.c");
+    char *hdr_path = bake_path_join(gen_dir, "bake_test.h");
+    char *src_path = bake_path_join(gen_dir, "bake_test.c");
     char *tmpl_hdr = bake_test_template_file(ctx, "bake_test.h");
     char *tmpl_src = bake_test_template_file(ctx, "bake_test.c");
     if (!hdr_path || !src_path || !tmpl_hdr || !tmpl_src) {
@@ -471,13 +471,13 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
     char *old_threads = NULL;
     const char *old_env = getenv("BAKE_TEST_THREADS");
     if (old_env) {
-        old_threads = bake_strdup(old_env);
+        old_threads = ecs_os_strdup(old_env);
     }
 
     if (ctx && ctx->opts.jobs > 0) {
         char jobs_str[32];
         ecs_os_snprintf(jobs_str, sizeof(jobs_str), "%d", ctx->opts.jobs);
-        bake_os_setenv("BAKE_TEST_THREADS", jobs_str);
+        bake_setenv("BAKE_TEST_THREADS", jobs_str);
     }
 
     ecs_strbuf_t cmd = ECS_STRBUF_INIT;
@@ -498,9 +498,9 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
 
     if (ctx && ctx->opts.jobs > 0) {
         if (old_threads) {
-            bake_os_setenv("BAKE_TEST_THREADS", old_threads);
+            bake_setenv("BAKE_TEST_THREADS", old_threads);
         } else {
-            bake_os_unsetenv("BAKE_TEST_THREADS");
+            bake_unsetenv("BAKE_TEST_THREADS");
         }
     }
     ecs_os_free(old_threads);

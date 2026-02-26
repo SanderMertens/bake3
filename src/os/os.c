@@ -24,3 +24,12 @@ const char* bake_host_arch(void) {
     return "unknown";
 #endif
 }
+
+char* bake_host_triplet(const char *mode) {
+    const char *cfg = mode && mode[0] ? mode : "debug";
+    return flecs_asprintf("%s-%s-%s", bake_host_arch(), bake_host_os(), cfg);
+}
+
+char* bake_host_platform(void) {
+    return flecs_asprintf("%s-%s", bake_host_arch(), bake_host_os());
+}
