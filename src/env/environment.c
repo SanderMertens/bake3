@@ -1109,17 +1109,35 @@ int bake_environment_setup(bake_context_t *ctx, const char *argv0) {
 
     int rc = 0;
     if (!bake_path_equal_normalized(src, dst)) {
-        if (rename(src, dst) != 0) {
-            rc = bake_copy_file(src, dst);
-            if (rc == 0) {
-                rc = remove(src);
-            }
-        }
+        rc = bake_copy_file(src, dst);
     }
 
     if (rc == 0) {
-        ecs_trace("installed bake to %s", dst);
         rc = bake_env_install_bake3_wrapper(ctx);
+    }
+
+    if (rc == 0) {
+        /*
+
+        ______   ______   ______   __   __       ______   ______  ______
+        /\  __ \ /\  ___\ /\  ___\ /\ \ /\ \     /\  __ \ /\  == \/\__  _\
+        \ \  __ \\ \___  \\ \ \____\ \ \\ \ \    \ \  __ \\ \  __<\/_/\ \/
+        \ \_\ \_\\/\_____\\ \_____\\ \_\\ \_\    \ \_\ \_\\ \_\ \_\ \ \_\
+        \/_/\/_/ \/_____/ \/_____/ \/_/ \/_/     \/_/\/_/ \/_/ /_/  \/_/
+
+        */
+
+        ecs_log(0,
+            "#[white]\n"
+            "#[normal]    #[cyan]___      ___      ___      ___ \n"
+            "#[normal]   /\\#[cyan]  \\    #[normal]/\\#[cyan]  \\    #[normal]/\\#[cyan]__\\    #[normal]/\\  #[cyan]\\ \n"
+            "#[normal]  /  \\#[cyan]  \\  #[normal]/  \\#[cyan]  \\  #[normal]/ / #[cyan]_/_  #[normal]/  \\  #[cyan]\\ \n"
+            "#[normal] /  \\ \\#[cyan]__\\#[normal]/  \\ \\#[cyan]__\\#[normal]/  -\"\\#[cyan]__\\#[normal]/  \\ \\#[cyan]__\\ \n"
+            "#[normal] \\ \\  /#[cyan]  /#[normal]\\/\\  /#[cyan]  /#[normal]\\; ;-\"#[cyan],-\"#[normal]\\ \\ \\/  #[cyan]/ \n"
+            "#[normal]  \\  /#[cyan]  /   #[normal]/ /  #[cyan]/  #[normal]| |  #[cyan]|   #[normal]\\ \\/  #[cyan]/ \n"
+            "#[normal]   \\/#[cyan]__/    #[normal]\\/#[cyan]__/    #[normal]\\|#[cyan]__|    #[normal]\\/#[cyan]__/ \n\n");
+
+        printf("\n       Installation complete!!\n\n");
     }
 
     ecs_os_free(src);

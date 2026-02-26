@@ -421,7 +421,7 @@ static int bake_list_projects(bake_context_t *ctx) {
     int32_t package_count = 0;
     int32_t application_count = 0;
 
-    printf("Listing projects for platform:\n");
+    printf("Listing projects in %s for platforms:\n", ctx->bake_home);
     printf(" * %s\n\n", platform);
     printf("Packages & Applications:\n");
     for (int32_t i = 0; i < project_count; i++) {
