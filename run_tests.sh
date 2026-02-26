@@ -88,6 +88,18 @@ echo
 
 # ---
 echo
+echo "Incrementally build test/integration/flecs-modules-test/apps/city (shouldn't build anything)"
+./build/bake build test/integration/flecs-modules-test/apps/city
+echo
+
+# ---
+echo
+echo "Incrementally build test/integration/flecs-modules-test/apps/tower_defens (shouldn't build anything)"
+./build/bake build test/integration/flecs-modules-test/apps/tower_defense
+echo
+
+# ---
+echo
 echo "Builds relative to test"
 cd test
 
@@ -158,6 +170,8 @@ echo "Reset environment"
 echo "Listing (should be empty)"
 ./build/bake list
 echo
+
+
 
 # ---
 rm -rf ./test/tmp/bake_home

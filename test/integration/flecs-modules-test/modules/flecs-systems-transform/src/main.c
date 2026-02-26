@@ -97,9 +97,9 @@ static void transform_parent(ecs_iter_t *it) {
                 }
             } else {
                 if (ecs_field_is_self(it, 2)) {
-                    glm_translate_to(t_parent[0].value, *(vec3*)&p[i], t[i].value);
+                    glm_translate_to((vec4*)t_parent[0].value, *(vec3*)&p[i], t[i].value);
                 } else {
-                    glm_translate_to(t_parent[0].value, *(vec3*)p, t[i].value);
+                    glm_translate_to((vec4*)t_parent[0].value, *(vec3*)p, t[i].value);
                 }
             }
         }

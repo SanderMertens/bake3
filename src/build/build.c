@@ -344,8 +344,8 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         }
     }
 
-    if (bake_generate_dep_header(ctx->world, cfg, &paths) != 0) {
-        ecs_err("dependency header generation failed for %s", cfg->id);
+    if (bake_generate_config_header(ctx->world, cfg) != 0) {
+        ecs_err("bake_config.h generation failed for %s", cfg->id);
         goto cleanup;
     }
 
