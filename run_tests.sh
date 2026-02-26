@@ -1,10 +1,10 @@
-#/bin/sh
+#!/bin/sh
 
 # Build bake
 make clean
 make -j 8
 
-export BAKE_HOME="./test/tmp/bake_home"
+export BAKE_HOME="$(pwd)/test/tmp/bake_home"
 
 # ---
 echo
@@ -126,6 +126,29 @@ echo "Listing (should show flecs + modules)"
 
 # ---
 cd ../..
+
+# ---
+echo
+echo "Test running test/integration/flecs-modules-test/flecs/test/core"
+./build/bake run test/integration/flecs-modules-test/flecs/test/core -- -j 12
+
+# ---
+echo
+echo "Builds relative to test/integration/flecs-modules-test/flecs"
+cd test/integration/flecs-modules-test/flecs
+
+# ---
+echo
+echo "Test running test/core"
+../../../../build/bake run test/core -- -j 12
+
+# ---
+echo
+echo "Listing (should show flecs + modules, not test cases)"
+../../../../build/bake list
+
+# ---
+cd ../../../..
 
 # ---
 echo
