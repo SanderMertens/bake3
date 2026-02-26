@@ -18,7 +18,7 @@
 #define WS_LIBS_CPPMATH_BAKE_CONFIG_H
 
 /* Headers of public dependencies */
-/* No dependencies */
+#include <ws_libs_core.h>
 
 /* Convenience macro for exporting symbols */
 #ifndef ws_libs_cppmath_STATIC

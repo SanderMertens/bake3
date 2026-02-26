@@ -465,6 +465,9 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     char *guard_macro = NULL;
     char *api_macro = NULL;
     char *content = NULL;
+    char *existing_content = NULL;
+    bool public_deps_ready = false;
+    bake_strlist_t public_deps = {0};
     ecs_strbuf_t header = ECS_STRBUF_INIT;
 
     if (!cfg || !cfg->id || !cfg->path) {
@@ -511,6 +514,37 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
         cfg->standalone &&
         (cfg->kind == BAKE_PROJECT_APPLICATION || cfg->kind == BAKE_PROJECT_TEST);
 
+    bake_strlist_init(&public_deps);
+    public_deps_ready = true;
+
+    for (int32_t i = 0; i < cfg->use.count; i++) {
+        if (!bake_strlist_contains(&public_deps, cfg->use.items[i])) {
+            bake_strlist_append(&public_deps, cfg->use.items[i]);
+        }
+    }
+
+    for (int32_t i = 0; i < cfg->use.count; i++) {
+        const BakeProject *dep_p = bake_model_find_project(world, cfg->use.items[i], NULL);
+        if (!dep_p || !dep_p->cfg || !dep_p->cfg->dependee.cfg) {
+            continue;
+        }
+
+        const bake_strlist_t *dependee_use = &dep_p->cfg->dependee.cfg->use;
+        for (int32_t d = 0; d < dependee_use->count; d++) {
+            const char *dep_id = dependee_use->items[d];
+            if (!dep_id) {
+                continue;
+            }
+
+            if (bake_strlist_contains(&cfg->use_private, dep_id)) {
+                continue;
+            }
+            if (!bake_strlist_contains(&public_deps, dep_id)) {
+                bake_strlist_append(&public_deps, dep_id);
+            }
+        }
+    }
+
     ecs_strbuf_appendstr(&header,
         "/*\n"
         "                                   )\n"
@@ -532,18 +566,28 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     ecs_strbuf_append(&header, "#define %s\n\n", guard_macro);
 
     ecs_strbuf_appendstr(&header, "/* Headers of public dependencies */\n");
-    if (bake_append_dep_includes(&header, &cfg->use, standalone_local_headers) != 0) {
+    if (bake_append_dep_includes(&header, &public_deps, standalone_local_headers) != 0) {
         goto cleanup;
+    }
+    if (cfg->kind == BAKE_PROJECT_TEST && cfg->has_test_spec) {
+        ecs_strbuf_appendstr(&header, "#include <bake_test.h>\n");
     }
     ecs_strbuf_appendstr(&header, "\n");
 
     if (cfg->use_private.count) {
         ecs_strbuf_appendstr(&header, "/* Headers of private dependencies */\n");
-        ecs_strbuf_append(&header, "#ifdef %s_EXPORTS\n", project_macro);
-        if (bake_append_dep_includes(&header, &cfg->use_private, standalone_local_headers) != 0) {
-            goto cleanup;
+        if (cfg->kind == BAKE_PROJECT_PACKAGE) {
+            ecs_strbuf_append(&header, "#ifdef %s_EXPORTS\n", project_macro);
+            if (bake_append_dep_includes(&header, &cfg->use_private, standalone_local_headers) != 0) {
+                goto cleanup;
+            }
+            ecs_strbuf_appendstr(&header, "#endif\n\n");
+        } else {
+            if (bake_append_dep_includes(&header, &cfg->use_private, standalone_local_headers) != 0) {
+                goto cleanup;
+            }
+            ecs_strbuf_appendstr(&header, "\n");
         }
-        ecs_strbuf_appendstr(&header, "#endif\n\n");
     }
 
     if (cfg->kind == BAKE_PROJECT_PACKAGE) {
@@ -570,6 +614,14 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
         goto cleanup;
     }
 
+    if (bake_path_exists(header_path)) {
+        existing_content = bake_read_file(header_path, NULL);
+        if (existing_content && !strcmp(existing_content, content)) {
+            rc = 0;
+            goto cleanup;
+        }
+    }
+
     if (bake_write_file(header_path, content) != 0) {
         goto cleanup;
     }
@@ -588,6 +640,10 @@ cleanup:
     ecs_os_free(project_macro_upper);
     ecs_os_free(guard_macro);
     ecs_os_free(api_macro);
+    ecs_os_free(existing_content);
+    if (public_deps_ready) {
+        bake_strlist_fini(&public_deps);
+    }
     return rc;
 }
 

@@ -18,7 +18,7 @@
 #define WS_APPS_USE_ENV_BAKE_CONFIG_H
 
 /* Headers of public dependencies */
-/* No dependencies */
+#include <env_libs_math.h>
 
 #endif
 

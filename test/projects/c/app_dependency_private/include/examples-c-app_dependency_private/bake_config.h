@@ -19,6 +19,8 @@
 
 /* Headers of public dependencies */
 /* No dependencies */
+
+/* Headers of private dependencies */
 #include <examples_c_pkg_helloworld.h>
 
 #endif
