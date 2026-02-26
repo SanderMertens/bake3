@@ -167,6 +167,13 @@ static char* bake_resolve_target_path(const bake_context_t *ctx, const char *tar
     return normalized;
 }
 
+static const char* bake_effective_build_target(const bake_context_t *ctx) {
+    if (ctx && ctx->opts.target && ctx->opts.target[0]) {
+        return ctx->opts.target;
+    }
+    return ".";
+}
+
 static int bake_write_standalone_dep_header(
     const bake_project_cfg_t *cfg,
     const char *deps_dir)
@@ -558,7 +565,8 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
 }
 
 static int bake_prepare_discovery(bake_context_t *ctx) {
-    char *target_path = bake_resolve_target_path(ctx, ctx->opts.target);
+    const char *target = bake_effective_build_target(ctx);
+    char *target_path = bake_resolve_target_path(ctx, target);
     char *target_root = NULL;
     if (target_path) {
         if (bake_is_dir(target_path)) {
@@ -568,14 +576,27 @@ static int bake_prepare_discovery(bake_context_t *ctx) {
         }
     }
 
-    const char *discovery_root = target_root ? target_root : ctx->opts.cwd;
-
-    int discovered = bake_discover_projects(ctx, discovery_root, true);
-    if (discovered < 0) {
-        ecs_os_free(target_path);
-        ecs_os_free(target_root);
-        return -1;
+    if (target_root) {
+        if (bake_discover_projects(ctx, target_root, true) < 0) {
+            ecs_os_free(target_path);
+            ecs_os_free(target_root);
+            return -1;
+        }
     }
+
+    bool discover_cwd = true;
+    if (target_root && bake_path_equal_normalized(target_root, ctx->opts.cwd)) {
+        discover_cwd = false;
+    }
+
+    if (discover_cwd) {
+        if (bake_discover_projects(ctx, ctx->opts.cwd, true) < 0) {
+            ecs_os_free(target_path);
+            ecs_os_free(target_root);
+            return -1;
+        }
+    }
+
     ecs_os_free(target_path);
     ecs_os_free(target_root);
 
@@ -629,8 +650,9 @@ int bake_build_clean(bake_context_t *ctx) {
         return -1;
     }
 
-    char *target_path = bake_resolve_target_path(ctx, ctx->opts.target);
-    const char *target = target_path ? target_path : ctx->opts.target;
+    const char *effective_target = bake_effective_build_target(ctx);
+    char *target_path = bake_resolve_target_path(ctx, effective_target);
+    const char *target = target_path ? target_path : effective_target;
     bake_model_mark_build_targets(ctx->world, target, ctx->opts.mode, ctx->opts.recursive, ctx->opts.standalone);
 
     ecs_entity_t *order = NULL;
@@ -639,8 +661,8 @@ int bake_build_clean(bake_context_t *ctx) {
         goto cleanup;
     }
 
-    if (ctx->opts.target && ctx->opts.target[0] && count == 0) {
-        ecs_err("target not found: %s", ctx->opts.target);
+    if (count == 0) {
+        ecs_err("target not found: %s", effective_target);
         goto cleanup;
     }
 
@@ -671,8 +693,9 @@ int bake_build_build(bake_context_t *ctx) {
         return -1;
     }
 
-    char *target_path = bake_resolve_target_path(ctx, ctx->opts.target);
-    const char *target_resolved = target_path ? target_path : ctx->opts.target;
+    const char *effective_target = bake_effective_build_target(ctx);
+    char *target_path = bake_resolve_target_path(ctx, effective_target);
+    const char *target_resolved = target_path ? target_path : effective_target;
 
     if (bake_execute_build_graph(ctx, target_resolved, true, ctx->opts.standalone) != 0) {
         rc = -1;
@@ -698,18 +721,16 @@ int bake_build_run(bake_context_t *ctx) {
         return -1;
     }
 
-    char *target_path = bake_resolve_target_path(ctx, ctx->opts.target);
-    const char *target_resolved = target_path ? target_path : ctx->opts.target;
+    const char *effective_target = bake_effective_build_target(ctx);
+    char *target_path = bake_resolve_target_path(ctx, effective_target);
+    const char *target_resolved = target_path ? target_path : effective_target;
 
     if (bake_execute_build_graph(ctx, target_resolved, true, ctx->opts.standalone) != 0) {
         rc = -1;
         goto cleanup;
     }
 
-    const char *target = ctx->opts.target;
-    if (!target) {
-        goto cleanup;
-    }
+    const char *target = effective_target;
 
     ecs_entity_t project_entity = 0;
     const BakeProject *project = bake_model_find_project(ctx->world, target, &project_entity);
