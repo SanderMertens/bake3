@@ -160,6 +160,13 @@ echo "Test running test/core"
 
 # ---
 echo
+echo "Test running test/core in empty environment"
+../../../../build/bake clean
+../../../../build/bake reset
+../../../../build/bake run test/core -- -j 12
+
+# ---
+echo
 echo "Listing (should show flecs + modules, not test cases)"
 ../../../../build/bake list
 
