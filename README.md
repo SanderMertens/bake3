@@ -7,6 +7,15 @@ Bake is not yet-another-cmake-or-make wrapper. Instead, it emits compiler comman
 
 **WARNING: Heavy work in progress. If you are looking for a stable build system, do not use this!! Take a look instead at https://github.com/SanderMertens/bake**
 
+## Getting started
+To install bake, run the following command:
+
+```
+./setup.sh
+```
+
+This might prompt you for a password once as the script has to to install a script to `/usr/local/bin`. Once this script is installed, providing a password during setup is no longer needed.
+
 ## Commands
 Build project in current directory:
 ```
@@ -254,6 +263,12 @@ To build bake, run the following command in the repository root:
 
 ```
 make -j 8
+```
+
+Then run this command to initialize the bake environment:
+
+```
+./build/bake setup
 ```
 
 ## Testing
