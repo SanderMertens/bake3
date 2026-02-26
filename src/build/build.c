@@ -105,37 +105,6 @@ static bool bake_path_has_prefix(const char *path, const char *prefix, size_t *p
     return true;
 }
 
-static bool bake_path_has_special_dir(const char *path) {
-    if (!path || !path[0]) {
-        return false;
-    }
-
-    const char *seg = path;
-    for (const char *p = path;; p++) {
-        if (*p && !bake_path_is_sep(*p)) {
-            continue;
-        }
-
-        size_t len = (size_t)(p - seg);
-        if (len) {
-            if ((len == 4 && !strncmp(seg, "test", 4)) ||
-                (len == 5 && !strncmp(seg, "tests", 5)) ||
-                (len == 7 && !strncmp(seg, "example", 7)) ||
-                (len == 8 && !strncmp(seg, "examples", 8)))
-            {
-                return true;
-            }
-        }
-
-        if (!*p) {
-            break;
-        }
-        seg = p + 1;
-    }
-
-    return false;
-}
-
 static char* bake_build_display_path(const bake_context_t *ctx, const char *path) {
     if (!path) {
         return bake_strdup(".");
@@ -605,22 +574,17 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
 static int bake_prepare_discovery(bake_context_t *ctx) {
     char *target_path = bake_resolve_target_path(ctx, ctx->opts.target);
     char *target_root = NULL;
-    bool skip_special_dirs = true;
     if (target_path) {
         if (bake_is_dir(target_path)) {
             target_root = bake_strdup(target_path);
         } else {
             target_root = bake_dirname(target_path);
         }
-        skip_special_dirs = !bake_path_has_special_dir(target_path);
-    } else if (ctx->opts.target && ctx->opts.target[0]) {
-        /* Target by id: allow resolving projects from test/example folders */
-        skip_special_dirs = false;
     }
 
     const char *discovery_root = target_root ? target_root : ctx->opts.cwd;
 
-    int discovered = bake_discover_projects(ctx, discovery_root, skip_special_dirs);
+    int discovered = bake_discover_projects(ctx, discovery_root, true);
     if (discovered < 0) {
         ecs_os_free(target_path);
         ecs_os_free(target_root);

@@ -74,23 +74,12 @@ static bool bake_path_has_prefix(const char *path, const char *prefix) {
     return !path[prefix_len] || bake_path_is_sep(path[prefix_len]);
 }
 
-static char* bake_id_from_path(const char *path) {
-    char *id = bake_strdup(path);
-    if (!id) {
-        return NULL;
+static bool bake_cfg_is_external_placeholder(const bake_project_cfg_t *cfg) {
+    if (!cfg || !cfg->id) {
+        return false;
     }
 
-    for (char *p = id; *p; p++) {
-        if (*p == '/' || *p == '\\' || *p == ':') {
-            *p = '.';
-        }
-    }
-
-    while (id[0] == '.') {
-        memmove(id, id + 1, strlen(id));
-    }
-
-    return id;
+    return cfg->path == NULL && cfg->output_name == NULL;
 }
 
 int bake_model_init(ecs_world_t *world) {
@@ -124,14 +113,44 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
 
     if (entity) {
         const BakeProject *existing = ecs_get(world, entity, BakeProject);
-        if (existing && existing->cfg && existing->cfg->path && cfg->path &&
-            strcmp(existing->cfg->path, cfg->path))
-        {
-            char *unique_id = bake_id_from_path(cfg->path);
-            if (unique_id) {
-                ecs_os_free(cfg->id);
-                cfg->id = unique_id;
-                entity = 0;
+        if (existing && existing->cfg) {
+            const bake_project_cfg_t *existing_cfg = existing->cfg;
+            bool paths_conflict = existing_cfg->path && cfg->path &&
+                strcmp(existing_cfg->path, cfg->path);
+
+            if (paths_conflict) {
+                if (existing_cfg->public_project && cfg->public_project) {
+                    ecs_err(
+                        "duplicate public project id '%s' for '%s' and '%s'",
+                        cfg->id,
+                        existing_cfg->path,
+                        cfg->path);
+                    bake_project_cfg_fini(cfg);
+                    ecs_os_free(cfg);
+                    return 0;
+                }
+
+                /* Ignore duplicate ids when either project is non-public. */
+                bake_project_cfg_fini(cfg);
+                ecs_os_free(cfg);
+                return entity;
+            }
+
+            bool allow_replace =
+                (existing->external && !external) ||
+                (existing->external &&
+                 external &&
+                 bake_cfg_is_external_placeholder(existing_cfg) &&
+                 !bake_cfg_is_external_placeholder(cfg));
+            if (!allow_replace) {
+                bake_project_cfg_fini(cfg);
+                ecs_os_free(cfg);
+                return entity;
+            }
+
+            if (existing_cfg != cfg) {
+                bake_project_cfg_fini(existing->cfg);
+                ecs_os_free(existing->cfg);
             }
         }
     }

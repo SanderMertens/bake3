@@ -12,6 +12,9 @@ static int bake_should_skip_dir(const char *name, bool skip_special_dirs) {
     if (!strcmp(name, "tmp") || !strcmp(name, "target") || !strcmp(name, "out")) {
         return 1;
     }
+    if (!strcmp(name, "template") || !strcmp(name, "templates")) {
+        return 1;
+    }
     if (skip_special_dirs) {
         if (!strcmp(name, "test") || !strcmp(name, "tests")) {
             return 1;
@@ -43,11 +46,6 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return 0;
     }
 
-    if (strstr(entry->path, "/templates/") || strstr(entry->path, "\\templates\\") ||
-        strstr(entry->path, "/examples/") || strstr(entry->path, "\\examples\\")) {
-        return 0;
-    }
-
     bake_project_cfg_t *cfg = ecs_os_calloc_t(bake_project_cfg_t);
     if (!cfg) {
         return -1;
@@ -61,7 +59,9 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return 0;
     }
 
-    bake_model_add_project(ctx->ctx->world, cfg, false);
+    if (!bake_model_add_project(ctx->ctx->world, cfg, false)) {
+        return -1;
+    }
     ctx->discovered++;
     return 0;
 }
@@ -86,6 +86,10 @@ int bake_discover_projects(
     }
 
     bake_model_link_dependencies(ctx->world);
+
+    if (bake_environment_resolve_external_dependency_binaries(ctx) < 0) {
+        return -1;
+    }
 
     return discovery.discovered;
 }

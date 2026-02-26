@@ -9,6 +9,21 @@ static char* bake_env_meta_dir(const bake_context_t *ctx) {
     return bake_join_path(ctx->bake_home, "meta");
 }
 
+static char* bake_env_meta_project_json_path(const bake_context_t *ctx, const char *id) {
+    if (!ctx || !id || !id[0]) {
+        return NULL;
+    }
+
+    char *meta_dir = bake_join3_path(ctx->bake_home, "meta", id);
+    if (!meta_dir) {
+        return NULL;
+    }
+
+    char *project_json = bake_join_path(meta_dir, "project.json");
+    ecs_os_free(meta_dir);
+    return project_json;
+}
+
 static int bake_env_remove_if_exists(const char *path) {
     if (!path || !bake_path_exists(path)) {
         return 0;
@@ -153,6 +168,93 @@ static char* bake_env_artefact_path(const bake_context_t *ctx, const bake_projec
     return out_path;
 }
 
+static char* bake_env_artefact_path_scoped(
+    const bake_context_t *ctx,
+    const bake_project_cfg_t *cfg,
+    const char *mode)
+{
+    if (!cfg || !cfg->id || !cfg->id[0]) {
+        return NULL;
+    }
+
+    char *file_name = bake_env_artefact_file_name(cfg);
+    if (!file_name) {
+        return NULL;
+    }
+
+    char *platform = bake_host_platform();
+    char *platform_dir = platform ? bake_join_path(ctx->bake_home, platform) : NULL;
+    char *cfg_dir = platform_dir ? bake_join_path(platform_dir, mode && mode[0] ? mode : "debug") : NULL;
+    const char *subdir = cfg->kind == BAKE_PROJECT_PACKAGE ? "lib" : "bin";
+    char *out_dir = cfg_dir ? bake_join_path(cfg_dir, subdir) : NULL;
+    char *id_dir = out_dir ? bake_join_path(out_dir, cfg->id) : NULL;
+    char *out_path = id_dir ? bake_join_path(id_dir, file_name) : NULL;
+
+    ecs_os_free(file_name);
+    ecs_os_free(platform);
+    ecs_os_free(platform_dir);
+    ecs_os_free(cfg_dir);
+    ecs_os_free(out_dir);
+    ecs_os_free(id_dir);
+    return out_path;
+}
+
+static char* bake_env_find_artefact_path_current_mode(
+    const bake_context_t *ctx,
+    const bake_project_cfg_t *cfg,
+    const char *mode)
+{
+    char *scoped = bake_env_artefact_path_scoped(ctx, cfg, mode);
+    if (scoped && bake_path_exists(scoped)) {
+        return scoped;
+    }
+    ecs_os_free(scoped);
+
+    char *legacy = bake_env_artefact_path(ctx, cfg, mode);
+    if (legacy && bake_path_exists(legacy)) {
+        return legacy;
+    }
+    ecs_os_free(legacy);
+    return NULL;
+}
+
+static int bake_env_set_project_artefact_result(
+    ecs_world_t *world,
+    ecs_entity_t entity,
+    char *artefact_owned)
+{
+    const BakeBuildResult *prev = ecs_get(world, entity, BakeBuildResult);
+    if (prev && prev->artefact) {
+        ecs_os_free((char*)prev->artefact);
+    }
+
+    BakeBuildResult result = {
+        .status = 0,
+        .artefact = artefact_owned
+    };
+    ecs_set_ptr(world, entity, BakeBuildResult, &result);
+    return 0;
+}
+
+static int bake_env_copy_artefact_to_path(const char *src_artefact, const char *dst_path) {
+    if (!src_artefact || !src_artefact[0] || !dst_path || !dst_path[0]) {
+        return -1;
+    }
+
+    char *dst_dir = bake_dirname(dst_path);
+    if (!dst_dir) {
+        return -1;
+    }
+
+    int rc = 0;
+    if (bake_mkdirs(dst_dir) != 0 || bake_copy_file(src_artefact, dst_path) != 0) {
+        rc = -1;
+    }
+
+    ecs_os_free(dst_dir);
+    return rc;
+}
+
 static int bake_env_project_entry_complete(
     const bake_context_t *ctx,
     const bake_project_cfg_t *cfg,
@@ -184,8 +286,8 @@ static int bake_env_project_entry_complete(
         cfg->kind == BAKE_PROJECT_APPLICATION ||
         cfg->kind == BAKE_PROJECT_TEST)
     {
-        char *artefact = bake_env_artefact_path(ctx, cfg, mode);
-        bool has_artefact = artefact && bake_path_exists(artefact);
+        char *artefact = bake_env_find_artefact_path_current_mode(ctx, cfg, mode);
+        bool has_artefact = artefact != NULL;
         ecs_os_free(artefact);
         return has_artefact ? 1 : 0;
     }
@@ -220,6 +322,15 @@ static int bake_env_queue_project_deps(bake_strlist_t *queue, const bake_project
     return 0;
 }
 
+static bool bake_env_external_placeholder_project(const BakeProject *project) {
+    if (!project || !project->cfg || !project->external) {
+        return false;
+    }
+
+    const bake_project_cfg_t *cfg = project->cfg;
+    return cfg->id && !cfg->path && !cfg->output_name;
+}
+
 int bake_environment_init_paths(bake_context_t *ctx) {
     const char *env_home = getenv("BAKE_HOME");
     if (env_home && env_home[0]) {
@@ -249,31 +360,24 @@ int bake_environment_import_project_by_id(bake_context_t *ctx, const char *id) {
         return 0;
     }
 
-    if (bake_model_find_project(ctx->world, id, NULL)) {
+    const BakeProject *existing = bake_model_find_project(ctx->world, id, NULL);
+    if (existing && !bake_env_external_placeholder_project(existing)) {
         return 0;
     }
 
-    char *meta_dir = bake_join3_path(ctx->bake_home, "meta", id);
-    if (!meta_dir) {
-        return -1;
-    }
-
-    char *project_json = bake_join_path(meta_dir, "project.json");
+    char *project_json = bake_env_meta_project_json_path(ctx, id);
     if (!project_json) {
-        ecs_os_free(meta_dir);
         return -1;
     }
 
     if (!bake_path_exists(project_json)) {
         ecs_os_free(project_json);
-        ecs_os_free(meta_dir);
         return 0;
     }
 
     bake_project_cfg_t *cfg = ecs_os_calloc_t(bake_project_cfg_t);
     if (!cfg) {
         ecs_os_free(project_json);
-        ecs_os_free(meta_dir);
         return -1;
     }
 
@@ -282,7 +386,6 @@ int bake_environment_import_project_by_id(bake_context_t *ctx, const char *id) {
         bake_project_cfg_fini(cfg);
         ecs_os_free(cfg);
         ecs_os_free(project_json);
-        ecs_os_free(meta_dir);
         return -1;
     }
 
@@ -292,7 +395,6 @@ int bake_environment_import_project_by_id(bake_context_t *ctx, const char *id) {
         bake_project_cfg_fini(cfg);
         ecs_os_free(cfg);
         ecs_os_free(project_json);
-        ecs_os_free(meta_dir);
         return -1;
     }
 
@@ -300,11 +402,11 @@ int bake_environment_import_project_by_id(bake_context_t *ctx, const char *id) {
         bake_project_cfg_fini(cfg);
         ecs_os_free(cfg);
         ecs_os_free(project_json);
-        ecs_os_free(meta_dir);
         return 0;
     }
 
-    char *source_txt = bake_join_path(meta_dir, "source.txt");
+    char *meta_dir = bake_join3_path(ctx->bake_home, "meta", id);
+    char *source_txt = meta_dir ? bake_join_path(meta_dir, "source.txt") : NULL;
     char *source_path = source_txt ? bake_env_read_trimmed_file(source_txt) : NULL;
     if (source_path && source_path[0]) {
         ecs_os_free(cfg->path);
@@ -314,18 +416,18 @@ int bake_environment_import_project_by_id(bake_context_t *ctx, const char *id) {
     ecs_os_free(source_path);
     ecs_os_free(source_txt);
 
-    ecs_entity_t entity = bake_model_add_project(ctx->world, cfg, true);
-
     const char *mode = ctx->opts.mode ? ctx->opts.mode : "debug";
-    char *artefact = bake_env_artefact_path(ctx, cfg, mode);
-    if (artefact && bake_path_exists(artefact)) {
-        BakeBuildResult result = {
-            .status = 0,
-            .artefact = artefact
-        };
-        ecs_set_ptr(ctx->world, entity, BakeBuildResult, &result);
-    } else {
+    char *artefact = bake_env_find_artefact_path_current_mode(ctx, cfg, mode);
+    ecs_entity_t entity = bake_model_add_project(ctx->world, cfg, true);
+    if (!entity) {
         ecs_os_free(artefact);
+        ecs_os_free(project_json);
+        ecs_os_free(meta_dir);
+        return -1;
+    }
+
+    if (artefact) {
+        bake_env_set_project_artefact_result(ctx->world, entity, artefact);
     }
 
     ecs_os_free(project_json);
@@ -395,6 +497,159 @@ int bake_environment_import_dependency_closure(bake_context_t *ctx) {
     bake_strlist_fini(&queue);
     bake_strlist_fini(&seen);
     return imported;
+}
+
+static int bake_env_entity_list_append_unique(
+    ecs_entity_t **entities,
+    int32_t *count,
+    int32_t *capacity,
+    ecs_entity_t entity)
+{
+    for (int32_t i = 0; i < *count; i++) {
+        if ((*entities)[i] == entity) {
+            return 0;
+        }
+    }
+
+    if (*count == *capacity) {
+        int32_t next = *capacity ? *capacity * 2 : 64;
+        ecs_entity_t *next_entities = ecs_os_realloc_n(*entities, ecs_entity_t, next);
+        if (!next_entities) {
+            return -1;
+        }
+        *entities = next_entities;
+        *capacity = next;
+    }
+
+    (*entities)[(*count)++] = entity;
+    return 1;
+}
+
+static int bake_env_resolve_external_dep_entity(
+    bake_context_t *ctx,
+    ecs_entity_t dep_entity,
+    const char *mode)
+{
+    const BakeProject *dep_project = ecs_get(ctx->world, dep_entity, BakeProject);
+    if (!dep_project || !dep_project->external || !dep_project->cfg || !dep_project->cfg->id) {
+        return 0;
+    }
+
+    const BakeBuildResult *dep_result = ecs_get(ctx->world, dep_entity, BakeBuildResult);
+    if (dep_result && dep_result->artefact && bake_path_exists(dep_result->artefact)) {
+        return 0;
+    }
+
+    char *dep_id = bake_strdup(dep_project->cfg->id);
+    if (!dep_id) {
+        return -1;
+    }
+
+    char *project_json = bake_env_meta_project_json_path(ctx, dep_id);
+    if (!project_json) {
+        ecs_os_free(dep_id);
+        return -1;
+    }
+
+    bool has_meta = bake_path_exists(project_json);
+    ecs_os_free(project_json);
+    if (!has_meta) {
+        ecs_os_free(dep_id);
+        return 0;
+    }
+
+    int import_rc = bake_environment_import_project_by_id(ctx, dep_id);
+    if (import_rc < 0) {
+        ecs_os_free(dep_id);
+        return -1;
+    }
+
+    ecs_entity_t resolved_entity = 0;
+    const BakeProject *resolved = bake_model_find_project(ctx->world, dep_id, &resolved_entity);
+    if (resolved && resolved->cfg) {
+        char *artefact = bake_env_find_artefact_path_current_mode(ctx, resolved->cfg, mode);
+        if (artefact) {
+            bake_env_set_project_artefact_result(ctx->world, resolved_entity, artefact);
+        }
+    }
+
+    ecs_os_free(dep_id);
+    return 0;
+}
+
+static int bake_env_resolve_dependency_recursive(
+    bake_context_t *ctx,
+    ecs_entity_t project_entity,
+    const char *mode,
+    ecs_entity_t **visited,
+    int32_t *visited_count,
+    int32_t *visited_capacity)
+{
+    if (!project_entity) {
+        return 0;
+    }
+
+    int visit_rc = bake_env_entity_list_append_unique(
+        visited, visited_count, visited_capacity, project_entity);
+    if (visit_rc <= 0) {
+        return visit_rc;
+    }
+
+    for (int32_t i = 0;; i++) {
+        ecs_entity_t dep = ecs_get_target(ctx->world, project_entity, BakeDependsOn, i);
+        if (!dep) {
+            break;
+        }
+
+        if (bake_env_resolve_external_dep_entity(ctx, dep, mode) != 0) {
+            return -1;
+        }
+
+        if (bake_env_resolve_dependency_recursive(
+            ctx, dep, mode, visited, visited_count, visited_capacity) != 0)
+        {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+int bake_environment_resolve_external_dependency_binaries(bake_context_t *ctx) {
+    if (!ctx || !ctx->world) {
+        return -1;
+    }
+
+    const char *mode = (ctx->opts.mode && ctx->opts.mode[0]) ? ctx->opts.mode : "debug";
+    ecs_entity_t *visited = NULL;
+    int32_t visited_count = 0;
+    int32_t visited_capacity = 0;
+
+    ecs_iter_t it = ecs_each_id(ctx->world, ecs_id(BakeProject));
+    while (ecs_each_next(&it)) {
+        const BakeProject *projects = ecs_field(&it, BakeProject, 0);
+        for (int32_t i = 0; i < it.count; i++) {
+            const BakeProject *project = &projects[i];
+            if (!project->cfg || project->external || !project->discovered) {
+                continue;
+            }
+
+            if (bake_env_resolve_dependency_recursive(
+                ctx,
+                it.entities[i],
+                mode,
+                &visited,
+                &visited_count,
+                &visited_capacity) != 0)
+            {
+                ecs_os_free(visited);
+                return -1;
+            }
+        }
+    }
+
+    ecs_os_free(visited);
+    return 0;
 }
 
 int bake_environment_sync_project(
@@ -549,44 +804,26 @@ int bake_environment_sync_project(
     }
     ecs_os_free(src_templates);
 
-    if (result && result->artefact && result->artefact[0]) {
-        char *platform = bake_host_platform();
-        char *platform_dir = platform ? bake_join_path(ctx->bake_home, platform) : NULL;
-        char *mode_dir = platform_dir ? bake_join_path(platform_dir, mode) : NULL;
-        const char *subdir = (cfg->kind == BAKE_PROJECT_PACKAGE) ? "lib" : "bin";
-
-        if (cfg->kind == BAKE_PROJECT_PACKAGE ||
-            cfg->kind == BAKE_PROJECT_APPLICATION ||
-            cfg->kind == BAKE_PROJECT_TEST)
+    if (result && result->artefact && result->artefact[0] &&
+        (cfg->kind == BAKE_PROJECT_PACKAGE ||
+         cfg->kind == BAKE_PROJECT_APPLICATION ||
+         cfg->kind == BAKE_PROJECT_TEST))
+    {
+        char *legacy_path = bake_env_artefact_path(ctx, cfg, mode);
+        char *scoped_path = bake_env_artefact_path_scoped(ctx, cfg, mode);
+        if (!legacy_path || !scoped_path ||
+            bake_env_copy_artefact_to_path(result->artefact, legacy_path) != 0 ||
+            bake_env_copy_artefact_to_path(result->artefact, scoped_path) != 0)
         {
-            char *dst_dir = mode_dir ? bake_join_path(mode_dir, subdir) : NULL;
-            char *artefact_name = bake_basename(result->artefact);
-            char *dst_path = (dst_dir && artefact_name) ? bake_join_path(dst_dir, artefact_name) : NULL;
-
-            if (!dst_dir || !artefact_name || !dst_path ||
-                bake_mkdirs(dst_dir) != 0 ||
-                bake_copy_file(result->artefact, dst_path) != 0)
-            {
-                ecs_os_free(platform);
-                ecs_os_free(platform_dir);
-                ecs_os_free(mode_dir);
-                ecs_os_free(dst_dir);
-                ecs_os_free(artefact_name);
-                ecs_os_free(dst_path);
-                ecs_os_free(meta_dir);
-                ecs_os_free(include_dst);
-                ecs_os_free(template_dst);
-                return -1;
-            }
-
-            ecs_os_free(dst_dir);
-            ecs_os_free(artefact_name);
-            ecs_os_free(dst_path);
+            ecs_os_free(legacy_path);
+            ecs_os_free(scoped_path);
+            ecs_os_free(meta_dir);
+            ecs_os_free(include_dst);
+            ecs_os_free(template_dst);
+            return -1;
         }
-
-        ecs_os_free(platform);
-        ecs_os_free(platform_dir);
-        ecs_os_free(mode_dir);
+        ecs_os_free(legacy_path);
+        ecs_os_free(scoped_path);
     }
 
     ecs_os_free(meta_dir);
@@ -639,8 +876,13 @@ static int bake_env_remove_project_artefacts(const bake_context_t *ctx, const ba
             const char *subdir = (cfg->kind == BAKE_PROJECT_PACKAGE) ? "lib" : "bin";
             char *base = bake_join_path(cfg_dir->path, subdir);
             char *path = base ? bake_join_path(base, file_name) : NULL;
-            ecs_os_free(base);
-            if (!path) {
+            char *scoped_dir = (base && cfg->id && cfg->id[0]) ? bake_join_path(base, cfg->id) : NULL;
+            char *scoped_path = scoped_dir ? bake_join_path(scoped_dir, file_name) : NULL;
+            if (!base || !path || !scoped_dir || !scoped_path) {
+                ecs_os_free(base);
+                ecs_os_free(path);
+                ecs_os_free(scoped_dir);
+                ecs_os_free(scoped_path);
                 bake_dir_entries_free(cfg_dirs, cfg_count);
                 bake_dir_entries_free(roots, root_count);
                 ecs_os_free(file_name);
@@ -649,14 +891,38 @@ static int bake_env_remove_project_artefacts(const bake_context_t *ctx, const ba
 
             if (bake_path_exists(path)) {
                 if (remove(path) != 0) {
+                    ecs_os_free(base);
                     ecs_os_free(path);
+                    ecs_os_free(scoped_dir);
+                    ecs_os_free(scoped_path);
                     bake_dir_entries_free(cfg_dirs, cfg_count);
                     bake_dir_entries_free(roots, root_count);
                     ecs_os_free(file_name);
                     return -1;
                 }
             }
+
+            if (bake_path_exists(scoped_path)) {
+                if (remove(scoped_path) != 0) {
+                    ecs_os_free(base);
+                    ecs_os_free(path);
+                    ecs_os_free(scoped_dir);
+                    ecs_os_free(scoped_path);
+                    bake_dir_entries_free(cfg_dirs, cfg_count);
+                    bake_dir_entries_free(roots, root_count);
+                    ecs_os_free(file_name);
+                    return -1;
+                }
+            }
+
+            if (bake_path_exists(scoped_dir)) {
+                (void)bake_os_rmdir(scoped_dir);
+            }
+
+            ecs_os_free(base);
             ecs_os_free(path);
+            ecs_os_free(scoped_dir);
+            ecs_os_free(scoped_path);
         }
 
         bake_dir_entries_free(cfg_dirs, cfg_count);

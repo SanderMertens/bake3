@@ -4,6 +4,8 @@
 make clean
 make -j 8
 
+export BAKE_HOME="./test/tmp/bake_home"
+
 ## ---
 echo
 echo "Reset environment"
@@ -70,6 +72,18 @@ echo "Build test/integration/flecs-modules-test"
 ./build/bake build test/integration/flecs-modules-test
 echo "Listing (should show flecs + modules)"
 ./build/bake list
+echo
+
+# ---
+echo
+echo "Rebuild test/integration/flecs-modules-test/apps/city"
+./build/bake rebuild test/integration/flecs-modules-test/apps/city
+echo
+
+# ---
+echo
+echo "Rebuild test/integration/flecs-modules-test/apps/tower_defense"
+./build/bake rebuild test/integration/flecs-modules-test/apps/tower_defense
 echo
 
 ## ---

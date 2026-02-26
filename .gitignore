@@ -2,3 +2,4 @@
 **/.bake/
 **/.bake_flecs_cache/
 **/bin/
+test/tmp

@@ -9,6 +9,7 @@ int bake_environment_reset(bake_context_t *ctx);
 int bake_environment_cleanup(bake_context_t *ctx, int32_t *removed_out);
 int bake_environment_import_project_by_id(bake_context_t *ctx, const char *id);
 int bake_environment_import_dependency_closure(bake_context_t *ctx);
+int bake_environment_resolve_external_dependency_binaries(bake_context_t *ctx);
 int bake_environment_sync_project(
     bake_context_t *ctx,
     ecs_entity_t project_entity,
