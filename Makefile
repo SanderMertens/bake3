@@ -28,7 +28,7 @@ all: $(BIN)
 
 build/flecs.o: deps/flecs.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -I deps -c $< -o $@
+	$(CC) $(CFLAGS)  -DFLECS_CUSTOM_BUILD -DFLECS_LOG -DFLECS_OS_API_IMPL -I deps -c $< -o $@
 
 build/parson.o: deps/parson.c
 	@mkdir -p $(dir $@)
