@@ -174,7 +174,7 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     const char *obj_ext = ".o";
 #endif
 
-    char *obj_file = bake_asprintf("%s%s", rel, obj_ext);
+    char *obj_file = flecs_asprintf("%s%s", rel, obj_ext);
     ecs_os_free(rel);
     if (!obj_file) {
         return -1;
@@ -189,7 +189,7 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
 #if defined(_WIN32)
     const char *dep_path = NULL;
 #else
-    char *dep_path = bake_asprintf("%s.d", obj_path);
+    char *dep_path = flecs_asprintf("%s.d", obj_path);
     if (!dep_path) {
         ecs_os_free(obj_path);
         return -1;
@@ -504,8 +504,8 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     header_path = bake_join_path(project_dir, "bake_config.h");
     project_macro = bake_project_id_as_macro(cfg->id);
     project_macro_upper = bake_macro_upper(project_macro);
-    guard_macro = project_macro_upper ? bake_asprintf("%s_BAKE_CONFIG_H", project_macro_upper) : NULL;
-    api_macro = project_macro_upper ? bake_asprintf("%s_API", project_macro_upper) : NULL;
+    guard_macro = project_macro_upper ? flecs_asprintf("%s_BAKE_CONFIG_H", project_macro_upper) : NULL;
+    api_macro = project_macro_upper ? flecs_asprintf("%s_API", project_macro_upper) : NULL;
     if (!header_path || !project_macro || !project_macro_upper || !guard_macro || !api_macro) {
         goto cleanup;
     }

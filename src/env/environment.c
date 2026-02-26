@@ -112,7 +112,7 @@ static int bake_env_write_dependee_json(const char *path, const bake_project_cfg
         dependee = cfg->dependee.json;
     }
 
-    char *json = bake_asprintf("%s\n", dependee);
+    char *json = flecs_asprintf("%s\n", dependee);
     if (!json) {
         return -1;
     }
@@ -739,7 +739,7 @@ int bake_environment_sync_project(
     }
 
     source_txt = bake_join_path(meta_dir, "source.txt");
-    source_text = bake_asprintf("%s\n", cfg->path);
+    source_text = flecs_asprintf("%s\n", cfg->path);
     if (!source_txt || !source_text || bake_write_file(source_txt, source_text) != 0) {
         goto cleanup;
     }

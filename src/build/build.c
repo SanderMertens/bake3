@@ -187,10 +187,10 @@ static int bake_write_standalone_dep_header(
         return -1;
     }
 
-    char *header_name = bake_asprintf("%s.h", header_base);
+    char *header_name = flecs_asprintf("%s.h", header_base);
     char *header_path = header_name ? bake_join_path(deps_dir, header_name) : NULL;
     char *header_content = header_name
-        ? bake_asprintf("#pragma once\n#include <%s>\n", header_name)
+        ? flecs_asprintf("#pragma once\n#include <%s>\n", header_name)
         : NULL;
 
     int rc = -1;
@@ -421,7 +421,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 #else
         const char *obj_ext = ".o";
 #endif
-        char *obj_name = bake_asprintf("generated_bake_test%s", obj_ext);
+        char *obj_name = flecs_asprintf("generated_bake_test%s", obj_ext);
         char *obj_path = obj_name ? bake_join_path(paths.obj_dir, obj_name) : NULL;
         if (!obj_name || !obj_path || bake_compile_list_append(&units, builtin_test_src, obj_path, NULL, false) != 0) {
             ecs_os_free(obj_name);

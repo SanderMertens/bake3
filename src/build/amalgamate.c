@@ -78,8 +78,8 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, 
     }
 
     base = bake_project_id_as_macro(cfg->id);
-    h_name = base ? bake_asprintf("%s.h", base) : NULL;
-    c_name = base ? bake_asprintf("%s.c", base) : NULL;
+    h_name = base ? flecs_asprintf("%s.h", base) : NULL;
+    c_name = base ? flecs_asprintf("%s.c", base) : NULL;
     h_path = h_name ? bake_join_path(dst_dir, h_name) : NULL;
     c_path = c_name ? bake_join_path(dst_dir, c_name) : NULL;
     if (!base || !h_name || !c_name || !h_path || !c_path) {
@@ -407,7 +407,7 @@ static int bake_try_source_name(
     const char *ext,
     char **out)
 {
-    char *path = bake_asprintf("%s/%s.%s", src_dir, name, ext);
+    char *path = flecs_asprintf("%s/%s.%s", src_dir, name, ext);
     if (!path) {
         return -1;
     }
@@ -549,7 +549,7 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
     project_id = bake_project_id_as_macro(cfg->id);
     include_path = bake_join_path(cfg->path, "include");
     src_path = bake_join_path(cfg->path, "src");
-    main_header = include_path && project_id ? bake_asprintf("%s/%s.h", include_path, project_id) : NULL;
+    main_header = include_path && project_id ? flecs_asprintf("%s/%s.h", include_path, project_id) : NULL;
     if (!project_id || !include_path || !src_path || !main_header) {
         goto cleanup;
     }
@@ -557,7 +557,7 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
     if (!bake_path_exists(main_header)) {
         char *id_base = bake_project_id_base(cfg->id);
         char *base_project_id = id_base ? bake_project_id_as_macro(id_base) : NULL;
-        char *base_header = base_project_id ? bake_asprintf("%s/%s.h", include_path, base_project_id) : NULL;
+        char *base_header = base_project_id ? flecs_asprintf("%s/%s.h", include_path, base_project_id) : NULL;
         if (base_project_id && base_header && bake_path_exists(base_header)) {
             ecs_os_free(project_id);
             project_id = base_project_id;
@@ -578,10 +578,10 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
     }
 
     const char *src_ext = bake_source_is_cpp(cfg) ? "cpp" : "c";
-    include_out = bake_asprintf("%s/%s.h", output_path, project_id);
-    include_tmp = bake_asprintf("%s/%s.h.tmp", output_path, project_id);
-    src_out = bake_asprintf("%s/%s.%s", output_path, project_id, src_ext);
-    src_tmp = bake_asprintf("%s/%s.%s.tmp", output_path, project_id, src_ext);
+    include_out = flecs_asprintf("%s/%s.h", output_path, project_id);
+    include_tmp = flecs_asprintf("%s/%s.h.tmp", output_path, project_id);
+    src_out = flecs_asprintf("%s/%s.%s", output_path, project_id, src_ext);
+    src_tmp = flecs_asprintf("%s/%s.%s.tmp", output_path, project_id, src_ext);
     if (!include_out || !include_tmp || !src_out || !src_tmp) {
         goto cleanup;
     }

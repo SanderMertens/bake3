@@ -234,7 +234,7 @@ static char* bake_test_template_file(const bake_context_t *ctx, const char *file
 
 static int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_suite_spec_t *suite) {
     char *test_dir = bake_join_path(cfg->path, "test");
-    char *file_name = bake_asprintf("%s_suite.c", suite->id);
+    char *file_name = flecs_asprintf("%s_suite.c", suite->id);
     char *suite_file = bake_join_path(test_dir, file_name);
     ecs_os_free(file_name);
 

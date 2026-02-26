@@ -294,10 +294,10 @@ char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg) {
 #endif
 
     if (cfg->kind == BAKE_PROJECT_PACKAGE) {
-        return bake_asprintf("%s%s%s", lib_prefix, cfg->output_name, lib_ext);
+        return flecs_asprintf("%s%s%s", lib_prefix, cfg->output_name, lib_ext);
     }
 
-    return bake_asprintf("%s%s", cfg->output_name, exe_ext);
+    return flecs_asprintf("%s%s", cfg->output_name, exe_ext);
 }
 
 void bake_rule_list_init(bake_rule_list_t *list) {

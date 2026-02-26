@@ -19,7 +19,7 @@
 char* bake_strdup(const char *str);
 char* bake_join_path(const char *lhs, const char *rhs);
 char* bake_join3_path(const char *a, const char *b, const char *c);
-char* bake_asprintf(const char *fmt, ...);
+char* flecs_asprintf(const char *fmt, ...);
 char* bake_read_file(const char *path, size_t *len_out);
 int bake_write_file(const char *path, const char *content);
 int bake_mkdirs(const char *path);
