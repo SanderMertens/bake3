@@ -1,7 +1,7 @@
 #ifndef BAKE2_MODEL_H
 #define BAKE2_MODEL_H
 
-#include "bake2/context.h"
+#include "bake/context.h"
 
 typedef struct BakeProject {
     ecs_entity_t entity;

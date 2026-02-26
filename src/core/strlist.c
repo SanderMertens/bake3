@@ -1,4 +1,4 @@
-#include "bake2/strlist.h"
+#include "bake/strlist.h"
 
 static int bake_strlist_ensure(bake_strlist_t *list, int32_t n) {
     if (list->count + n <= list->capacity) {

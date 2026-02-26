@@ -1,5 +1,5 @@
-#include "bake2/environment.h"
-#include "bake2/os.h"
+#include "bake/environment.h"
+#include "bake/os.h"
 
 static bool bake_env_is_dot(const char *name) {
     return !strcmp(name, ".") || !strcmp(name, "..");

@@ -1,7 +1,7 @@
 #ifndef BAKE2_ENVIRONMENT_H
 #define BAKE2_ENVIRONMENT_H
 
-#include "bake2/model.h"
+#include "bake/model.h"
 
 int bake_environment_init_paths(bake_context_t *ctx);
 int bake_environment_setup(bake_context_t *ctx, const char *argv0);

@@ -1,7 +1,7 @@
 #ifndef BAKE2_OS_H
 #define BAKE2_OS_H
 
-#include "bake2/common.h"
+#include "bake/common.h"
 
 typedef struct bake_dir_entry_t {
     char *name;

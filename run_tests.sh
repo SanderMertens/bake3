@@ -6,6 +6,10 @@ make -j 8
 
 export BAKE_HOME="$(pwd)/test/tmp/bake_home"
 
+echo
+echo "Install bake"
+./build/bake setup --local
+
 # ---
 echo
 echo "Reset environment"

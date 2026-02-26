@@ -1,7 +1,7 @@
 #ifndef BAKE2_CONTEXT_H
 #define BAKE2_CONTEXT_H
 
-#include "bake2/config.h"
+#include "bake/config.h"
 
 typedef struct bake_options_t {
     const char *command;

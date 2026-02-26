@@ -1,6 +1,6 @@
 #include "build_internal.h"
-#include "bake2/environment.h"
-#include "bake2/os.h"
+#include "bake/environment.h"
+#include "bake/os.h"
 
 #include <limits.h>
 #include <stdlib.h>

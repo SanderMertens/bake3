@@ -1,7 +1,7 @@
 #ifndef BAKE2_CONFIG_H
 #define BAKE2_CONFIG_H
 
-#include "bake2/strlist.h"
+#include "bake/strlist.h"
 
 typedef enum bake_project_kind_t {
     BAKE_PROJECT_APPLICATION = 0,

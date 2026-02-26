@@ -1,5 +1,5 @@
-#include "bake2/environment.h"
-#include "bake2/os.h"
+#include "bake/environment.h"
+#include "bake/os.h"
 
 static bool bake_env_is_dot(const char *name) {
     return !strcmp(name, ".") || !strcmp(name, "..");
@@ -955,7 +955,10 @@ int bake_environment_reset(bake_context_t *ctx) {
         if (bake_env_is_dot(entry->name)) {
             continue;
         }
-        if (!strcmp(entry->name, "bin")) {
+        if (!strcmp(entry->name, "test")) {
+            continue;
+        }
+        if (!strcmp(entry->name, "bake3")) {
             continue;
         }
         if (bake_env_remove_if_exists(entry->path) != 0) {
@@ -1028,4 +1031,3 @@ int bake_environment_cleanup(bake_context_t *ctx, int32_t *removed_out) {
     }
     return 0;
 }
-

@@ -1,7 +1,7 @@
-#include "bake2/commands.h"
-#include "bake2/discovery.h"
-#include "bake2/environment.h"
-#include "bake2/os.h"
+#include "bake/commands.h"
+#include "bake/discovery.h"
+#include "bake/environment.h"
+#include "bake/os.h"
 
 static const char *bake_help_text =
     "Usage: bake [options] [command] [target]\n"

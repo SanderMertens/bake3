@@ -1,5 +1,5 @@
-#include "bake2/config.h"
-#include "bake2/common.h"
+#include "bake/config.h"
+#include "bake/common.h"
 
 #include <ctype.h>
 

@@ -1,5 +1,5 @@
-#include "bake2/common.h"
-#include "bake2/os.h"
+#include "bake/common.h"
+#include "bake/os.h"
 
 char* bake_strdup(const char *str) {
     if (!str) {

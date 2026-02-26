@@ -1,7 +1,7 @@
 #ifndef BAKE2_STRLIST_H
 #define BAKE2_STRLIST_H
 
-#include "bake2/common.h"
+#include "bake/common.h"
 
 typedef struct bake_strlist_t {
     char **items;

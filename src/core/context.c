@@ -1,7 +1,7 @@
-#include "bake2/context.h"
-#include "bake2/environment.h"
-#include "bake2/model.h"
-#include "bake2/os.h"
+#include "bake/context.h"
+#include "bake/environment.h"
+#include "bake/model.h"
+#include "bake/os.h"
 
 static
 void bake_print_header(

@@ -1,6 +1,6 @@
 #if defined(_WIN32)
 
-#include "bake2/os.h"
+#include "bake/os.h"
 
 int bake_os_setenv(const char *name, const char *value) {
     if (!name || !name[0] || !value) {

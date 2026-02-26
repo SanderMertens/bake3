@@ -1,4 +1,4 @@
-#include "bake2/os.h"
+#include "bake/os.h"
 
 void bake_dir_entries_free(bake_dir_entry_t *entries, int32_t count) {
     if (!entries) {

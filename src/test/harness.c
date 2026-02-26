@@ -1,5 +1,5 @@
-#include "bake2/test_harness.h"
-#include "bake2/os.h"
+#include "bake/test_harness.h"
+#include "bake/os.h"
 
 #include "parson.h"
 

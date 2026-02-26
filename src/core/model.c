@@ -1,4 +1,4 @@
-#include "bake2/model.h"
+#include "bake/model.h"
 
 ECS_COMPONENT_DECLARE(BakeProject);
 ECS_COMPONENT_DECLARE(BakeBuildRequest);

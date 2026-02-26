@@ -1,4 +1,4 @@
-#include "bake2/plugin.h"
+#include "bake/plugin.h"
 
 typedef int (*bake_plugin_init_t)(ecs_world_t *world, ecs_entity_t project_entity);
 

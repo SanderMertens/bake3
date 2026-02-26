@@ -1,9 +1,9 @@
 #ifndef BAKE_BUILD_INTERNAL_H
 #define BAKE_BUILD_INTERNAL_H
 
-#include "bake2/build.h"
-#include "bake2/plugin.h"
-#include "bake2/test_harness.h"
+#include "bake/build.h"
+#include "bake/plugin.h"
+#include "bake/test_harness.h"
 
 typedef struct bake_compile_unit_t {
     char *src;

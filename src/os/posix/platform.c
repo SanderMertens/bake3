@@ -1,6 +1,6 @@
 #if !defined(_WIN32)
 
-#include "bake2/os.h"
+#include "bake/os.h"
 
 #include <unistd.h>
 

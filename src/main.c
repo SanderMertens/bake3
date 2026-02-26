@@ -1,6 +1,6 @@
-#include "bake2/commands.h"
-#include "bake2/context.h"
-#include "bake2/os.h"
+#include "bake/commands.h"
+#include "bake/context.h"
+#include "bake/os.h"
 
 static bool bake_is_command(const char *arg) {
     return !strcmp(arg, "build") ||

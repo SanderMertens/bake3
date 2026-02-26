@@ -1,4 +1,4 @@
-#include "bake2/os.h"
+#include "bake/os.h"
 
 const char* bake_os_host(void) {
 #if defined(__APPLE__)

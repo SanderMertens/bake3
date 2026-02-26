@@ -1,6 +1,6 @@
-#include "bake2/discovery.h"
-#include "bake2/environment.h"
-#include "bake2/os.h"
+#include "bake/discovery.h"
+#include "bake/environment.h"
+#include "bake/os.h"
 
 static int bake_should_skip_dir(const char *name, bool skip_special_dirs) {
     if (!strcmp(name, ".") || !strcmp(name, "..")) {

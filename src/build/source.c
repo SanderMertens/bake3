@@ -1,5 +1,5 @@
 #include "build_internal.h"
-#include "bake2/os.h"
+#include "bake/os.h"
 
 #include <ctype.h>
 
