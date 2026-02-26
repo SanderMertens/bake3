@@ -238,6 +238,10 @@ char* bake_read_file(const char *path, size_t *len_out) {
 }
 
 int bake_write_file(const char *path, const char *content) {
+    if (!path || !content) {
+        return -1;
+    }
+
     char *dir = bake_dirname(path);
     if (!dir) {
         return -1;
@@ -249,12 +253,24 @@ int bake_write_file(const char *path, const char *content) {
     }
     ecs_os_free(dir);
 
+    size_t len = strlen(content);
+    if (bake_path_exists(path)) {
+        size_t existing_len = 0;
+        char *existing = bake_read_file(path, &existing_len);
+        if (existing) {
+            if (existing_len == len && !memcmp(existing, content, len)) {
+                ecs_os_free(existing);
+                return 0;
+            }
+            ecs_os_free(existing);
+        }
+    }
+
     FILE *f = fopen(path, "wb");
     if (!f) {
         return -1;
     }
 
-    size_t len = strlen(content);
     size_t written = fwrite(content, 1, len, f);
     fclose(f);
     return written == len ? 0 : -1;
@@ -404,6 +420,19 @@ int bake_copy_file(const char *src, const char *dst) {
         return -1;
     }
     ecs_os_free(dir);
+
+    if (bake_path_exists(dst)) {
+        size_t existing_len = 0;
+        char *existing = bake_read_file(dst, &existing_len);
+        if (existing) {
+            if (existing_len == len && !memcmp(existing, content, len)) {
+                ecs_os_free(existing);
+                ecs_os_free(content);
+                return 0;
+            }
+            ecs_os_free(existing);
+        }
+    }
 
     FILE *f = fopen(dst, "wb");
     if (!f) {

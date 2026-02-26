@@ -145,8 +145,8 @@ cd ../..
 
 # ---
 echo
-echo "Test running test/integration/flecs-modules-test/flecs/test/core"
-./build/bake run test/integration/flecs-modules-test/flecs/test/core -- -j 12
+echo "Test running test/integration/flecs-modules-test/flecs/test/query"
+./build/bake run test/integration/flecs-modules-test/flecs/test/query -- -j 12
 
 # ---
 echo
@@ -155,15 +155,20 @@ cd test/integration/flecs-modules-test/flecs
 
 # ---
 echo
-echo "Test running test/core"
-../../../../build/bake run test/core -- -j 12
+echo "Test running test/query"
+../../../../build/bake run test/query -- -j 12
 
 # ---
 echo
-echo "Test running test/core in empty environment"
+echo "Test running test/query in empty environment"
 ../../../../build/bake clean
 ../../../../build/bake reset
-../../../../build/bake run test/core -- -j 12
+../../../../build/bake run test/query -- -j 12
+
+# ---
+echo
+echo "Test incremental build for test project (should not rebuild test cases or flecs)"
+../../../../build/bake run test/query -- -j 12
 
 # ---
 echo
