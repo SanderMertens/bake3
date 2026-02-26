@@ -1,5 +1,6 @@
 #include "bake/config.h"
 #include "bake/common.h"
+#include "bake/os.h"
 
 #include <ctype.h>
 
@@ -23,16 +24,6 @@ static const char *bake_cfg_eval_target = NULL;
 void bake_project_cfg_set_eval_context(const char *mode, const char *target) {
     bake_cfg_eval_mode = (mode && mode[0]) ? mode : "debug";
     bake_cfg_eval_target = (target && target[0]) ? target : NULL;
-}
-
-static const char* bake_host_os(void) {
-#if defined(_WIN32)
-    return "windows";
-#elif defined(__APPLE__)
-    return "darwin";
-#else
-    return "linux";
-#endif
 }
 
 static char* bake_ltrim(char *str) {
@@ -91,12 +82,12 @@ static int bake_json_conditional_key_matches(const char *key) {
     int match = 0;
     if (value[0]) {
         if (!strcmp(kind, "os")) {
-            match = !strcmp(value, bake_host_os());
+            match = !strcasecmp(value, bake_os_host());
         } else if (!strcmp(kind, "cfg")) {
             const char *mode = bake_cfg_eval_mode ? bake_cfg_eval_mode : "debug";
-            match = !strcmp(value, mode);
+            match = !strcasecmp(value, mode);
         } else if (!strcmp(kind, "target")) {
-            match = bake_cfg_eval_target && !strcmp(value, bake_cfg_eval_target);
+            match = bake_cfg_eval_target && !strcasecmp(value, bake_cfg_eval_target);
         }
     }
 

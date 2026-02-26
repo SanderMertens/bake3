@@ -289,11 +289,6 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         return 0;
     }
 
-    if (bake_plugin_load_for_project(ctx, cfg) != 0) {
-        ecs_err("plugin loading failed for %s", cfg->id);
-        return -1;
-    }
-
     if (cfg->kind == BAKE_PROJECT_CONFIG || cfg->kind == BAKE_PROJECT_TEMPLATE) {
         const BakeBuildResult *prev_result = ecs_get(ctx->world, project_entity, BakeBuildResult);
         if (prev_result && prev_result->artefact) {

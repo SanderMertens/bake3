@@ -2,7 +2,6 @@
 #define BAKE_BUILD_INTERNAL_H
 
 #include "bake/build.h"
-#include "bake/plugin.h"
 #include "bake/test_harness.h"
 
 typedef struct bake_compile_unit_t {
