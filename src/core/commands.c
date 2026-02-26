@@ -534,15 +534,6 @@ static int bake_info_project(bake_context_t *ctx) {
     bake_print_cfg_strlist("use-build:", &cfg->use_build, 12);
     bake_print_cfg_strlist("use-runtime:", &cfg->use_runtime, 12);
 
-    const bake_project_cfg_t *dependee_cfg = cfg->dependee.cfg;
-    if (dependee_cfg) {
-        bake_print_cfg_strlist("dependee.use:", &dependee_cfg->use, 15);
-        bake_print_cfg_strlist("dependee.defines:", &dependee_cfg->c_lang.defines, 15);
-        bake_print_cfg_strlist("dependee.include:", &dependee_cfg->c_lang.include_paths, 15);
-        bake_print_cfg_strlist("dependee.cflags:", &dependee_cfg->c_lang.cflags, 15);
-        bake_print_cfg_strlist("dependee.lib:", &dependee_cfg->c_lang.libs, 15);
-    }
-
     return 0;
 }
 

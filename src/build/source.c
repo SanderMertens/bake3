@@ -341,7 +341,7 @@ static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return -1;
     }
 
-    int rc = bake_run_command(tmp);
+    int rc = bake_run_command(tmp, true);
     ecs_os_free(tmp);
     return rc;
 }

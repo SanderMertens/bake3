@@ -28,7 +28,7 @@ static int bake_env_remove_if_exists(const char *path) {
     if (!path || !bake_path_exists(path)) {
         return 0;
     }
-    return bake_remove_tree(path);
+    return bake_rmtree(path);
 }
 
 static int bake_env_copy_tree_recursive(const char *src, const char *dst) {
@@ -57,7 +57,7 @@ static int bake_env_copy_tree_recursive(const char *src, const char *dst) {
                 rc = bake_env_copy_tree_recursive(entry->path, dst_path);
             }
         } else {
-            rc = bake_copy_file(entry->path, dst_path);
+            rc = bake_file_copy(entry->path, dst_path);
         }
 
         ecs_os_free(dst_path);
@@ -228,7 +228,7 @@ static int bake_env_copy_artefact_to_path(const char *src_artefact, const char *
     }
 
     int rc = 0;
-    if (bake_mkdirs(dst_dir) != 0 || bake_copy_file(src_artefact, dst_path) != 0) {
+    if (bake_mkdirs(dst_dir) != 0 || bake_file_copy(src_artefact, dst_path) != 0) {
         rc = -1;
     }
 
@@ -241,7 +241,7 @@ static int bake_env_copy_required_file(const char *src_dir, const char *dst_dir,
     char *src = bake_path_join(src_dir, name);
     char *dst = bake_path_join(dst_dir, name);
     if (src && dst && bake_path_exists(src)) {
-        rc = bake_copy_file(src, dst);
+        rc = bake_file_copy(src, dst);
     }
     ecs_os_free(src);
     ecs_os_free(dst);
@@ -253,7 +253,7 @@ static int bake_env_copy_optional_file(const char *src_dir, const char *dst_dir,
     char *src = bake_path_join(src_dir, name);
     char *dst = bake_path_join(dst_dir, name);
     if (src && dst) {
-        rc = bake_path_exists(src) ? bake_copy_file(src, dst) : bake_env_remove_if_exists(dst);
+        rc = bake_path_exists(src) ? bake_file_copy(src, dst) : bake_env_remove_if_exists(dst);
     }
     ecs_os_free(src);
     ecs_os_free(dst);

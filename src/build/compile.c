@@ -364,7 +364,7 @@ static int bake_run_compiler_command(
         }
     }
 
-    return bake_run_command_quiet(command);
+    return bake_run_command(command, false);
 }
 
 static char* bake_compile_display_path(const bake_project_cfg_t *cfg, const char *src) {

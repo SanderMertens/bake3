@@ -97,7 +97,7 @@ int bake_mkdirs(const char *path) {
     return 0;
 }
 
-int bake_remove_tree(const char *path) {
+int bake_rmtree(const char *path) {
     if (!bake_path_exists(path)) {
         return 0;
     }
@@ -116,7 +116,7 @@ int bake_remove_tree(const char *path) {
         if (!strcmp(entries[i].name, ".") || !strcmp(entries[i].name, "..")) {
             continue;
         }
-        if (bake_remove_tree(entries[i].path) != 0) {
+        if (bake_rmtree(entries[i].path) != 0) {
             bake_dir_entries_free(entries, count);
             return -1;
         }

@@ -160,43 +160,6 @@ static int bake_text_contains_function(const char *text, const char *suite, cons
     return strstr(text, signature) != NULL;
 }
 
-static char* bake_text_replace(const char *input, const char *needle, const char *replacement) {
-    size_t needle_len = strlen(needle);
-    size_t repl_len = strlen(replacement);
-    size_t total = 1;
-
-    const char *cur = input;
-    while (true) {
-        const char *hit = strstr(cur, needle);
-        if (!hit) {
-            total += strlen(cur);
-            break;
-        }
-        total += (size_t)(hit - cur) + repl_len;
-        cur = hit + needle_len;
-    }
-
-    char *out = ecs_os_malloc(total);
-    if (!out) {
-        return NULL;
-    }
-    out[0] = '\0';
-
-    cur = input;
-    while (true) {
-        const char *hit = strstr(cur, needle);
-        if (!hit) {
-            strcat(out, cur);
-            break;
-        }
-        strncat(out, cur, (size_t)(hit - cur));
-        strcat(out, replacement);
-        cur = hit + needle_len;
-    }
-
-    return out;
-}
-
 static char* bake_test_template_file(const bake_context_t *ctx, const char *file) {
     if (!ctx || !ctx->bake_home || !ctx->bake_home[0]) {
         ecs_err("cannot resolve test harness template '%s': BAKE_HOME is not initialized", file ? file : "<null>");
@@ -309,9 +272,9 @@ static int bake_generate_runtime(const bake_context_t *ctx, const bake_project_c
         return -1;
     }
 
-    int rc = bake_copy_file(tmpl_hdr, hdr);
+    int rc = bake_file_copy(tmpl_hdr, hdr);
     if (rc == 0) {
-        rc = bake_copy_file(tmpl_src, src);
+        rc = bake_file_copy(tmpl_src, src);
     }
 
     ecs_os_free(hdr);
@@ -448,9 +411,9 @@ int bake_test_generate_builtin_api(
         return -1;
     }
 
-    int rc = bake_copy_file(tmpl_hdr, hdr_path);
+    int rc = bake_file_copy(tmpl_hdr, hdr_path);
     if (rc == 0) {
-        rc = bake_copy_file(tmpl_src, src_path);
+        rc = bake_file_copy(tmpl_src, src_path);
     }
 
     if (rc == 0) {
@@ -493,7 +456,7 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
     }
 
     char *cmd_str = ecs_strbuf_get(&cmd);
-    int rc = bake_run_command(cmd_str);
+    int rc = bake_run_command(cmd_str, false);
     ecs_os_free(cmd_str);
 
     if (ctx && ctx->opts.jobs > 0) {

@@ -27,6 +27,43 @@ int bake_entity_list_append_unique(
     return 1;
 }
 
+char* bake_text_replace(const char *input, const char *needle, const char *replacement) {
+    size_t needle_len = strlen(needle);
+    size_t repl_len = strlen(replacement);
+    size_t total = 1;
+
+    const char *cur = input;
+    while (true) {
+        const char *hit = strstr(cur, needle);
+        if (!hit) {
+            total += strlen(cur);
+            break;
+        }
+        total += (size_t)(hit - cur) + repl_len;
+        cur = hit + needle_len;
+    }
+
+    char *out = ecs_os_malloc(total);
+    if (!out) {
+        return NULL;
+    }
+    out[0] = '\0';
+
+    cur = input;
+    while (true) {
+        const char *hit = strstr(cur, needle);
+        if (!hit) {
+            strcat(out, cur);
+            break;
+        }
+        strncat(out, cur, (size_t)(hit - cur));
+        strcat(out, replacement);
+        cur = hit + needle_len;
+    }
+
+    return out;
+}
+
 char* bake_project_build_root(const char *project_path, const char *mode) {
     if (!project_path || !project_path[0]) {
         return NULL;
@@ -340,7 +377,7 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
     return 0;
 }
 
-static int bake_run_command_impl(const char *cmd, bool log_command) {
+int bake_run_command(const char *cmd, bool log_command) {
     if (!cmd || !cmd[0]) {
         return -1;
     }
@@ -386,12 +423,4 @@ static int bake_run_command_impl(const char *cmd, bool log_command) {
 
     bake_cmd_line_fini(&parsed);
     return 0;
-}
-
-int bake_run_command(const char *cmd) {
-    return bake_run_command_impl(cmd, true);
-}
-
-int bake_run_command_quiet(const char *cmd) {
-    return bake_run_command_impl(cmd, false);
 }

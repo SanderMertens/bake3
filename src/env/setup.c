@@ -44,7 +44,7 @@ static int bake_env_copy_tree_recursive(const char *src, const char *dst) {
                 rc = bake_env_copy_tree_recursive(entry->path, dst_path);
             }
         } else {
-            rc = bake_copy_file(entry->path, dst_path);
+            rc = bake_file_copy(entry->path, dst_path);
         }
 
         ecs_os_free(dst_path);
@@ -63,7 +63,7 @@ static int bake_env_copy_tree_exact(const char *src, const char *dst) {
         return -1;
     }
 
-    if (bake_path_exists(dst) && bake_remove_tree(dst) != 0) {
+    if (bake_path_exists(dst) && bake_rmtree(dst) != 0) {
         return -1;
     }
 
@@ -239,7 +239,7 @@ int bake_environment_setup(bake_context_t *ctx, const char *argv0) {
 
     int rc = 0;
     if (!bake_path_equal_normalized(src, dst)) {
-        rc = bake_copy_file(src, dst);
+        rc = bake_file_copy(src, dst);
     }
 
     if (rc == 0) {

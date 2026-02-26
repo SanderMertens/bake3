@@ -85,7 +85,7 @@ int64_t bake_file_mtime(const char *path) {
     return bake_os_file_mtime(path);
 }
 
-int bake_copy_file(const char *src, const char *dst) {
+int bake_file_copy(const char *src, const char *dst) {
     size_t len = 0;
     char *content = bake_file_read(src, &len);
     if (!content) {

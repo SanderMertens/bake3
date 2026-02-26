@@ -609,7 +609,7 @@ static int bake_clean_project(const bake_project_cfg_t *cfg, bool recursive) {
 
     int rc = 0;
     if (bake_path_exists(bake_dir) && bake_is_dir(bake_dir)) {
-        rc = bake_remove_tree(bake_dir);
+        rc = bake_rmtree(bake_dir);
     }
 
     ecs_os_free(bake_dir);
@@ -627,7 +627,7 @@ static int bake_clean_project(const bake_project_cfg_t *cfg, bool recursive) {
         }
 
         if (bake_path_exists(marker) && bake_path_exists(deps_dir) && bake_is_dir(deps_dir)) {
-            rc = bake_remove_tree(deps_dir);
+            rc = bake_rmtree(deps_dir);
         }
 
         ecs_os_free(marker);
@@ -755,13 +755,14 @@ int bake_build_run(bake_context_t *ctx) {
         if (ctx->opts.run_prefix) {
             ecs_strbuf_append(&cmd, "%s ", ctx->opts.run_prefix);
         }
+
         ecs_strbuf_append(&cmd, "\"%s\"", result->artefact);
         for (int i = 0; i < ctx->opts.run_argc; i++) {
             ecs_strbuf_append(&cmd, " \"%s\"", ctx->opts.run_argv[i]);
         }
 
         char *cmd_str = ecs_strbuf_get(&cmd);
-        rc = bake_run_command(cmd_str);
+        rc = bake_run_command(cmd_str, true);
         ecs_os_free(cmd_str);
         goto cleanup;
     }
