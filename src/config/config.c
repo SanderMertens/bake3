@@ -401,6 +401,32 @@ bake_project_kind_t bake_project_kind_parse(const char *value) {
     return BAKE_PROJECT_APPLICATION;
 }
 
+char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg) {
+    if (!cfg || !cfg->output_name ||
+        (cfg->kind != BAKE_PROJECT_PACKAGE &&
+         cfg->kind != BAKE_PROJECT_APPLICATION &&
+         cfg->kind != BAKE_PROJECT_TEST))
+    {
+        return NULL;
+    }
+
+#if defined(_WIN32)
+    const char *exe_ext = ".exe";
+    const char *lib_ext = ".lib";
+    const char *lib_prefix = "";
+#else
+    const char *exe_ext = "";
+    const char *lib_ext = ".a";
+    const char *lib_prefix = "lib";
+#endif
+
+    if (cfg->kind == BAKE_PROJECT_PACKAGE) {
+        return bake_asprintf("%s%s%s", lib_prefix, cfg->output_name, lib_ext);
+    }
+
+    return bake_asprintf("%s%s", cfg->output_name, exe_ext);
+}
+
 void bake_rule_list_init(bake_rule_list_t *list) {
     list->items = NULL;
     list->count = 0;
@@ -622,6 +648,46 @@ static int bake_parse_lang_cfg(const char *json, const jsmntok_t *toks, int coun
     return 0;
 }
 
+static int bake_parse_project_value_lang_array(
+    const char *json,
+    const jsmntok_t *toks,
+    int count,
+    int object,
+    const char *key,
+    const char *alias,
+    bake_strlist_t *c_list,
+    bake_strlist_t *cpp_list)
+{
+    if (bake_json_get_array_alias(json, toks, count, object, key, alias, c_list) < 0) {
+        return -1;
+    }
+    if (bake_json_get_array_alias(json, toks, count, object, key, alias, cpp_list) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int bake_parse_project_value_lang_bool(
+    const char *json,
+    const jsmntok_t *toks,
+    int count,
+    int object,
+    const char *key,
+    bool *c_value,
+    bool *cpp_value)
+{
+    bool value = false;
+    int rc = bake_json_get_bool(json, toks, count, object, key, &value);
+    if (rc < 0) {
+        return -1;
+    }
+    if (rc == 0) {
+        *c_value = value;
+        *cpp_value = value;
+    }
+    return 0;
+}
+
 static int bake_parse_project_value_cfg(
     const char *json,
     const jsmntok_t *toks,
@@ -658,49 +724,46 @@ static int bake_parse_project_value_cfg(
     if (bake_json_get_array_alias(json, toks, count, object, "use-build", "use_build", &cfg->use_build) < 0) return -1;
     if (bake_json_get_array_alias(json, toks, count, object, "use-runtime", "use_runtime", &cfg->use_runtime) < 0) return -1;
 
-    if (bake_json_get_array_alias(json, toks, count, object, "cflags", NULL, &cfg->c_lang.cflags) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "cflags", NULL, &cfg->cpp_lang.cflags) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "cxxflags", NULL, &cfg->c_lang.cxxflags) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "cxxflags", NULL, &cfg->cpp_lang.cxxflags) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "defines", NULL, &cfg->c_lang.defines) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "defines", NULL, &cfg->cpp_lang.defines) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "ldflags", NULL, &cfg->c_lang.ldflags) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "ldflags", NULL, &cfg->cpp_lang.ldflags) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "lib", "libs", &cfg->c_lang.libs) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "lib", "libs", &cfg->cpp_lang.libs) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "static-lib", "static_lib", &cfg->c_lang.static_libs) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "static-lib", "static_lib", &cfg->cpp_lang.static_libs) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "libpath", "libpaths", &cfg->c_lang.libpaths) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "libpath", "libpaths", &cfg->cpp_lang.libpaths) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "link", "links", &cfg->c_lang.links) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "link", "links", &cfg->cpp_lang.links) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "include", NULL, &cfg->c_lang.include_paths) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "include", NULL, &cfg->cpp_lang.include_paths) < 0) return -1;
+    if (bake_parse_project_value_lang_array(
+        json, toks, count, object, "cflags", NULL,
+        &cfg->c_lang.cflags, &cfg->cpp_lang.cflags) != 0) return -1;
+    if (bake_parse_project_value_lang_array(
+        json, toks, count, object, "cxxflags", NULL,
+        &cfg->c_lang.cxxflags, &cfg->cpp_lang.cxxflags) != 0) return -1;
+    if (bake_parse_project_value_lang_array(
+        json, toks, count, object, "defines", NULL,
+        &cfg->c_lang.defines, &cfg->cpp_lang.defines) != 0) return -1;
+    if (bake_parse_project_value_lang_array(
+        json, toks, count, object, "ldflags", NULL,
+        &cfg->c_lang.ldflags, &cfg->cpp_lang.ldflags) != 0) return -1;
+    if (bake_parse_project_value_lang_array(
+        json, toks, count, object, "lib", "libs",
+        &cfg->c_lang.libs, &cfg->cpp_lang.libs) != 0) return -1;
+    if (bake_parse_project_value_lang_array(
+        json, toks, count, object, "static-lib", "static_lib",
+        &cfg->c_lang.static_libs, &cfg->cpp_lang.static_libs) != 0) return -1;
+    if (bake_parse_project_value_lang_array(
+        json, toks, count, object, "libpath", "libpaths",
+        &cfg->c_lang.libpaths, &cfg->cpp_lang.libpaths) != 0) return -1;
+    if (bake_parse_project_value_lang_array(
+        json, toks, count, object, "link", "links",
+        &cfg->c_lang.links, &cfg->cpp_lang.links) != 0) return -1;
+    if (bake_parse_project_value_lang_array(
+        json, toks, count, object, "include", NULL,
+        &cfg->c_lang.include_paths, &cfg->cpp_lang.include_paths) != 0) return -1;
 
     if (bake_json_get_string(json, toks, count, object, "c-standard", &cfg->c_lang.c_standard) < 0) return -1;
     if (bake_json_get_string(json, toks, count, object, "cpp-standard", &cfg->cpp_lang.cpp_standard) < 0) return -1;
 
-    bool value = false;
-    int bool_rc = bake_json_get_bool(json, toks, count, object, "static", &value);
-    if (bool_rc < 0) return -1;
-    if (bool_rc == 0) {
-        cfg->c_lang.static_lib = value;
-        cfg->cpp_lang.static_lib = value;
-    }
-
-    bool_rc = bake_json_get_bool(json, toks, count, object, "export-symbols", &value);
-    if (bool_rc < 0) return -1;
-    if (bool_rc == 0) {
-        cfg->c_lang.export_symbols = value;
-        cfg->cpp_lang.export_symbols = value;
-    }
-
-    bool_rc = bake_json_get_bool(json, toks, count, object, "precompile-header", &value);
-    if (bool_rc < 0) return -1;
-    if (bool_rc == 0) {
-        cfg->c_lang.precompile_header = value;
-        cfg->cpp_lang.precompile_header = value;
-    }
+    if (bake_parse_project_value_lang_bool(
+        json, toks, count, object, "static",
+        &cfg->c_lang.static_lib, &cfg->cpp_lang.static_lib) != 0) return -1;
+    if (bake_parse_project_value_lang_bool(
+        json, toks, count, object, "export-symbols",
+        &cfg->c_lang.export_symbols, &cfg->cpp_lang.export_symbols) != 0) return -1;
+    if (bake_parse_project_value_lang_bool(
+        json, toks, count, object, "precompile-header",
+        &cfg->c_lang.precompile_header, &cfg->cpp_lang.precompile_header) != 0) return -1;
 
     return 0;
 }

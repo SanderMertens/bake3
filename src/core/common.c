@@ -88,6 +88,82 @@ static const char* bake_host_arch(void) {
 #endif
 }
 
+static bool bake_common_path_is_sep(char ch) {
+    return ch == '/' || ch == '\\';
+}
+
+static size_t bake_common_trim_path_len(const char *path) {
+    size_t len = strlen(path);
+    while (len > 0 && bake_common_path_is_sep(path[len - 1])) {
+        len--;
+    }
+    return len;
+}
+
+bool bake_path_has_prefix_normalized(const char *path, const char *prefix, size_t *prefix_len_out) {
+    if (!path || !prefix) {
+        return false;
+    }
+
+    size_t prefix_len = bake_common_trim_path_len(prefix);
+    if (!prefix_len) {
+        return false;
+    }
+
+    if (strncmp(path, prefix, prefix_len)) {
+        return false;
+    }
+
+    if (path[prefix_len] && !bake_common_path_is_sep(path[prefix_len])) {
+        return false;
+    }
+
+    if (prefix_len_out) {
+        *prefix_len_out = prefix_len;
+    }
+    return true;
+}
+
+bool bake_path_equal_normalized(const char *lhs, const char *rhs) {
+    if (!lhs || !rhs) {
+        return false;
+    }
+
+    size_t lhs_len = bake_common_trim_path_len(lhs);
+    size_t rhs_len = bake_common_trim_path_len(rhs);
+    if (lhs_len != rhs_len) {
+        return false;
+    }
+
+    return strncmp(lhs, rhs, lhs_len) == 0;
+}
+
+int bake_entity_list_append_unique(
+    ecs_entity_t **entities,
+    int32_t *count,
+    int32_t *capacity,
+    ecs_entity_t entity)
+{
+    for (int32_t i = 0; i < *count; i++) {
+        if ((*entities)[i] == entity) {
+            return 0;
+        }
+    }
+
+    if (*count == *capacity) {
+        int32_t next = *capacity ? *capacity * 2 : 32;
+        ecs_entity_t *next_entities = ecs_os_realloc_n(*entities, ecs_entity_t, next);
+        if (!next_entities) {
+            return -1;
+        }
+        *entities = next_entities;
+        *capacity = next;
+    }
+
+    (*entities)[(*count)++] = entity;
+    return 1;
+}
+
 char* bake_host_triplet(const char *mode) {
     const char *cfg = mode && mode[0] ? mode : "debug";
     return bake_asprintf("%s-%s-%s", bake_host_arch(), bake_os_host(), cfg);

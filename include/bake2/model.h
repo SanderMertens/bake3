@@ -21,6 +21,15 @@ typedef struct BakeBuildResult {
     char *artefact;
 } BakeBuildResult;
 
+typedef struct BakeResolvedDeps {
+    ecs_entity_t *deps;
+    int32_t dep_count;
+    bake_strlist_t include_paths;
+    bake_strlist_t libs;
+    bake_strlist_t ldflags;
+    bake_strlist_t build_libpaths;
+} BakeResolvedDeps;
+
 typedef struct BakeDriver {
     char *id;
 } BakeDriver;
@@ -39,6 +48,7 @@ typedef struct BakeEnvProject {
 extern ECS_COMPONENT_DECLARE(BakeProject);
 extern ECS_COMPONENT_DECLARE(BakeBuildRequest);
 extern ECS_COMPONENT_DECLARE(BakeBuildResult);
+extern ECS_COMPONENT_DECLARE(BakeResolvedDeps);
 extern ECS_COMPONENT_DECLARE(BakeDriver);
 extern ECS_COMPONENT_DECLARE(BakeBuildRule);
 extern ECS_COMPONENT_DECLARE(BakeEnvProject);
@@ -60,5 +70,6 @@ const BakeProject* bake_model_find_project_by_path(const ecs_world_t *world, con
 void bake_model_link_dependencies(ecs_world_t *world);
 void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const char *mode, bool recursive, bool standalone);
 int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities, int32_t *out_count);
+int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode);
 
 #endif

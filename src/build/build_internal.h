@@ -68,7 +68,11 @@ int bake_collect_compile_units(
     bool include_tests,
     bool include_deps,
     bake_compile_list_t *units);
-int bake_execute_rules(const bake_project_cfg_t *cfg, const bake_build_paths_t *paths);
+int bake_execute_rules(
+    ecs_world_t *world,
+    ecs_entity_t project_entity,
+    const bake_project_cfg_t *cfg,
+    const bake_build_paths_t *paths);
 int bake_generate_dep_header(ecs_world_t *world, const bake_project_cfg_t *cfg, const bake_build_paths_t *paths);
 int bake_apply_dependee_config(
     ecs_world_t *world,

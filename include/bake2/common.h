@@ -37,5 +37,12 @@ int bake_run_command_quiet(const char *cmd);
 char* bake_host_triplet(const char *mode);
 char* bake_host_platform(void);
 char* bake_project_build_root(const char *project_path, const char *mode);
+bool bake_path_has_prefix_normalized(const char *path, const char *prefix, size_t *prefix_len_out);
+bool bake_path_equal_normalized(const char *lhs, const char *rhs);
+int bake_entity_list_append_unique(
+    ecs_entity_t **entities,
+    int32_t *count,
+    int32_t *capacity,
+    ecs_entity_t entity);
 
 #endif

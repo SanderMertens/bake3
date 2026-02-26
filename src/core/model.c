@@ -3,6 +3,7 @@
 ECS_COMPONENT_DECLARE(BakeProject);
 ECS_COMPONENT_DECLARE(BakeBuildRequest);
 ECS_COMPONENT_DECLARE(BakeBuildResult);
+ECS_COMPONENT_DECLARE(BakeResolvedDeps);
 ECS_COMPONENT_DECLARE(BakeDriver);
 ECS_COMPONENT_DECLARE(BakeBuildRule);
 ECS_COMPONENT_DECLARE(BakeEnvProject);
@@ -36,42 +37,87 @@ static int bake_entity_from_id(const ecs_world_t *world, const char *id, ecs_ent
     return -1;
 }
 
-static bool bake_path_is_sep(char ch) {
-    return ch == '/' || ch == '\\';
+static const char* bake_project_entity_id(const ecs_world_t *world, ecs_entity_t entity) {
+    const BakeProject *project = ecs_get(world, entity, BakeProject);
+    const char *id = (project && project->cfg && project->cfg->id)
+        ? project->cfg->id
+        : ecs_get_name(world, entity);
+    return id ? id : "";
 }
 
-static size_t bake_trim_path_len(const char *path) {
-    size_t len = strlen(path);
-    while (len > 0 && bake_path_is_sep(path[len - 1])) {
-        len--;
-    }
-    return len;
+static int bake_entity_cmp_by_project_id(const ecs_world_t *world, ecs_entity_t lhs, ecs_entity_t rhs) {
+    return strcmp(bake_project_entity_id(world, lhs), bake_project_entity_id(world, rhs));
 }
 
-static bool bake_path_equal(const char *lhs, const char *rhs) {
-    if (!lhs || !rhs) {
-        return false;
+static void bake_entity_sort_by_project_id(const ecs_world_t *world, ecs_entity_t *entities, int32_t count) {
+    for (int32_t i = 0; i < count - 1; i++) {
+        for (int32_t j = i + 1; j < count; j++) {
+            if (bake_entity_cmp_by_project_id(world, entities[i], entities[j]) > 0) {
+                ecs_entity_t tmp = entities[i];
+                entities[i] = entities[j];
+                entities[j] = tmp;
+            }
+        }
     }
-
-    size_t lhs_len = bake_trim_path_len(lhs);
-    size_t rhs_len = bake_trim_path_len(rhs);
-    if (lhs_len != rhs_len) {
-        return false;
-    }
-    return strncmp(lhs, rhs, lhs_len) == 0;
 }
 
-static bool bake_path_has_prefix(const char *path, const char *prefix) {
-    if (!path || !prefix) {
-        return false;
+static void bake_model_merge_strlist_unique(bake_strlist_t *dst, const bake_strlist_t *src) {
+    for (int32_t i = 0; i < src->count; i++) {
+        if (!bake_strlist_contains(dst, src->items[i])) {
+            bake_strlist_append(dst, src->items[i]);
+        }
+    }
+}
+
+static void bake_model_resolved_deps_init(BakeResolvedDeps *resolved) {
+    memset(resolved, 0, sizeof(*resolved));
+    bake_strlist_init(&resolved->include_paths);
+    bake_strlist_init(&resolved->libs);
+    bake_strlist_init(&resolved->ldflags);
+    bake_strlist_init(&resolved->build_libpaths);
+}
+
+static void bake_model_resolved_deps_fini(BakeResolvedDeps *resolved) {
+    ecs_os_free(resolved->deps);
+    bake_strlist_fini(&resolved->include_paths);
+    bake_strlist_fini(&resolved->libs);
+    bake_strlist_fini(&resolved->ldflags);
+    bake_strlist_fini(&resolved->build_libpaths);
+    memset(resolved, 0, sizeof(*resolved));
+}
+
+static int bake_model_append_dep_entity(BakeResolvedDeps *resolved, ecs_entity_t dep) {
+    int32_t next_count = resolved->dep_count + 1;
+    ecs_entity_t *next = ecs_os_realloc_n(resolved->deps, ecs_entity_t, next_count);
+    if (!next) {
+        return -1;
+    }
+    resolved->deps = next;
+    resolved->deps[resolved->dep_count++] = dep;
+    return 0;
+}
+
+static void bake_model_try_append_include_path(
+    const bake_project_cfg_t *cfg,
+    const char *bake_home,
+    bool external,
+    BakeResolvedDeps *resolved)
+{
+    char *include = NULL;
+    if (external && bake_home && cfg && cfg->id) {
+        include = bake_join3_path(bake_home, "include", cfg->id);
     }
 
-    size_t prefix_len = bake_trim_path_len(prefix);
-    if (strncmp(path, prefix, prefix_len)) {
-        return false;
+    if (!include && cfg && cfg->path) {
+        include = bake_join_path(cfg->path, "include");
     }
 
-    return !path[prefix_len] || bake_path_is_sep(path[prefix_len]);
+    if (include && bake_path_exists(include) &&
+        !bake_strlist_contains(&resolved->include_paths, include))
+    {
+        bake_strlist_append(&resolved->include_paths, include);
+    }
+    ecs_os_free(include);
 }
 
 static bool bake_cfg_is_external_placeholder(const bake_project_cfg_t *cfg) {
@@ -86,6 +132,7 @@ int bake_model_init(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, BakeProject);
     ECS_COMPONENT_DEFINE(world, BakeBuildRequest);
     ECS_COMPONENT_DEFINE(world, BakeBuildResult);
+    ECS_COMPONENT_DEFINE(world, BakeResolvedDeps);
     ECS_COMPONENT_DEFINE(world, BakeDriver);
     ECS_COMPONENT_DEFINE(world, BakeBuildRule);
     ECS_COMPONENT_DEFINE(world, BakeEnvProject);
@@ -350,12 +397,12 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
                 if (!cfg || !cfg->path) {
                     continue;
                 }
-                if (bake_path_equal(cfg->path, target)) {
+                if (bake_path_equal_normalized(cfg->path, target)) {
                     bake_model_mark_build_recursive(world, all.entities[i], mode, true, standalone);
                     return;
                 }
 
-                if (target_is_dir && bake_path_has_prefix(cfg->path, target)) {
+                if (target_is_dir && bake_path_has_prefix_normalized(cfg->path, target, NULL)) {
                     bake_model_mark_build_recursive(world, all.entities[i], mode, true, standalone);
                     matched_dir = true;
                 }
@@ -372,6 +419,125 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
         bake_model_mark_build_recursive(world, entity, mode, true, standalone);
     }
 }
+static int bake_model_collect_resolved_deps(
+    const ecs_world_t *world,
+    ecs_entity_t project_entity,
+    const char *mode,
+    const char *bake_home,
+    BakeResolvedDeps *resolved,
+    ecs_entity_t **visited,
+    int32_t *visited_count,
+    int32_t *visited_capacity)
+{
+    for (int32_t i = 0;; i++) {
+        ecs_entity_t dep = ecs_get_target(world, project_entity, BakeDependsOn, i);
+        if (!dep) {
+            break;
+        }
+
+        int visit_rc = bake_entity_list_append_unique(
+            visited, visited_count, visited_capacity, dep);
+        if (visit_rc < 0) {
+            return -1;
+        }
+        if (!visit_rc) {
+            continue;
+        }
+
+        if (bake_model_append_dep_entity(resolved, dep) != 0) {
+            return -1;
+        }
+
+        const BakeProject *dep_project = ecs_get(world, dep, BakeProject);
+        if (dep_project && dep_project->cfg) {
+            const bake_project_cfg_t *cfg = dep_project->cfg;
+            bake_model_try_append_include_path(cfg, bake_home, dep_project->external, resolved);
+
+            if (!dep_project->external && cfg->path) {
+                char *lib = bake_project_build_root(cfg->path, mode);
+                if (lib && bake_path_exists(lib) &&
+                    !bake_strlist_contains(&resolved->build_libpaths, lib))
+                {
+                    bake_strlist_append(&resolved->build_libpaths, lib);
+                }
+                ecs_os_free(lib);
+            }
+
+            bake_model_merge_strlist_unique(&resolved->libs, &cfg->c_lang.libs);
+            bake_model_merge_strlist_unique(&resolved->libs, &cfg->cpp_lang.libs);
+            bake_model_merge_strlist_unique(&resolved->ldflags, &cfg->c_lang.ldflags);
+            bake_model_merge_strlist_unique(&resolved->ldflags, &cfg->cpp_lang.ldflags);
+
+            if (cfg->dependee.cfg) {
+                bake_model_merge_strlist_unique(&resolved->libs, &cfg->dependee.cfg->c_lang.libs);
+                bake_model_merge_strlist_unique(&resolved->libs, &cfg->dependee.cfg->cpp_lang.libs);
+                bake_model_merge_strlist_unique(&resolved->ldflags, &cfg->dependee.cfg->c_lang.ldflags);
+                bake_model_merge_strlist_unique(&resolved->ldflags, &cfg->dependee.cfg->cpp_lang.ldflags);
+            }
+        }
+
+        if (bake_model_collect_resolved_deps(
+            world, dep, mode, bake_home, resolved, visited, visited_count, visited_capacity) != 0)
+        {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
+    const char *resolved_mode = (mode && mode[0]) ? mode : "debug";
+    const char *bake_home = getenv("BAKE_HOME");
+
+    ecs_iter_t it = ecs_each_id(world, ecs_id(BakeProject));
+    while (ecs_each_next(&it)) {
+        for (int32_t i = 0; i < it.count; i++) {
+            ecs_entity_t entity = it.entities[i];
+
+            BakeResolvedDeps *existing = (BakeResolvedDeps*)ecs_get(world, entity, BakeResolvedDeps);
+            if (existing) {
+                bake_model_resolved_deps_fini(existing);
+            }
+
+            BakeResolvedDeps resolved;
+            bake_model_resolved_deps_init(&resolved);
+
+            ecs_entity_t *visited = NULL;
+            int32_t visited_count = 0;
+            int32_t visited_capacity = 0;
+
+            if (bake_entity_list_append_unique(
+                &visited, &visited_count, &visited_capacity, entity) < 0)
+            {
+                ecs_os_free(visited);
+                bake_model_resolved_deps_fini(&resolved);
+                return -1;
+            }
+
+            if (bake_model_collect_resolved_deps(
+                world,
+                entity,
+                resolved_mode,
+                bake_home,
+                &resolved,
+                &visited,
+                &visited_count,
+                &visited_capacity) != 0)
+            {
+                ecs_os_free(visited);
+                bake_model_resolved_deps_fini(&resolved);
+                return -1;
+            }
+
+            ecs_os_free(visited);
+            ecs_set_ptr(world, entity, BakeResolvedDeps, &resolved);
+        }
+    }
+
+    return 0;
+}
+
 int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities, int32_t *out_count) {
     *out_entities = NULL;
     *out_count = 0;
@@ -405,25 +571,7 @@ int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities
         return 0;
     }
 
-    for (int32_t i = 0; i < count - 1; i++) {
-        for (int32_t j = i + 1; j < count; j++) {
-            const BakeProject *lhs = ecs_get(world, entities[i], BakeProject);
-            const BakeProject *rhs = ecs_get(world, entities[j], BakeProject);
-            const char *lhs_id = (lhs && lhs->cfg && lhs->cfg->id) ? lhs->cfg->id : ecs_get_name(world, entities[i]);
-            const char *rhs_id = (rhs && rhs->cfg && rhs->cfg->id) ? rhs->cfg->id : ecs_get_name(world, entities[j]);
-            if (!lhs_id) {
-                lhs_id = "";
-            }
-            if (!rhs_id) {
-                rhs_id = "";
-            }
-            if (strcmp(lhs_id, rhs_id) > 0) {
-                ecs_entity_t tmp = entities[i];
-                entities[i] = entities[j];
-                entities[j] = tmp;
-            }
-        }
-    }
+    bake_entity_sort_by_project_id(world, entities, count);
 
     int32_t *indegree = ecs_os_calloc_n(int32_t, count);
     bool *scheduled = ecs_os_calloc_n(bool, count);

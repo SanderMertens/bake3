@@ -91,5 +91,9 @@ int bake_discover_projects(
         return -1;
     }
 
+    if (bake_model_refresh_resolved_deps(ctx->world, ctx->opts.mode) != 0) {
+        return -1;
+    }
+
     return discovery.discovered;
 }

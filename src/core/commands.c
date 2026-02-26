@@ -3,32 +3,35 @@
 #include "bake2/environment.h"
 #include "bake2/os.h"
 
+static const char *bake_help_text =
+    "Usage: bake [options] [command] [target]\n"
+    "\n"
+    "Commands:\n"
+    "  build [target]      Build target project and dependencies (default)\n"
+    "  run [target]        Build and run executable target\n"
+    "  test [target]       Build and run test target\n"
+    "  clean [target]      Remove build artifacts\n"
+    "  rebuild [target]    Clean and build\n"
+    "  list                List projects in bake environment\n"
+    "  info <target>       Show project info\n"
+    "  cleanup             Remove stale projects from bake environment\n"
+    "  reset               Reset bake environment metadata\n"
+    "  setup               Install bake executable into bake environment\n"
+    "\n"
+    "Options:\n"
+    "  --cfg <mode>        Build mode: sanitize|debug|profile|release\n"
+    "  --cc <compiler>     Override C compiler\n"
+    "  --cxx <compiler>    Override C++ compiler\n"
+    "  --run-prefix <cmd>  Prefix command when running binaries\n"
+    "  --standalone        Use amalgamated dependency sources in deps/\n"
+    "  --strict            Enable strict compiler warnings and checks\n"
+    "  --trace             Enable trace logging (Flecs log level 0)\n"
+    "  -j <count>          Number of parallel jobs for build/test execution\n"
+    "  -r                  Recursive clean/rebuild\n"
+    "  -h, --help          Show this help\n";
+
 void bake_print_help(void) {
-    printf("Usage: bake [options] [command] [target]\n");
-    printf("\n");
-    printf("Commands:\n");
-    printf("  build [target]      Build target project and dependencies (default)\n");
-    printf("  run [target]        Build and run executable target\n");
-    printf("  test [target]       Build and run test target\n");
-    printf("  clean [target]      Remove build artifacts\n");
-    printf("  rebuild [target]    Clean and build\n");
-    printf("  list                List projects in bake environment\n");
-    printf("  info <target>       Show project info\n");
-    printf("  cleanup             Remove stale projects from bake environment\n");
-    printf("  reset               Reset bake environment metadata\n");
-    printf("  setup               Install bake executable into bake environment\n");
-    printf("\n");
-    printf("Options:\n");
-    printf("  --cfg <mode>        Build mode: sanitize|debug|profile|release\n");
-    printf("  --cc <compiler>     Override C compiler\n");
-    printf("  --cxx <compiler>    Override C++ compiler\n");
-    printf("  --run-prefix <cmd>  Prefix command when running binaries\n");
-    printf("  --standalone        Use amalgamated dependency sources in deps/\n");
-    printf("  --strict            Enable strict compiler warnings and checks\n");
-    printf("  --trace             Enable trace logging (Flecs log level 0)\n");
-    printf("  -j <count>          Number of parallel jobs for build/test execution\n");
-    printf("  -r                  Recursive clean/rebuild\n");
-    printf("  -h, --help          Show this help\n");
+    fputs(bake_help_text, stdout);
 }
 
 static const char* bake_kind_label(bake_project_kind_t kind) {
@@ -71,31 +74,6 @@ static int bake_list_cmp_template(const void *a, const void *b) {
     return strcmp(lhs->id, rhs->id);
 }
 
-static char* bake_list_artefact_name(const bake_project_cfg_t *cfg) {
-    if (cfg->kind != BAKE_PROJECT_PACKAGE &&
-        cfg->kind != BAKE_PROJECT_APPLICATION &&
-        cfg->kind != BAKE_PROJECT_TEST)
-    {
-        return NULL;
-    }
-
-#if defined(_WIN32)
-    const char *exe_ext = ".exe";
-    const char *lib_ext = ".lib";
-    const char *lib_prefix = "";
-#else
-    const char *exe_ext = "";
-    const char *lib_ext = ".a";
-    const char *lib_prefix = "lib";
-#endif
-
-    if (cfg->kind == BAKE_PROJECT_PACKAGE) {
-        return bake_asprintf("%s%s%s", lib_prefix, cfg->output_name, lib_ext);
-    }
-
-    return bake_asprintf("%s%s", cfg->output_name, exe_ext);
-}
-
 static void bake_list_project_fini(bake_list_project_t *project) {
     ecs_os_free(project->id);
     bake_strlist_fini(&project->cfgs);
@@ -104,6 +82,24 @@ static void bake_list_project_fini(bake_list_project_t *project) {
 static void bake_list_template_fini(bake_list_template_t *template_info) {
     ecs_os_free(template_info->id);
     bake_strlist_fini(&template_info->entries);
+}
+
+static bool bake_list_is_dot(const char *name) {
+    return !strcmp(name, ".") || !strcmp(name, "..");
+}
+
+static void bake_list_projects_free(bake_list_project_t *projects, int32_t count) {
+    for (int32_t i = 0; i < count; i++) {
+        bake_list_project_fini(&projects[i]);
+    }
+    ecs_os_free(projects);
+}
+
+static void bake_list_templates_free(bake_list_template_t *templates, int32_t count) {
+    for (int32_t i = 0; i < count; i++) {
+        bake_list_template_fini(&templates[i]);
+    }
+    ecs_os_free(templates);
 }
 
 static int bake_list_collect_cfgs(
@@ -117,7 +113,7 @@ static int bake_list_collect_cfgs(
         return bake_strlist_append(cfgs_out, "all");
     }
 
-    char *artefact_name = bake_list_artefact_name(cfg);
+    char *artefact_name = bake_project_cfg_artefact_name(cfg);
     if (!artefact_name) {
         return 0;
     }
@@ -181,43 +177,39 @@ static int bake_list_collect_projects(
     *projects_out = NULL;
     *count_out = 0;
 
+    int rc = -1;
+    bake_dir_entry_t *entries = NULL;
+    int32_t entry_count = 0;
+    int32_t count = 0;
+    int32_t capacity = 16;
+    bake_list_project_t *projects = NULL;
     char *meta_dir = bake_join_path(ctx->bake_home, "meta");
     if (!meta_dir) {
-        return -1;
+        goto cleanup;
     }
 
     if (!bake_path_exists(meta_dir) || !bake_is_dir(meta_dir)) {
-        ecs_os_free(meta_dir);
-        return 0;
+        rc = 0;
+        goto cleanup;
     }
 
-    bake_dir_entry_t *entries = NULL;
-    int32_t entry_count = 0;
     if (bake_dir_list(meta_dir, &entries, &entry_count) != 0) {
-        ecs_os_free(meta_dir);
-        return -1;
+        goto cleanup;
     }
 
-    int32_t count = 0;
-    int32_t capacity = 16;
-    bake_list_project_t *projects = ecs_os_calloc_n(bake_list_project_t, capacity);
+    projects = ecs_os_calloc_n(bake_list_project_t, capacity);
     if (!projects) {
-        bake_dir_entries_free(entries, entry_count);
-        ecs_os_free(meta_dir);
-        return -1;
+        goto cleanup;
     }
 
     for (int32_t i = 0; i < entry_count; i++) {
         const bake_dir_entry_t *entry = &entries[i];
-        if (!entry->is_dir || !strcmp(entry->name, ".") || !strcmp(entry->name, "..")) {
+        if (!entry->is_dir || bake_list_is_dot(entry->name)) {
             continue;
         }
 
         char *project_json = bake_join_path(entry->path, "project.json");
-        if (!project_json) {
-            continue;
-        }
-        if (!bake_path_exists(project_json)) {
+        if (!project_json || !bake_path_exists(project_json)) {
             ecs_os_free(project_json);
             continue;
         }
@@ -239,13 +231,7 @@ static int bake_list_collect_projects(
         bake_strlist_t cfgs;
         if (bake_list_collect_cfgs(platform_dir, &cfg, &cfgs) != 0) {
             bake_project_cfg_fini(&cfg);
-            for (int32_t r = 0; r < count; r++) {
-                bake_list_project_fini(&projects[r]);
-            }
-            ecs_os_free(projects);
-            bake_dir_entries_free(entries, entry_count);
-            ecs_os_free(meta_dir);
-            return -1;
+            goto cleanup;
         }
 
         bool include = cfg.kind == BAKE_PROJECT_CONFIG || cfgs.count > 0;
@@ -261,13 +247,7 @@ static int bake_list_collect_projects(
             if (!next_projects) {
                 bake_strlist_fini(&cfgs);
                 bake_project_cfg_fini(&cfg);
-                for (int32_t r = 0; r < count; r++) {
-                    bake_list_project_fini(&projects[r]);
-                }
-                ecs_os_free(projects);
-                bake_dir_entries_free(entries, entry_count);
-                ecs_os_free(meta_dir);
-                return -1;
+                goto cleanup;
             }
             projects = next_projects;
             capacity = next;
@@ -279,20 +259,11 @@ static int bake_list_collect_projects(
         if (!projects[count].id) {
             bake_strlist_fini(&projects[count].cfgs);
             bake_project_cfg_fini(&cfg);
-            for (int32_t r = 0; r < count; r++) {
-                bake_list_project_fini(&projects[r]);
-            }
-            ecs_os_free(projects);
-            bake_dir_entries_free(entries, entry_count);
-            ecs_os_free(meta_dir);
-            return -1;
+            goto cleanup;
         }
         count++;
         bake_project_cfg_fini(&cfg);
     }
-
-    bake_dir_entries_free(entries, entry_count);
-    ecs_os_free(meta_dir);
 
     if (count > 1) {
         qsort(projects, (size_t)count, sizeof(bake_list_project_t), bake_list_cmp_project);
@@ -300,7 +271,16 @@ static int bake_list_collect_projects(
 
     *projects_out = projects;
     *count_out = count;
-    return 0;
+    projects = NULL;
+    rc = 0;
+
+cleanup:
+    if (projects) {
+        bake_list_projects_free(projects, count);
+    }
+    bake_dir_entries_free(entries, entry_count);
+    ecs_os_free(meta_dir);
+    return rc;
 }
 
 static int bake_list_collect_templates(
@@ -311,35 +291,34 @@ static int bake_list_collect_templates(
     *templates_out = NULL;
     *count_out = 0;
 
+    int rc = -1;
+    bake_dir_entry_t *entries = NULL;
+    int32_t entry_count = 0;
+    int32_t count = 0;
+    int32_t capacity = 8;
+    bake_list_template_t *templates = NULL;
     char *template_root = bake_join_path(ctx->bake_home, "template");
     if (!template_root) {
-        return -1;
+        goto cleanup;
     }
 
     if (!bake_path_exists(template_root) || !bake_is_dir(template_root)) {
-        ecs_os_free(template_root);
-        return 0;
+        rc = 0;
+        goto cleanup;
     }
 
-    bake_dir_entry_t *entries = NULL;
-    int32_t entry_count = 0;
     if (bake_dir_list(template_root, &entries, &entry_count) != 0) {
-        ecs_os_free(template_root);
-        return -1;
+        goto cleanup;
     }
 
-    int32_t count = 0;
-    int32_t capacity = 8;
-    bake_list_template_t *templates = ecs_os_calloc_n(bake_list_template_t, capacity);
+    templates = ecs_os_calloc_n(bake_list_template_t, capacity);
     if (!templates) {
-        bake_dir_entries_free(entries, entry_count);
-        ecs_os_free(template_root);
-        return -1;
+        goto cleanup;
     }
 
     for (int32_t i = 0; i < entry_count; i++) {
         const bake_dir_entry_t *entry = &entries[i];
-        if (!entry->is_dir || !strcmp(entry->name, ".") || !strcmp(entry->name, "..")) {
+        if (!entry->is_dir || bake_list_is_dot(entry->name)) {
             continue;
         }
 
@@ -355,19 +334,13 @@ static int bake_list_collect_templates(
 
         for (int32_t j = 0; j < item_count; j++) {
             const bake_dir_entry_t *item = &item_entries[j];
-            if (!item->is_dir || !strcmp(item->name, ".") || !strcmp(item->name, "..")) {
+            if (!item->is_dir || bake_list_is_dot(item->name)) {
                 continue;
             }
             if (bake_strlist_append(&items, item->name) != 0) {
                 bake_dir_entries_free(item_entries, item_count);
                 bake_strlist_fini(&items);
-                for (int32_t r = 0; r < count; r++) {
-                    bake_list_template_fini(&templates[r]);
-                }
-                ecs_os_free(templates);
-                bake_dir_entries_free(entries, entry_count);
-                ecs_os_free(template_root);
-                return -1;
+                goto cleanup;
             }
         }
         bake_dir_entries_free(item_entries, item_count);
@@ -383,13 +356,7 @@ static int bake_list_collect_templates(
             bake_list_template_t *next_templates = ecs_os_realloc_n(templates, bake_list_template_t, next);
             if (!next_templates) {
                 bake_strlist_fini(&items);
-                for (int32_t r = 0; r < count; r++) {
-                    bake_list_template_fini(&templates[r]);
-                }
-                ecs_os_free(templates);
-                bake_dir_entries_free(entries, entry_count);
-                ecs_os_free(template_root);
-                return -1;
+                goto cleanup;
             }
             templates = next_templates;
             capacity = next;
@@ -399,19 +366,10 @@ static int bake_list_collect_templates(
         templates[count].entries = items;
         if (!templates[count].id) {
             bake_strlist_fini(&templates[count].entries);
-            for (int32_t r = 0; r < count; r++) {
-                bake_list_template_fini(&templates[r]);
-            }
-            ecs_os_free(templates);
-            bake_dir_entries_free(entries, entry_count);
-            ecs_os_free(template_root);
-            return -1;
+            goto cleanup;
         }
         count++;
     }
-
-    bake_dir_entries_free(entries, entry_count);
-    ecs_os_free(template_root);
 
     if (count > 1) {
         qsort(templates, (size_t)count, sizeof(bake_list_template_t), bake_list_cmp_template);
@@ -419,7 +377,16 @@ static int bake_list_collect_templates(
 
     *templates_out = templates;
     *count_out = count;
-    return 0;
+    templates = NULL;
+    rc = 0;
+
+cleanup:
+    if (templates) {
+        bake_list_templates_free(templates, count);
+    }
+    bake_dir_entries_free(entries, entry_count);
+    ecs_os_free(template_root);
+    return rc;
 }
 
 static int bake_list_projects(bake_context_t *ctx) {
@@ -445,10 +412,7 @@ static int bake_list_projects(bake_context_t *ctx) {
     bake_list_template_t *templates = NULL;
     int32_t template_count = 0;
     if (bake_list_collect_templates(ctx, &templates, &template_count) != 0) {
-        for (int32_t i = 0; i < project_count; i++) {
-            bake_list_project_fini(&projects[i]);
-        }
-        ecs_os_free(projects);
+        bake_list_projects_free(projects, project_count);
         ecs_os_free(platform_dir);
         ecs_os_free(platform);
         return -1;
@@ -489,19 +453,25 @@ static int bake_list_projects(bake_context_t *ctx) {
     printf("applications: %d, packages: %d, templates: %d\n",
         application_count, package_count, template_count);
 
-    for (int32_t i = 0; i < project_count; i++) {
-        bake_list_project_fini(&projects[i]);
-    }
-    ecs_os_free(projects);
-
-    for (int32_t i = 0; i < template_count; i++) {
-        bake_list_template_fini(&templates[i]);
-    }
-    ecs_os_free(templates);
+    bake_list_projects_free(projects, project_count);
+    bake_list_templates_free(templates, template_count);
     ecs_os_free(platform_dir);
     ecs_os_free(platform);
 
     return 0;
+}
+
+static void bake_print_cfg_strlist(
+    const char *label,
+    const bake_strlist_t *values,
+    int width)
+{
+    if (!values || !values->count) {
+        return;
+    }
+    char *joined = bake_strlist_join(values, ", ");
+    printf("%-*s %s\n", width, label, joined ? joined : "");
+    ecs_os_free(joined);
 }
 
 static const BakeProject* bake_find_project_for_target(
@@ -558,52 +528,18 @@ static int bake_info_project(bake_context_t *ctx) {
     printf("output:      %s\n", cfg->output_name ? cfg->output_name : "<none>");
     printf("external:    %s\n", project->external ? "true" : "false");
 
-    if (cfg->use.count) {
-        char *joined = bake_strlist_join(&cfg->use, ", ");
-        printf("use:         %s\n", joined ? joined : "");
-        ecs_os_free(joined);
-    }
-    if (cfg->use_private.count) {
-        char *joined = bake_strlist_join(&cfg->use_private, ", ");
-        printf("use-private: %s\n", joined ? joined : "");
-        ecs_os_free(joined);
-    }
-    if (cfg->use_build.count) {
-        char *joined = bake_strlist_join(&cfg->use_build, ", ");
-        printf("use-build:   %s\n", joined ? joined : "");
-        ecs_os_free(joined);
-    }
-    if (cfg->use_runtime.count) {
-        char *joined = bake_strlist_join(&cfg->use_runtime, ", ");
-        printf("use-runtime: %s\n", joined ? joined : "");
-        ecs_os_free(joined);
-    }
+    bake_print_cfg_strlist("use:", &cfg->use, 12);
+    bake_print_cfg_strlist("use-private:", &cfg->use_private, 12);
+    bake_print_cfg_strlist("use-build:", &cfg->use_build, 12);
+    bake_print_cfg_strlist("use-runtime:", &cfg->use_runtime, 12);
 
     const bake_project_cfg_t *dependee_cfg = cfg->dependee.cfg;
-    if (dependee_cfg && dependee_cfg->use.count) {
-        char *joined = bake_strlist_join(&dependee_cfg->use, ", ");
-        printf("dependee.use: %s\n", joined ? joined : "");
-        ecs_os_free(joined);
-    }
-    if (dependee_cfg && dependee_cfg->c_lang.defines.count) {
-        char *joined = bake_strlist_join(&dependee_cfg->c_lang.defines, ", ");
-        printf("dependee.defines: %s\n", joined ? joined : "");
-        ecs_os_free(joined);
-    }
-    if (dependee_cfg && dependee_cfg->c_lang.include_paths.count) {
-        char *joined = bake_strlist_join(&dependee_cfg->c_lang.include_paths, ", ");
-        printf("dependee.include: %s\n", joined ? joined : "");
-        ecs_os_free(joined);
-    }
-    if (dependee_cfg && dependee_cfg->c_lang.cflags.count) {
-        char *joined = bake_strlist_join(&dependee_cfg->c_lang.cflags, ", ");
-        printf("dependee.cflags: %s\n", joined ? joined : "");
-        ecs_os_free(joined);
-    }
-    if (dependee_cfg && dependee_cfg->c_lang.libs.count) {
-        char *joined = bake_strlist_join(&dependee_cfg->c_lang.libs, ", ");
-        printf("dependee.lib: %s\n", joined ? joined : "");
-        ecs_os_free(joined);
+    if (dependee_cfg) {
+        bake_print_cfg_strlist("dependee.use:", &dependee_cfg->use, 15);
+        bake_print_cfg_strlist("dependee.defines:", &dependee_cfg->c_lang.defines, 15);
+        bake_print_cfg_strlist("dependee.include:", &dependee_cfg->c_lang.include_paths, 15);
+        bake_print_cfg_strlist("dependee.cflags:", &dependee_cfg->c_lang.cflags, 15);
+        bake_print_cfg_strlist("dependee.lib:", &dependee_cfg->c_lang.libs, 15);
     }
 
     return 0;

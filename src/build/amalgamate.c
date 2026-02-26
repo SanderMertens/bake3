@@ -62,37 +62,29 @@ static int bake_concat_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
 }
 
 int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, char **out_c, char **out_h) {
-    if (bake_mkdirs(dst_dir) != 0) {
-        return -1;
-    }
-
-    char *base = bake_project_id_as_macro(cfg->id);
-    if (!base) {
-        return -1;
-    }
-
-    char *h_name = bake_asprintf("%s.h", base);
-    char *c_name = bake_asprintf("%s.c", base);
-    if (!h_name || !c_name) {
-        ecs_os_free(base);
-        ecs_os_free(h_name);
-        ecs_os_free(c_name);
-        return -1;
-    }
-
-    char *h_path = bake_join_path(dst_dir, h_name);
-    char *c_path = bake_join_path(dst_dir, c_name);
-    if (!h_path || !c_path) {
-        ecs_os_free(base);
-        ecs_os_free(h_name);
-        ecs_os_free(c_name);
-        ecs_os_free(h_path);
-        ecs_os_free(c_path);
-        return -1;
-    }
-
+    int rc = -1;
+    char *base = NULL;
+    char *h_name = NULL;
+    char *c_name = NULL;
+    char *h_path = NULL;
+    char *c_path = NULL;
+    char *h_content = NULL;
+    char *c_content = NULL;
     ecs_strbuf_t h_buf = ECS_STRBUF_INIT;
     ecs_strbuf_t c_buf = ECS_STRBUF_INIT;
+
+    if (bake_mkdirs(dst_dir) != 0) {
+        goto cleanup;
+    }
+
+    base = bake_project_id_as_macro(cfg->id);
+    h_name = base ? bake_asprintf("%s.h", base) : NULL;
+    c_name = base ? bake_asprintf("%s.c", base) : NULL;
+    h_path = h_name ? bake_join_path(dst_dir, h_name) : NULL;
+    c_path = c_name ? bake_join_path(dst_dir, c_name) : NULL;
+    if (!base || !h_name || !c_name || !h_path || !c_path) {
+        goto cleanup;
+    }
 
     ecs_strbuf_append(&h_buf, "/* Amalgamated headers for %s */\n", cfg->id);
     ecs_strbuf_append(&h_buf, "#ifndef %s_H\n", base);
@@ -100,77 +92,63 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, 
 
     char *include_dir = bake_join_path(cfg->path, "include");
     if (include_dir && bake_path_exists(include_dir)) {
-        bake_concat_ctx_t ctx = {
-            .out = &h_buf,
-            .ext = ".h"
-        };
+        bake_concat_ctx_t ctx = {.out = &h_buf, .ext = ".h"};
         if (bake_dir_walk_recursive(include_dir, bake_concat_visit, &ctx) != 0) {
             ecs_os_free(include_dir);
-            ecs_os_free(base);
-            ecs_os_free(h_name);
-            ecs_os_free(c_name);
-            ecs_os_free(h_path);
-            ecs_os_free(c_path);
-            return -1;
+            goto cleanup;
         }
     }
     ecs_os_free(include_dir);
 
     ecs_strbuf_appendstr(&h_buf, "\n#endif\n");
-
     ecs_strbuf_append(&c_buf, "/* Amalgamated sources for %s */\n", cfg->id);
     ecs_strbuf_append(&c_buf, "#include \"%s\"\n", h_name);
 
     char *src_dir = bake_join_path(cfg->path, "src");
     if (src_dir && bake_path_exists(src_dir)) {
-        bake_concat_ctx_t ctx = {
-            .out = &c_buf,
-            .ext = ".c"
-        };
+        bake_concat_ctx_t ctx = {.out = &c_buf, .ext = ".c"};
         if (bake_dir_walk_recursive(src_dir, bake_concat_visit, &ctx) != 0) {
             ecs_os_free(src_dir);
-            ecs_os_free(base);
-            ecs_os_free(h_name);
-            ecs_os_free(c_name);
-            ecs_os_free(h_path);
-            ecs_os_free(c_path);
-            return -1;
+            goto cleanup;
         }
     }
     ecs_os_free(src_dir);
 
-    char *h_content = ecs_strbuf_get(&h_buf);
-    char *c_content = ecs_strbuf_get(&c_buf);
-
-    int rc = bake_write_file(h_path, h_content);
-    if (rc == 0) {
-        rc = bake_write_file(c_path, c_content);
+    h_content = ecs_strbuf_get(&h_buf);
+    c_content = ecs_strbuf_get(&c_buf);
+    if (!h_content || !c_content) {
+        goto cleanup;
     }
 
-    ecs_os_free(h_content);
-    ecs_os_free(c_content);
-    ecs_os_free(base);
-    ecs_os_free(h_name);
-    ecs_os_free(c_name);
-
-    if (rc != 0) {
-        ecs_os_free(h_path);
-        ecs_os_free(c_path);
-        return -1;
+    if (bake_write_file(h_path, h_content) != 0 || bake_write_file(c_path, c_content) != 0) {
+        goto cleanup;
     }
 
     if (out_h) {
         *out_h = h_path;
-    } else {
-        ecs_os_free(h_path);
+        h_path = NULL;
     }
     if (out_c) {
         *out_c = c_path;
-    } else {
-        ecs_os_free(c_path);
+        c_path = NULL;
     }
+    rc = 0;
 
-    return 0;
+cleanup:
+    if (rc != 0 && out_h) {
+        *out_h = NULL;
+    }
+    if (rc != 0 && out_c) {
+        *out_c = NULL;
+    }
+    ecs_os_free(base);
+    ecs_os_free(h_name);
+    ecs_os_free(c_name);
+    ecs_os_free(h_path);
+    ecs_os_free(c_path);
+    ecs_os_free(h_content);
+    ecs_os_free(c_content);
+    return rc;
 }
 
 static const char* bake_skip_ws(const char *ptr) {
@@ -548,29 +526,38 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
         return 0;
     }
 
-    char *project_id = bake_project_id_as_macro(cfg->id);
-    if (!project_id) {
-        return -1;
-    }
+    int rc = -1;
+    char *project_id = NULL;
+    char *include_path = NULL;
+    char *src_path = NULL;
+    char *main_header = NULL;
+    char *output_path = NULL;
+    char *include_out = NULL;
+    char *include_tmp = NULL;
+    char *src_out = NULL;
+    char *src_tmp = NULL;
+    char *main_src = NULL;
+    FILE *include_fp = NULL;
+    FILE *src_fp = NULL;
+    int64_t latest_input_mtime = 0;
+    bool main_included = false;
+    bake_strlist_t parsed = {0};
+    bake_strlist_t sources = {0};
+    bool parsed_ready = false;
+    bool sources_ready = false;
 
-    char *include_path = bake_join_path(cfg->path, "include");
-    char *src_path = bake_join_path(cfg->path, "src");
-    char *main_header = include_path ? bake_asprintf("%s/%s.h", include_path, project_id) : NULL;
-    if (!include_path || !src_path || !main_header) {
-        ecs_os_free(project_id);
-        ecs_os_free(include_path);
-        ecs_os_free(src_path);
-        ecs_os_free(main_header);
-        return -1;
+    project_id = bake_project_id_as_macro(cfg->id);
+    include_path = bake_join_path(cfg->path, "include");
+    src_path = bake_join_path(cfg->path, "src");
+    main_header = include_path && project_id ? bake_asprintf("%s/%s.h", include_path, project_id) : NULL;
+    if (!project_id || !include_path || !src_path || !main_header) {
+        goto cleanup;
     }
 
     if (!bake_path_exists(main_header)) {
         char *id_base = bake_project_id_base(cfg->id);
         char *base_project_id = id_base ? bake_project_id_as_macro(id_base) : NULL;
-        char *base_header = (include_path && base_project_id)
-            ? bake_asprintf("%s/%s.h", include_path, base_project_id)
-            : NULL;
-
+        char *base_header = base_project_id ? bake_asprintf("%s/%s.h", include_path, base_project_id) : NULL;
         if (base_project_id && base_header && bake_path_exists(base_header)) {
             ecs_os_free(project_id);
             project_id = base_project_id;
@@ -579,55 +566,29 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
             main_header = base_header;
             base_header = NULL;
         }
-
         ecs_os_free(id_base);
         ecs_os_free(base_project_id);
         ecs_os_free(base_header);
     }
 
-    char *output_path = NULL;
-    if (cfg->amalgamate_path && cfg->amalgamate_path[0]) {
-        output_path = bake_join_path(cfg->path, cfg->amalgamate_path);
-    } else {
-        output_path = bake_strdup(cfg->path);
-    }
+    output_path = (cfg->amalgamate_path && cfg->amalgamate_path[0]) ?
+        bake_join_path(cfg->path, cfg->amalgamate_path) : bake_strdup(cfg->path);
     if (!output_path || bake_mkdirs(output_path) != 0) {
-        ecs_os_free(project_id);
-        ecs_os_free(output_path);
-        return -1;
+        goto cleanup;
     }
 
     const char *src_ext = bake_source_is_cpp(cfg) ? "cpp" : "c";
-    char *include_out = bake_asprintf("%s/%s.h", output_path, project_id);
-    char *include_tmp = bake_asprintf("%s/%s.h.tmp", output_path, project_id);
-    char *src_out = bake_asprintf("%s/%s.%s", output_path, project_id, src_ext);
-    char *src_tmp = bake_asprintf("%s/%s.%s.tmp", output_path, project_id, src_ext);
-    if (!include_out || !include_tmp || !src_out || !src_tmp)
-    {
-        ecs_os_free(project_id);
-        ecs_os_free(output_path);
-        ecs_os_free(include_out);
-        ecs_os_free(include_tmp);
-        ecs_os_free(src_out);
-        ecs_os_free(src_tmp);
-        ecs_os_free(include_path);
-        ecs_os_free(src_path);
-        ecs_os_free(main_header);
-        return -1;
+    include_out = bake_asprintf("%s/%s.h", output_path, project_id);
+    include_tmp = bake_asprintf("%s/%s.h.tmp", output_path, project_id);
+    src_out = bake_asprintf("%s/%s.%s", output_path, project_id, src_ext);
+    src_tmp = bake_asprintf("%s/%s.%s.tmp", output_path, project_id, src_ext);
+    if (!include_out || !include_tmp || !src_out || !src_tmp) {
+        goto cleanup;
     }
 
     if (!bake_path_exists(main_header)) {
         ecs_err("cannot find include file '%s' for amalgamation", main_header);
-        ecs_os_free(project_id);
-        ecs_os_free(output_path);
-        ecs_os_free(include_out);
-        ecs_os_free(include_tmp);
-        ecs_os_free(src_out);
-        ecs_os_free(src_tmp);
-        ecs_os_free(include_path);
-        ecs_os_free(src_path);
-        ecs_os_free(main_header);
-        return -1;
+        goto cleanup;
     }
 
     bake_amalgamate_ctx_t ctx = {
@@ -636,121 +597,42 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
         .include_path = include_path
     };
 
-    int64_t latest_input_mtime = 0;
-    bake_strlist_t parsed;
     bake_strlist_init(&parsed);
+    parsed_ready = true;
 
-    FILE *include_fp = fopen(include_tmp, "wb");
+    include_fp = fopen(include_tmp, "wb");
     if (!include_fp) {
-        bake_strlist_fini(&parsed);
-        ecs_os_free(project_id);
-        ecs_os_free(output_path);
-        ecs_os_free(include_out);
-        ecs_os_free(include_tmp);
-        ecs_os_free(src_out);
-        ecs_os_free(src_tmp);
-        ecs_os_free(include_path);
-        ecs_os_free(src_path);
-        ecs_os_free(main_header);
-        return -1;
+        goto cleanup;
     }
 
     fprintf(include_fp, "// Comment out this line when using as DLL\n");
     fprintf(include_fp, "#define %s_STATIC\n", project_id);
     if (bake_amalgamate_file(
-        &ctx,
-        include_fp,
-        true,
-        main_header,
-        "(main header)",
-        0,
-        &parsed,
-        &latest_input_mtime,
-        NULL) != 0)
+        &ctx, include_fp, true, main_header, "(main header)", 0,
+        &parsed, &latest_input_mtime, NULL) != 0)
     {
-        fclose(include_fp);
-        remove(include_tmp);
-        bake_strlist_fini(&parsed);
-        ecs_os_free(project_id);
-        ecs_os_free(output_path);
-        ecs_os_free(include_out);
-        ecs_os_free(include_tmp);
-        ecs_os_free(src_out);
-        ecs_os_free(src_tmp);
-        ecs_os_free(include_path);
-        ecs_os_free(src_path);
-        ecs_os_free(main_header);
-        return -1;
+        goto cleanup;
     }
     fclose(include_fp);
+    include_fp = NULL;
 
-    FILE *src_fp = fopen(src_tmp, "wb");
+    src_fp = fopen(src_tmp, "wb");
     if (!src_fp) {
-        remove(include_tmp);
-        bake_strlist_fini(&parsed);
-        ecs_os_free(project_id);
-        ecs_os_free(output_path);
-        ecs_os_free(include_out);
-        ecs_os_free(include_tmp);
-        ecs_os_free(src_out);
-        ecs_os_free(src_tmp);
-        ecs_os_free(include_path);
-        ecs_os_free(src_path);
-        ecs_os_free(main_header);
-        return -1;
+        goto cleanup;
     }
 
-    bool main_included = false;
-    char *main_src = bake_find_main_src_file(cfg, src_path, project_id);
-    if (main_src) {
-        if (bake_amalgamate_file(
-            &ctx,
-            src_fp,
-            false,
-            main_src,
-            "(main source)",
-            0,
-            &parsed,
-            &latest_input_mtime,
-            &main_included) != 0)
-        {
-            fclose(src_fp);
-            remove(include_tmp);
-            remove(src_tmp);
-            ecs_os_free(main_src);
-            bake_strlist_fini(&parsed);
-            ecs_os_free(project_id);
-            ecs_os_free(output_path);
-            ecs_os_free(include_out);
-            ecs_os_free(include_tmp);
-            ecs_os_free(src_out);
-            ecs_os_free(src_tmp);
-            ecs_os_free(include_path);
-            ecs_os_free(src_path);
-            ecs_os_free(main_header);
-            return -1;
-        }
+    main_src = bake_find_main_src_file(cfg, src_path, project_id);
+    if (main_src && bake_amalgamate_file(
+        &ctx, src_fp, false, main_src, "(main source)", 0,
+        &parsed, &latest_input_mtime, &main_included) != 0)
+    {
+        goto cleanup;
     }
 
-    bake_strlist_t sources;
     bake_strlist_init(&sources);
+    sources_ready = true;
     if (bake_collect_source_files(src_path, &sources) != 0) {
-        fclose(src_fp);
-        remove(include_tmp);
-        remove(src_tmp);
-        ecs_os_free(main_src);
-        bake_strlist_fini(&sources);
-        bake_strlist_fini(&parsed);
-        ecs_os_free(project_id);
-        ecs_os_free(output_path);
-        ecs_os_free(include_out);
-        ecs_os_free(include_tmp);
-        ecs_os_free(src_out);
-        ecs_os_free(src_tmp);
-        ecs_os_free(include_path);
-        ecs_os_free(src_path);
-        ecs_os_free(main_header);
-        return -1;
+        goto cleanup;
     }
 
     for (int32_t i = 0; i < sources.count; i++) {
@@ -758,32 +640,10 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
             continue;
         }
         if (bake_amalgamate_file(
-            &ctx,
-            src_fp,
-            false,
-            sources.items[i],
-            "(source)",
-            0,
-            &parsed,
-            &latest_input_mtime,
-            &main_included) != 0)
+            &ctx, src_fp, false, sources.items[i], "(source)", 0,
+            &parsed, &latest_input_mtime, &main_included) != 0)
         {
-            fclose(src_fp);
-            remove(include_tmp);
-            remove(src_tmp);
-            ecs_os_free(main_src);
-            bake_strlist_fini(&sources);
-            bake_strlist_fini(&parsed);
-            ecs_os_free(project_id);
-            ecs_os_free(output_path);
-            ecs_os_free(include_out);
-            ecs_os_free(include_tmp);
-            ecs_os_free(src_out);
-            ecs_os_free(src_tmp);
-            ecs_os_free(include_path);
-            ecs_os_free(src_path);
-            ecs_os_free(main_header);
-            return -1;
+            goto cleanup;
         }
     }
 
@@ -791,25 +651,45 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
         fprintf(src_fp, "#include \"%s.h\"\n", project_id);
     }
     fclose(src_fp);
+    src_fp = NULL;
 
-    int rc = 0;
-    if (bake_replace_if_changed(include_tmp, include_out, latest_input_mtime) != 0) {
-        rc = -1;
-    } else if (bake_replace_if_changed(src_tmp, src_out, latest_input_mtime) != 0) {
-        rc = -1;
+    if (bake_replace_if_changed(include_tmp, include_out, latest_input_mtime) != 0 ||
+        bake_replace_if_changed(src_tmp, src_out, latest_input_mtime) != 0)
+    {
+        goto cleanup;
     }
 
-    ecs_os_free(main_src);
-    bake_strlist_fini(&sources);
-    bake_strlist_fini(&parsed);
+    rc = 0;
+cleanup:
+    if (include_fp) {
+        fclose(include_fp);
+    }
+    if (src_fp) {
+        fclose(src_fp);
+    }
+    if (rc != 0) {
+        if (include_tmp) {
+            remove(include_tmp);
+        }
+        if (src_tmp) {
+            remove(src_tmp);
+        }
+    }
+    if (sources_ready) {
+        bake_strlist_fini(&sources);
+    }
+    if (parsed_ready) {
+        bake_strlist_fini(&parsed);
+    }
     ecs_os_free(project_id);
+    ecs_os_free(include_path);
+    ecs_os_free(src_path);
+    ecs_os_free(main_header);
     ecs_os_free(output_path);
     ecs_os_free(include_out);
     ecs_os_free(include_tmp);
     ecs_os_free(src_out);
     ecs_os_free(src_tmp);
-    ecs_os_free(include_path);
-    ecs_os_free(src_path);
-    ecs_os_free(main_header);
+    ecs_os_free(main_src);
     return rc;
 }

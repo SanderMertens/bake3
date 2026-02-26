@@ -79,34 +79,6 @@ static bool bake_is_abs_path(const char *path) {
 #endif
 }
 
-static bool bake_path_is_sep(char ch) {
-    return ch == '/' || ch == '\\';
-}
-
-static bool bake_path_has_prefix(const char *path, const char *prefix, size_t *prefix_len_out) {
-    if (!path || !prefix) {
-        return false;
-    }
-
-    size_t prefix_len = strlen(prefix);
-    while (prefix_len > 0 && bake_path_is_sep(prefix[prefix_len - 1])) {
-        prefix_len--;
-    }
-
-    if (strncmp(path, prefix, prefix_len)) {
-        return false;
-    }
-
-    if (path[prefix_len] && !bake_path_is_sep(path[prefix_len])) {
-        return false;
-    }
-
-    if (prefix_len_out) {
-        *prefix_len_out = prefix_len;
-    }
-    return true;
-}
-
 static char* bake_build_display_path(const bake_context_t *ctx, const char *path) {
     if (!path) {
         return bake_strdup(".");
@@ -115,10 +87,10 @@ static char* bake_build_display_path(const bake_context_t *ctx, const char *path
     const char *display = path;
     size_t prefix_len = 0;
     if (ctx && ctx->opts.cwd &&
-        bake_path_has_prefix(path, ctx->opts.cwd, &prefix_len))
+        bake_path_has_prefix_normalized(path, ctx->opts.cwd, &prefix_len))
     {
         display = path + prefix_len;
-        while (bake_path_is_sep(*display)) {
+        while (*display == '/' || *display == '\\') {
             display++;
         }
         if (!display[0]) {
@@ -330,49 +302,51 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         return 0;
     }
 
-    bake_build_paths_t paths;
+    int rc = -1;
+    bake_build_paths_t paths = {0};
+    bake_lang_cfg_t c_lang = {0};
+    bake_lang_cfg_t cpp_lang = {0};
+    bake_strlist_t mode_cflags = {0};
+    bake_strlist_t mode_cxxflags = {0};
+    bake_strlist_t mode_ldflags = {0};
+    bake_compile_list_t units = {0};
+
     if (bake_build_paths_init(cfg, request->mode, &paths) != 0) {
         ecs_err("failed to initialize build paths for %s (path=%s)", cfg->id, cfg->path ? cfg->path : "<null>");
-        return -1;
+        goto cleanup;
     }
 
     if (cfg->kind == BAKE_PROJECT_TEST) {
         if (bake_test_generate_harness(cfg) != 0) {
             ecs_err("test harness generation failed for %s", cfg->id);
-            bake_build_paths_fini(&paths);
-            return -1;
+            goto cleanup;
         }
 
         if (cfg->has_test_spec) {
             if (bake_test_generate_builtin_api(cfg, paths.gen_dir, &builtin_test_src) != 0) {
                 ecs_err("failed to generate test API for %s", cfg->id);
-                bake_build_paths_fini(&paths);
-                return -1;
+                goto cleanup;
             }
         }
     }
 
-    if (cfg->rules.count && bake_execute_rules(cfg, &paths) != 0) {
+    if (cfg->rules.count &&
+        bake_execute_rules(ctx->world, project_entity, cfg, &paths) != 0)
+    {
         ecs_err("rule execution failed for %s", cfg->id);
-        ecs_os_free(builtin_test_src);
-        bake_build_paths_fini(&paths);
-        return -1;
+        goto cleanup;
     }
 
     if (cfg->amalgamate) {
         if (bake_generate_project_amalgamation(cfg) != 0) {
             ecs_err("amalgamation failed for %s", cfg->id);
-            ecs_os_free(builtin_test_src);
-            bake_build_paths_fini(&paths);
-            return -1;
+            goto cleanup;
         }
     }
 
     if (bake_generate_dep_header(ctx->world, cfg, &paths) != 0) {
         ecs_err("dependency header generation failed for %s", cfg->id);
-        ecs_os_free(builtin_test_src);
-        bake_build_paths_fini(&paths);
-        return -1;
+        goto cleanup;
     }
 
     if ((request->standalone || cfg->standalone) && (cfg->kind == BAKE_PROJECT_APPLICATION || cfg->kind == BAKE_PROJECT_TEST)) {
@@ -380,19 +354,18 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
             ctx, project_entity, cfg, request->standalone) != 0)
         {
             ecs_err("standalone amalgamation failed for %s", cfg->id);
-            ecs_os_free(builtin_test_src);
-            bake_build_paths_fini(&paths);
-            return -1;
+            goto cleanup;
         }
     }
 
-    bake_lang_cfg_t c_lang;
-    bake_lang_cfg_t cpp_lang;
-    if (bake_lang_cfg_copy(&c_lang, &cfg->c_lang) != 0 || bake_lang_cfg_copy(&cpp_lang, &cfg->cpp_lang) != 0) {
+    if (bake_lang_cfg_copy(&c_lang, &cfg->c_lang) != 0) {
         ecs_err("failed to clone language config for %s", cfg->id);
-        ecs_os_free(builtin_test_src);
-        bake_build_paths_fini(&paths);
-        return -1;
+        goto cleanup;
+    }
+
+    if (bake_lang_cfg_copy(&cpp_lang, &cfg->cpp_lang) != 0) {
+        ecs_err("failed to clone language config for %s", cfg->id);
+        goto cleanup;
     }
 
     bake_apply_dependee_config(ctx->world, project_entity, &c_lang, false);
@@ -407,7 +380,6 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         }
     }
 
-    bake_strlist_t mode_cflags, mode_cxxflags, mode_ldflags;
     bake_mode_lists(
         request->mode,
         ctx->compiler_kind,
@@ -424,7 +396,6 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 #endif
 
-    bake_compile_list_t units;
     bake_compile_list_init(&units);
     bool include_deps = true;
     if (cfg->kind == BAKE_PROJECT_APPLICATION || cfg->kind == BAKE_PROJECT_TEST) {
@@ -439,13 +410,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         &units) != 0)
     {
         ecs_err("failed to collect source files for %s", cfg->id);
-        bake_compile_list_fini(&units);
-        bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
-        bake_lang_cfg_fini(&c_lang);
-        bake_lang_cfg_fini(&cpp_lang);
-        ecs_os_free(builtin_test_src);
-        bake_build_paths_fini(&paths);
-        return -1;
+        goto cleanup;
     }
 
     if (builtin_test_src) {
@@ -460,13 +425,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
             ecs_os_free(obj_name);
             ecs_os_free(obj_path);
             ecs_err("failed to add generated test API source for %s", cfg->id);
-            bake_compile_list_fini(&units);
-            bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
-            bake_lang_cfg_fini(&c_lang);
-            bake_lang_cfg_fini(&cpp_lang);
-            ecs_os_free(builtin_test_src);
-            bake_build_paths_fini(&paths);
-            return -1;
+            goto cleanup;
         }
         ecs_os_free(obj_name);
         ecs_os_free(obj_path);
@@ -486,13 +445,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         &mode_cflags, &mode_cxxflags, &compiled_count) != 0)
     {
         ecs_err("compilation failed for %s", cfg->id);
-        bake_compile_list_fini(&units);
-        bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
-        bake_lang_cfg_fini(&c_lang);
-        bake_lang_cfg_fini(&cpp_lang);
-        ecs_os_free(builtin_test_src);
-        bake_build_paths_fini(&paths);
-        return -1;
+        goto cleanup;
     }
 
     char *artefact = NULL;
@@ -502,13 +455,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         &artefact, &linked) != 0)
     {
         ecs_err("link failed for %s", cfg->id);
-        bake_compile_list_fini(&units);
-        bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
-        bake_lang_cfg_fini(&c_lang);
-        bake_lang_cfg_fini(&cpp_lang);
-        ecs_os_free(builtin_test_src);
-        bake_build_paths_fini(&paths);
-        return -1;
+        goto cleanup;
     }
 
     const BakeBuildResult *prev_result = ecs_get(ctx->world, project_entity, BakeBuildResult);
@@ -525,23 +472,19 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 
     bool rebuilt = compiled_count > 0 || linked;
     if (bake_environment_sync_project(ctx, project_entity, &result, request, rebuilt) != 0) {
-        bake_compile_list_fini(&units);
-        bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
-        bake_lang_cfg_fini(&c_lang);
-        bake_lang_cfg_fini(&cpp_lang);
-        ecs_os_free(builtin_test_src);
-        bake_build_paths_fini(&paths);
-        return -1;
+        goto cleanup;
     }
 
+    rc = 0;
+
+cleanup:
     bake_compile_list_fini(&units);
     bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
     bake_lang_cfg_fini(&c_lang);
     bake_lang_cfg_fini(&cpp_lang);
     ecs_os_free(builtin_test_src);
     bake_build_paths_fini(&paths);
-
-    return 0;
+    return rc;
 }
 
 static int bake_execute_build_graph(bake_context_t *ctx, const char *target, bool recursive, bool standalone) {
@@ -646,6 +589,7 @@ static int bake_clean_project(const bake_project_cfg_t *cfg, bool recursive) {
 }
 
 int bake_build_clean(bake_context_t *ctx) {
+    int rc = -1;
     bake_proc_clear_interrupt();
 
     if (bake_prepare_discovery(ctx) != 0) {
@@ -659,15 +603,12 @@ int bake_build_clean(bake_context_t *ctx) {
     ecs_entity_t *order = NULL;
     int32_t count = 0;
     if (bake_model_build_order(ctx->world, &order, &count) != 0) {
-        ecs_os_free(target_path);
-        return -1;
+        goto cleanup;
     }
 
     if (ctx->opts.target && ctx->opts.target[0] && count == 0) {
         ecs_err("target not found: %s", ctx->opts.target);
-        ecs_os_free(order);
-        ecs_os_free(target_path);
-        return -1;
+        goto cleanup;
     }
 
     for (int32_t i = 0; i < count; i++) {
@@ -678,18 +619,19 @@ int bake_build_clean(bake_context_t *ctx) {
 
         ecs_trace("#[green][#[normal]  clean#[green]]#[normal] %s", project->cfg->id);
         if (bake_clean_project(project->cfg, ctx->opts.recursive) != 0) {
-            ecs_os_free(order);
-            ecs_os_free(target_path);
-            return -1;
+            goto cleanup;
         }
     }
 
+    rc = 0;
+cleanup:
     ecs_os_free(order);
     ecs_os_free(target_path);
-    return 0;
+    return rc;
 }
 
 int bake_build_run(bake_context_t *ctx) {
+    int rc = 0;
     bake_proc_clear_interrupt();
 
     if (bake_prepare_discovery(ctx) != 0) {
@@ -700,19 +642,17 @@ int bake_build_run(bake_context_t *ctx) {
     const char *target_resolved = target_path ? target_path : ctx->opts.target;
 
     if (bake_execute_build_graph(ctx, target_resolved, true, ctx->opts.standalone) != 0) {
-        ecs_os_free(target_path);
-        return -1;
+        rc = -1;
+        goto cleanup;
     }
 
     if (!strcmp(ctx->opts.command, "build")) {
-        ecs_os_free(target_path);
-        return 0;
+        goto cleanup;
     }
 
     const char *target = ctx->opts.target;
     if (!target) {
-        ecs_os_free(target_path);
-        return 0;
+        goto cleanup;
     }
 
     ecs_entity_t project_entity = 0;
@@ -723,20 +663,19 @@ int bake_build_run(bake_context_t *ctx) {
 
     if (!project || !project_entity) {
         ecs_err("target not found: %s", target);
-        ecs_os_free(target_path);
-        return -1;
+        rc = -1;
+        goto cleanup;
     }
 
     const BakeBuildResult *result = ecs_get(ctx->world, project_entity, BakeBuildResult);
     if (!result || !result->artefact) {
-        ecs_os_free(target_path);
-        return -1;
+        rc = -1;
+        goto cleanup;
     }
 
     if (!strcmp(ctx->opts.command, "test") || project->cfg->kind == BAKE_PROJECT_TEST) {
-        int rc = bake_test_run_project(ctx, project->cfg, result->artefact);
-        ecs_os_free(target_path);
-        return rc;
+        rc = bake_test_run_project(ctx, project->cfg, result->artefact);
+        goto cleanup;
     }
 
     if (!strcmp(ctx->opts.command, "run")) {
@@ -750,14 +689,14 @@ int bake_build_run(bake_context_t *ctx) {
         }
 
         char *cmd_str = ecs_strbuf_get(&cmd);
-        int rc = bake_run_command(cmd_str);
+        rc = bake_run_command(cmd_str);
         ecs_os_free(cmd_str);
-        ecs_os_free(target_path);
-        return rc;
+        goto cleanup;
     }
 
+cleanup:
     ecs_os_free(target_path);
-    return 0;
+    return rc;
 }
 
 int bake_build_rebuild(bake_context_t *ctx) {

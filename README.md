@@ -82,8 +82,9 @@ Options:
   --cc <compiler>     Override C compiler
   --cxx <compiler>    Override C++ compiler
   --run-prefix <cmd>  Prefix command when running binaries
+  --standalone        Use amalgamated dependency sources in deps/
   --strict            Enable strict compiler warnings and checks
-  --trace             Trace compiler commmands to console
+  --trace             Enable trace logging (Flecs log level 0)
   -j <count>          Number of parallel jobs for build/test execution
   -r                  Apply command recursively to project and project dependencies
   -h, --help          Show this help

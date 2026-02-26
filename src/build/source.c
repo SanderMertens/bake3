@@ -290,7 +290,8 @@ static char* bake_replace_all(const char *input, const char *needle, const char 
 typedef struct bake_rule_exec_ctx_t {
     const bake_project_cfg_t *cfg;
     const bake_build_paths_t *paths;
-    const bake_rule_t *rule;
+    const char *ext;
+    const char *command;
 } bake_rule_exec_ctx_t;
 
 static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
@@ -302,7 +303,7 @@ static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return 0;
     }
 
-    if (!bake_has_suffix(entry->path, ctx->rule->ext)) {
+    if (!bake_has_suffix(entry->path, ctx->ext)) {
         return 0;
     }
 
@@ -311,7 +312,7 @@ static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return -1;
     }
 
-    char *cmd = bake_replace_all(ctx->rule->command, "{input}", entry->path);
+    char *cmd = bake_replace_all(ctx->command, "{input}", entry->path);
     if (!cmd) {
         ecs_os_free(stem);
         return -1;
@@ -343,16 +344,29 @@ static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     return rc;
 }
 
-int bake_execute_rules(const bake_project_cfg_t *cfg, const bake_build_paths_t *paths) {
-    for (int32_t i = 0; i < cfg->rules.count; i++) {
-        bake_rule_exec_ctx_t ctx = {
-            .cfg = cfg,
-            .paths = paths,
-            .rule = &cfg->rules.items[i]
-        };
+int bake_execute_rules(
+    ecs_world_t *world,
+    ecs_entity_t project_entity,
+    const bake_project_cfg_t *cfg,
+    const bake_build_paths_t *paths)
+{
+    ecs_iter_t children = ecs_children(world, project_entity);
+    while (ecs_children_next(&children)) {
+        for (int32_t i = 0; i < children.count; i++) {
+            const BakeBuildRule *rule = ecs_get(world, children.entities[i], BakeBuildRule);
+            if (!rule || !rule->ext || !rule->command) {
+                continue;
+            }
 
-        if (bake_dir_walk_recursive(cfg->path, bake_rule_visit, &ctx) != 0) {
-            return -1;
+            bake_rule_exec_ctx_t ctx = {
+                .cfg = cfg,
+                .paths = paths,
+                .ext = rule->ext,
+                .command = rule->command
+            };
+            if (bake_dir_walk_recursive(cfg->path, bake_rule_visit, &ctx) != 0) {
+                return -1;
+            }
         }
     }
 
