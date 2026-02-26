@@ -571,85 +571,44 @@ int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities
         return 0;
     }
 
-    bake_entity_sort_by_project_id(world, entities, count);
-
-    int32_t *indegree = ecs_os_calloc_n(int32_t, count);
-    bool *scheduled = ecs_os_calloc_n(bool, count);
-    ecs_entity_t *order = ecs_os_malloc_n(ecs_entity_t, count);
-    if (!indegree || !scheduled || !order) {
-        ecs_os_free(indegree);
-        ecs_os_free(scheduled);
-        ecs_os_free(order);
+    int32_t *depths = ecs_os_malloc_n(int32_t, count);
+    if (!depths) {
         ecs_os_free(entities);
         return -1;
     }
 
+    bool has_valid_depth = true;
     for (int32_t i = 0; i < count; i++) {
-        for (int32_t d = 0;; d++) {
-            ecs_entity_t dep = ecs_get_target(world, entities[i], BakeDependsOn, d);
-            if (!dep) {
-                break;
-            }
-
-            for (int32_t j = 0; j < count; j++) {
-                if (entities[j] == dep) {
-                    indegree[i]++;
-                    break;
-                }
-            }
-        }
-    }
-
-    int32_t out_i = 0;
-    while (out_i < count) {
-        int32_t next = -1;
-        for (int32_t i = 0; i < count; i++) {
-            if (!scheduled[i] && indegree[i] == 0) {
-                next = i;
-                break;
-            }
-        }
-
-        if (next == -1) {
-            for (int32_t i = 0; i < count; i++) {
-                if (!scheduled[i]) {
-                    next = i;
-                    break;
-                }
-            }
-        }
-
-        if (next == -1) {
+        depths[i] = ecs_get_depth(world, entities[i], BakeDependsOn);
+        if (depths[i] < 0) {
+            has_valid_depth = false;
             break;
         }
+    }
 
-        ecs_entity_t resolved = entities[next];
-        scheduled[next] = true;
-        order[out_i++] = resolved;
-
+    if (!has_valid_depth) {
+        bake_entity_sort_by_project_id(world, entities, count);
+    } else {
         for (int32_t i = 0; i < count; i++) {
-            if (scheduled[i]) {
-                continue;
-            }
+            for (int32_t j = i + 1; j < count; j++) {
+                if (depths[j] < depths[i] ||
+                    (depths[j] == depths[i] &&
+                     bake_entity_cmp_by_project_id(world, entities[j], entities[i]) < 0))
+                {
+                    int32_t tmp_depth = depths[i];
+                    depths[i] = depths[j];
+                    depths[j] = tmp_depth;
 
-            for (int32_t d = 0;; d++) {
-                ecs_entity_t dep = ecs_get_target(world, entities[i], BakeDependsOn, d);
-                if (!dep) {
-                    break;
-                }
-                if (dep == resolved) {
-                    indegree[i]--;
-                    break;
+                    ecs_entity_t tmp_entity = entities[i];
+                    entities[i] = entities[j];
+                    entities[j] = tmp_entity;
                 }
             }
         }
     }
 
-    ecs_os_free(entities);
-    ecs_os_free(indegree);
-    ecs_os_free(scheduled);
-
-    *out_entities = order;
-    *out_count = out_i;
+    ecs_os_free(depths);
+    *out_entities = entities;
+    *out_count = count;
     return 0;
 }

@@ -1,7 +1,7 @@
 #include "bake2/test_harness.h"
 #include "bake2/os.h"
 
-#include "../config/jsmn.h"
+#include "parson.h"
 
 typedef struct bake_suite_spec_t {
     char *id;
@@ -16,57 +16,33 @@ typedef struct bake_suite_list_t {
     int32_t capacity;
 } bake_suite_list_t;
 
-static int bake_json_skip(const jsmntok_t *toks, int count, int index) {
-    int next = index + 1;
-    if (index < 0 || index >= count) {
-        return next;
-    }
-
-    if (toks[index].type == JSMN_OBJECT || toks[index].type == JSMN_ARRAY) {
-        for (int i = 0; i < toks[index].size; i++) {
-            next = bake_json_skip(toks, count, next);
-        }
-    }
-
-    return next;
-}
-
-static int bake_json_eq(const char *json, const jsmntok_t *tok, const char *str) {
-    size_t len = strlen(str);
-    size_t tok_len = (size_t)(tok->end - tok->start);
-    return tok_len == len && strncmp(json + tok->start, str, len) == 0;
-}
-
-static char* bake_json_strdup(const char *json, const jsmntok_t *tok) {
-    size_t len = (size_t)(tok->end - tok->start);
-    char *str = ecs_os_malloc(len + 1);
-    if (!str) {
+static char* bake_json_strdup_value(const JSON_Value *value) {
+    if (!value) {
         return NULL;
     }
-    memcpy(str, json + tok->start, len);
-    str[len] = '\0';
-    return str;
-}
 
-static int bake_json_find_object_key(const char *json, const jsmntok_t *toks, int count, int object, const char *key) {
-    if (object < 0 || object >= count || toks[object].type != JSMN_OBJECT) {
-        return -1;
+    JSON_Value_Type type = json_value_get_type(value);
+    if (type == JSONString) {
+        const char *str = json_value_get_string(value);
+        return str ? bake_strdup(str) : NULL;
     }
 
-    int i = object + 1;
-    int end = bake_json_skip(toks, count, object);
-    while (i < end) {
-        int key_tok = i;
-        int val_tok = i + 1;
-
-        if (toks[key_tok].type == JSMN_STRING && bake_json_eq(json, &toks[key_tok], key)) {
-            return val_tok;
-        }
-
-        i = bake_json_skip(toks, count, val_tok);
+    if (type == JSONBoolean) {
+        return bake_strdup(json_value_get_boolean(value) ? "true" : "false");
     }
 
-    return -1;
+    if (type == JSONNull) {
+        return bake_strdup("null");
+    }
+
+    char *serialized = json_serialize_to_string(value);
+    if (!serialized) {
+        return NULL;
+    }
+
+    char *out = bake_strdup(serialized);
+    json_free_serialized_string(serialized);
+    return out;
 }
 
 static void bake_suite_list_fini(bake_suite_list_t *list) {
@@ -103,41 +79,26 @@ static int bake_parse_tests_json(const char *path, bake_suite_list_t *out) {
         return -1;
     }
 
-    int cap = 256;
-    jsmntok_t *tokens = NULL;
-    int parsed = JSMN_ERROR_NOMEM;
-
-    while (parsed == JSMN_ERROR_NOMEM) {
-        cap *= 2;
-        ecs_os_free(tokens);
-        tokens = ecs_os_calloc_n(jsmntok_t, cap);
-        if (!tokens) {
-            ecs_os_free(json);
-            return -1;
-        }
-
-        jsmn_parser p;
-        jsmn_init(&p);
-        parsed = jsmn_parse(&p, json, len, tokens, (unsigned int)cap);
-    }
-
-    if (parsed < 1 || tokens[0].type != JSMN_OBJECT) {
-        ecs_os_free(tokens);
+    JSON_Value *root_value = json_parse_string(json);
+    const JSON_Object *root = root_value ? json_value_get_object(root_value) : NULL;
+    if (!root) {
+        json_value_free(root_value);
         ecs_os_free(json);
         return -1;
     }
 
-    int suites_tok = bake_json_find_object_key(json, tokens, parsed, 0, "suites");
-    if (suites_tok < 0 || tokens[suites_tok].type != JSMN_ARRAY) {
-        ecs_os_free(tokens);
+    JSON_Array *suites = json_object_get_array(root, "suites");
+    if (!suites) {
+        json_value_free(root_value);
         ecs_os_free(json);
         return -1;
     }
 
-    int i = suites_tok + 1;
-    for (int32_t n = 0; n < tokens[suites_tok].size; n++) {
-        if (tokens[i].type != JSMN_OBJECT) {
-            ecs_os_free(tokens);
+    size_t suite_count = json_array_get_count(suites);
+    for (size_t i = 0; i < suite_count; i++) {
+        const JSON_Object *suite_obj = json_array_get_object(suites, i);
+        if (!suite_obj) {
+            json_value_free(root_value);
             ecs_os_free(json);
             return -1;
         }
@@ -145,48 +106,50 @@ static int bake_parse_tests_json(const char *path, bake_suite_list_t *out) {
         bake_suite_spec_t suite = {0};
         bake_strlist_init(&suite.testcases);
 
-        int id_tok = bake_json_find_object_key(json, tokens, parsed, i, "id");
-        int setup_tok = bake_json_find_object_key(json, tokens, parsed, i, "setup");
-        int teardown_tok = bake_json_find_object_key(json, tokens, parsed, i, "teardown");
-        int tests_tok = bake_json_find_object_key(json, tokens, parsed, i, "testcases");
-
-        if (id_tok < 0 || tests_tok < 0 || tokens[tests_tok].type != JSMN_ARRAY) {
+        const char *id = json_object_get_string(suite_obj, "id");
+        JSON_Array *tests = json_object_get_array(suite_obj, "testcases");
+        if (!id || !tests) {
             bake_strlist_fini(&suite.testcases);
-            ecs_os_free(tokens);
+            json_value_free(root_value);
             ecs_os_free(json);
             return -1;
         }
 
-        suite.id = bake_json_strdup(json, &tokens[id_tok]);
-        suite.setup = setup_tok >= 0 && bake_json_eq(json, &tokens[setup_tok], "true");
-        suite.teardown = teardown_tok >= 0 && bake_json_eq(json, &tokens[teardown_tok], "true");
+        suite.id = bake_strdup(id);
+        if (!suite.id) {
+            bake_strlist_fini(&suite.testcases);
+            json_value_free(root_value);
+            ecs_os_free(json);
+            return -1;
+        }
 
-        int t = tests_tok + 1;
-        for (int32_t tc = 0; tc < tokens[tests_tok].size; tc++) {
-            char *name = bake_json_strdup(json, &tokens[t]);
+        suite.setup = json_object_get_boolean(suite_obj, "setup") == 1;
+        suite.teardown = json_object_get_boolean(suite_obj, "teardown") == 1;
+
+        size_t test_count = json_array_get_count(tests);
+        for (size_t t = 0; t < test_count; t++) {
+            JSON_Value *test_value = json_array_get_value(tests, t);
+            char *name = bake_json_strdup_value(test_value);
             if (!name || bake_strlist_append_owned(&suite.testcases, name) != 0) {
                 ecs_os_free(name);
                 bake_strlist_fini(&suite.testcases);
                 ecs_os_free(suite.id);
-                ecs_os_free(tokens);
+                json_value_free(root_value);
                 ecs_os_free(json);
                 return -1;
             }
-            t = bake_json_skip(tokens, parsed, t);
         }
 
         if (bake_suite_list_append(out, &suite) != 0) {
             bake_strlist_fini(&suite.testcases);
             ecs_os_free(suite.id);
-            ecs_os_free(tokens);
+            json_value_free(root_value);
             ecs_os_free(json);
             return -1;
         }
-
-        i = bake_json_skip(tokens, parsed, i);
     }
 
-    ecs_os_free(tokens);
+    json_value_free(root_value);
     ecs_os_free(json);
     return 0;
 }

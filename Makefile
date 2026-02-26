@@ -5,6 +5,7 @@ LDFLAGS ?=
 SRC := $(shell find src -name '*.c' | sort)
 OBJ := $(patsubst %.c,build/%.o,$(SRC))
 OBJ += build/flecs.o
+OBJ += build/parson.o
 
 BIN := build/bake
 
@@ -19,6 +20,10 @@ endif
 all: $(BIN)
 
 build/flecs.o: deps/flecs.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) -I deps -c $< -o $@
+
+build/parson.o: deps/parson.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -I deps -c $< -o $@
 

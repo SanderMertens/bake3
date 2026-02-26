@@ -3,26 +3,19 @@
 
 #include <ctype.h>
 
-#include "jsmn.h"
+#include "parson.h"
 
 static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults);
 static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_dependee, bool set_defaults);
 static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_dependee);
-static char* bake_json_strdup(const char *json, const jsmntok_t *tok);
 static int bake_parse_project_cfg_object(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     bake_project_cfg_t *cfg,
     bool parse_meta,
     bool parse_dependee);
 static int bake_parse_rules(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int rules_tok,
-    bake_rule_list_t *rules);
+    const JSON_Array *rules,
+    bake_rule_list_t *rules_out);
 
 static const char *bake_cfg_eval_mode = "debug";
 static const char *bake_cfg_eval_target = NULL;
@@ -60,17 +53,12 @@ static void bake_rtrim(char *str) {
     }
 }
 
-static int bake_json_conditional_key_matches(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int key_tok)
-{
-    if (key_tok < 0 || key_tok >= count || toks[key_tok].type != JSMN_STRING) {
+static int bake_json_conditional_key_matches(const char *key) {
+    if (!key) {
         return 0;
     }
 
-    char *raw = bake_json_strdup(json, &toks[key_tok]);
+    char *raw = bake_strdup(key);
     if (!raw) {
         return -1;
     }
@@ -114,47 +102,6 @@ static int bake_json_conditional_key_matches(
 
     ecs_os_free(raw);
     return match;
-}
-
-static int bake_json_skip(const jsmntok_t *toks, int count, int index) {
-    if (index < 0 || index >= count) {
-        return index + 1;
-    }
-
-    int next = index + 1;
-    const jsmntok_t *tok = &toks[index];
-
-    if (tok->type == JSMN_OBJECT) {
-        for (int i = 0; i < tok->size; i++) {
-            next = bake_json_skip(toks, count, next);
-        }
-    } else if (tok->type == JSMN_ARRAY) {
-        for (int i = 0; i < tok->size; i++) {
-            next = bake_json_skip(toks, count, next);
-        }
-    }
-
-    return next;
-}
-
-static int bake_json_eq(const char *json, const jsmntok_t *tok, const char *str) {
-    size_t len = strlen(str);
-    size_t tok_len = (size_t)(tok->end - tok->start);
-    if (tok_len != len) {
-        return 0;
-    }
-    return strncmp(json + tok->start, str, len) == 0;
-}
-
-static char* bake_json_strdup(const char *json, const jsmntok_t *tok) {
-    size_t len = (size_t)(tok->end - tok->start);
-    char *str = ecs_os_malloc(len + 1);
-    if (!str) {
-        return NULL;
-    }
-    memcpy(str, json + tok->start, len);
-    str[len] = '\0';
-    return str;
 }
 
 static char* bake_json_strip_comments(const char *json, size_t len, size_t *len_out) {
@@ -233,84 +180,70 @@ static char* bake_json_strip_comments(const char *json, size_t len, size_t *len_
     return out;
 }
 
-static int bake_json_find_object_key(const char *json, const jsmntok_t *toks, int count, int object, const char *key) {
-    if (object < 0 || object >= count || toks[object].type != JSMN_OBJECT) {
-        return -1;
+static char* bake_json_strdup_value(const JSON_Value *value) {
+    if (!value) {
+        return NULL;
     }
 
-    int i = object + 1;
-    int end = bake_json_skip(toks, count, object);
-    while (i < end) {
-        int key_tok = i;
-        int val_tok = key_tok + 1;
-        if (val_tok >= end) {
-            break;
-        }
-
-        if (toks[key_tok].type == JSMN_STRING && bake_json_eq(json, &toks[key_tok], key)) {
-            return val_tok;
-        }
-
-        i = bake_json_skip(toks, count, val_tok);
+    JSON_Value_Type type = json_value_get_type(value);
+    if (type == JSONString) {
+        const char *str = json_value_get_string(value);
+        return str ? bake_strdup(str) : NULL;
     }
 
-    return -1;
+    if (type == JSONBoolean) {
+        return bake_strdup(json_value_get_boolean(value) ? "true" : "false");
+    }
+
+    if (type == JSONNull) {
+        return bake_strdup("null");
+    }
+
+    char *serialized = json_serialize_to_string(value);
+    if (!serialized) {
+        return NULL;
+    }
+
+    char *out = bake_strdup(serialized);
+    json_free_serialized_string(serialized);
+    return out;
 }
 
-static int bake_json_parse_bool(const char *json, const jsmntok_t *tok, bool *value_out) {
-    if (tok->type != JSMN_PRIMITIVE) {
-        return -1;
-    }
-
-    if (bake_json_eq(json, tok, "true")) {
-        *value_out = true;
-        return 0;
-    }
-    if (bake_json_eq(json, tok, "false")) {
-        *value_out = false;
-        return 0;
-    }
-
-    return -1;
-}
-
-static int bake_json_parse_strlist(const char *json, const jsmntok_t *toks, int count, int token, bake_strlist_t *list) {
-    if (token < 0 || token >= count || toks[token].type != JSMN_ARRAY) {
-        return -1;
-    }
-
-    int i = token + 1;
-    for (int32_t n = 0; n < toks[token].size; n++) {
-        if (toks[i].type != JSMN_STRING && toks[i].type != JSMN_PRIMITIVE) {
+static int bake_json_parse_strlist(const JSON_Array *array, bake_strlist_t *list) {
+    size_t count = json_array_get_count(array);
+    for (size_t i = 0; i < count; i++) {
+        JSON_Value *value = json_array_get_value(array, i);
+        JSON_Value_Type type = json_value_get_type(value);
+        if (type == JSONArray || type == JSONObject) {
             return -1;
         }
 
-        char *value = bake_json_strdup(json, &toks[i]);
-        if (!value) {
-            return -1;
-        }
-        if (bake_strlist_append_owned(list, value) != 0) {
-            ecs_os_free(value);
+        char *str = bake_json_strdup_value(value);
+        if (!str) {
             return -1;
         }
 
-        i = bake_json_skip(toks, count, i);
+        if (bake_strlist_append_owned(list, str) != 0) {
+            ecs_os_free(str);
+            return -1;
+        }
     }
 
     return 0;
 }
 
-static int bake_json_get_string(const char *json, const jsmntok_t *toks, int count, int object, const char *key, char **out) {
-    int tok = bake_json_find_object_key(json, toks, count, object, key);
-    if (tok < 0) {
+static int bake_json_get_string(const JSON_Object *object, const char *key, char **out) {
+    JSON_Value *value = json_object_get_value(object, key);
+    if (!value) {
         return 1;
     }
 
-    if (toks[tok].type != JSMN_STRING && toks[tok].type != JSMN_PRIMITIVE) {
+    JSON_Value_Type type = json_value_get_type(value);
+    if (type == JSONObject || type == JSONArray) {
         return -1;
     }
 
-    char *str = bake_json_strdup(json, &toks[tok]);
+    char *str = bake_json_strdup_value(value);
     if (!str) {
         return -1;
     }
@@ -320,52 +253,77 @@ static int bake_json_get_string(const char *json, const jsmntok_t *toks, int cou
     return 0;
 }
 
-static int bake_json_get_bool(const char *json, const jsmntok_t *toks, int count, int object, const char *key, bool *out) {
-    int tok = bake_json_find_object_key(json, toks, count, object, key);
-    if (tok < 0) {
+static int bake_json_get_bool(const JSON_Object *object, const char *key, bool *out) {
+    JSON_Value *value = json_object_get_value(object, key);
+    if (!value) {
         return 1;
     }
-    return bake_json_parse_bool(json, &toks[tok], out);
+
+    if (json_value_get_type(value) != JSONBoolean) {
+        return -1;
+    }
+
+    *out = json_value_get_boolean(value) != 0;
+    return 0;
 }
 
-static int bake_json_get_array(const char *json, const jsmntok_t *toks, int count, int object, const char *key, bake_strlist_t *out) {
-    int tok = bake_json_find_object_key(json, toks, count, object, key);
-    if (tok < 0) {
+static int bake_json_get_array(const JSON_Object *object, const char *key, bake_strlist_t *out) {
+    JSON_Value *value = json_object_get_value(object, key);
+    if (!value) {
         return 1;
     }
-    return bake_json_parse_strlist(json, toks, count, tok, out);
+
+    if (json_value_get_type(value) != JSONArray) {
+        return -1;
+    }
+
+    return bake_json_parse_strlist(json_value_get_array(value), out);
 }
 
 static int bake_json_get_array_alias(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     const char *key,
     const char *alias,
     bake_strlist_t *out)
 {
-    int rc = bake_json_get_array(json, toks, count, object, key, out);
+    int rc = bake_json_get_array(object, key, out);
     if (rc == 1 && alias) {
-        rc = bake_json_get_array(json, toks, count, object, alias, out);
+        rc = bake_json_get_array(object, alias, out);
     }
     return rc;
 }
 
 static int bake_json_get_string_alias(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     const char *key,
     const char *alias,
     char **out)
 {
-    int rc = bake_json_get_string(json, toks, count, object, key, out);
+    int rc = bake_json_get_string(object, key, out);
     if (rc == 1 && alias) {
-        rc = bake_json_get_string(json, toks, count, object, alias, out);
+        rc = bake_json_get_string(object, alias, out);
     }
     return rc;
+}
+
+static int bake_json_get_object_optional(
+    const JSON_Object *object,
+    const char *key,
+    const JSON_Object **out)
+{
+    *out = NULL;
+
+    JSON_Value *value = json_object_get_value(object, key);
+    if (!value) {
+        return 0;
+    }
+
+    if (json_value_get_type(value) != JSONObject) {
+        return -1;
+    }
+
+    *out = json_value_get_object(value);
+    return 0;
 }
 
 const char* bake_project_kind_str(bake_project_kind_t kind) {
@@ -593,91 +551,72 @@ void bake_build_mode_fini(bake_build_mode_t *mode) {
     bake_strlist_fini(&mode->ldflags);
 }
 
-static int bake_parse_lang_cfg(const char *json, const jsmntok_t *toks, int count, int object, bake_lang_cfg_t *cfg) {
-    if (object < 0) {
+static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) {
+    if (!object) {
         return 0;
     }
 
-    if (toks[object].type != JSMN_OBJECT) {
-        return -1;
-    }
+    if (bake_json_get_array_alias(object, "cflags", NULL, &cfg->cflags) < 0) return -1;
+    if (bake_json_get_array_alias(object, "cxxflags", NULL, &cfg->cxxflags) < 0) return -1;
+    if (bake_json_get_array_alias(object, "defines", NULL, &cfg->defines) < 0) return -1;
+    if (bake_json_get_array_alias(object, "ldflags", NULL, &cfg->ldflags) < 0) return -1;
+    if (bake_json_get_array_alias(object, "lib", "libs", &cfg->libs) < 0) return -1;
+    if (bake_json_get_array_alias(object, "static-lib", "static_lib", &cfg->static_libs) < 0) return -1;
+    if (bake_json_get_array_alias(object, "libpath", "libpaths", &cfg->libpaths) < 0) return -1;
+    if (bake_json_get_array_alias(object, "link", "links", &cfg->links) < 0) return -1;
+    if (bake_json_get_array_alias(object, "include", NULL, &cfg->include_paths) < 0) return -1;
 
-    if (bake_json_get_array_alias(json, toks, count, object, "cflags", NULL, &cfg->cflags) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "cxxflags", NULL, &cfg->cxxflags) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "defines", NULL, &cfg->defines) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "ldflags", NULL, &cfg->ldflags) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "lib", "libs", &cfg->libs) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "static-lib", "static_lib", &cfg->static_libs) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "libpath", "libpaths", &cfg->libpaths) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "link", "links", &cfg->links) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "include", NULL, &cfg->include_paths) < 0) return -1;
+    if (bake_json_get_string(object, "c-standard", &cfg->c_standard) < 0) return -1;
+    if (bake_json_get_string(object, "cpp-standard", &cfg->cpp_standard) < 0) return -1;
 
-    if (bake_json_get_string(json, toks, count, object, "c-standard", &cfg->c_standard) < 0) return -1;
-    if (bake_json_get_string(json, toks, count, object, "cpp-standard", &cfg->cpp_standard) < 0) return -1;
+    if (bake_json_get_bool(object, "static", &cfg->static_lib) < 0) return -1;
+    if (bake_json_get_bool(object, "export-symbols", &cfg->export_symbols) < 0) return -1;
+    if (bake_json_get_bool(object, "precompile-header", &cfg->precompile_header) < 0) return -1;
 
-    if (bake_json_get_bool(json, toks, count, object, "static", &cfg->static_lib) < 0) return -1;
-    if (bake_json_get_bool(json, toks, count, object, "export-symbols", &cfg->export_symbols) < 0) return -1;
-    if (bake_json_get_bool(json, toks, count, object, "precompile-header", &cfg->precompile_header) < 0) return -1;
-
-    int i = object + 1;
-    int end = bake_json_skip(toks, count, object);
-    while (i < end) {
-        int key_tok = i;
-        int val_tok = key_tok + 1;
-        if (val_tok >= end) {
-            break;
-        }
-
-        int cond = bake_json_conditional_key_matches(json, toks, count, key_tok);
+    size_t key_count = json_object_get_count(object);
+    for (size_t i = 0; i < key_count; i++) {
+        const char *key = json_object_get_name(object, i);
+        int cond = bake_json_conditional_key_matches(key);
         if (cond < 0) {
             return -1;
         }
 
         if (cond > 0) {
-            if (toks[val_tok].type != JSMN_OBJECT) {
-                return -1;
-            }
-            if (bake_parse_lang_cfg(json, toks, count, val_tok, cfg) != 0) {
+            JSON_Value *val = json_object_get_value_at(object, i);
+            const JSON_Object *nested = json_value_get_object(val);
+            if (!nested || bake_parse_lang_cfg(nested, cfg) != 0) {
                 return -1;
             }
         }
-
-        i = bake_json_skip(toks, count, val_tok);
     }
 
     return 0;
 }
 
 static int bake_parse_project_value_lang_array(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     const char *key,
     const char *alias,
     bake_strlist_t *c_list,
     bake_strlist_t *cpp_list)
 {
-    if (bake_json_get_array_alias(json, toks, count, object, key, alias, c_list) < 0) {
+    if (bake_json_get_array_alias(object, key, alias, c_list) < 0) {
         return -1;
     }
-    if (bake_json_get_array_alias(json, toks, count, object, key, alias, cpp_list) < 0) {
+    if (bake_json_get_array_alias(object, key, alias, cpp_list) < 0) {
         return -1;
     }
     return 0;
 }
 
 static int bake_parse_project_value_lang_bool(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     const char *key,
     bool *c_value,
     bool *cpp_value)
 {
     bool value = false;
-    int rc = bake_json_get_bool(json, toks, count, object, key, &value);
+    int rc = bake_json_get_bool(object, key, &value);
     if (rc < 0) {
         return -1;
     }
@@ -689,248 +628,216 @@ static int bake_parse_project_value_lang_bool(
 }
 
 static int bake_parse_project_value_cfg(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     bake_project_cfg_t *cfg)
 {
-    if (object < 0) {
+    if (!object) {
         return 0;
     }
 
-    if (toks[object].type != JSMN_OBJECT) {
-        return -1;
-    }
+    if (bake_json_get_string(object, "language", &cfg->language) < 0) return -1;
+    if (bake_json_get_string(object, "output", &cfg->output_name) < 0) return -1;
+    if (bake_json_get_string(object, "artefact", &cfg->output_name) < 0) return -1;
 
-    if (bake_json_get_string(json, toks, count, object, "language", &cfg->language) < 0) return -1;
-    if (bake_json_get_string(json, toks, count, object, "output", &cfg->output_name) < 0) return -1;
-    if (bake_json_get_string(json, toks, count, object, "artefact", &cfg->output_name) < 0) return -1;
-
-    if (bake_json_get_bool(json, toks, count, object, "private", &cfg->private_project) < 0) return -1;
-    if (bake_json_get_bool(json, toks, count, object, "public", &cfg->public_project) < 0) return -1;
-    if (bake_json_get_bool(json, toks, count, object, "standalone", &cfg->standalone) < 0) return -1;
-    if (bake_json_get_bool(json, toks, count, object, "amalgamate", &cfg->amalgamate) < 0) return -1;
+    if (bake_json_get_bool(object, "private", &cfg->private_project) < 0) return -1;
+    if (bake_json_get_bool(object, "public", &cfg->public_project) < 0) return -1;
+    if (bake_json_get_bool(object, "standalone", &cfg->standalone) < 0) return -1;
+    if (bake_json_get_bool(object, "amalgamate", &cfg->amalgamate) < 0) return -1;
     if (bake_json_get_string_alias(
-        json, toks, count, object,
-        "amalgamate-path", "amalgamate_path",
+        object,
+        "amalgamate-path",
+        "amalgamate_path",
         &cfg->amalgamate_path) < 0)
     {
         return -1;
     }
 
-    if (bake_json_get_array_alias(json, toks, count, object, "use", NULL, &cfg->use) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "use-private", "use_private", &cfg->use_private) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "use-build", "use_build", &cfg->use_build) < 0) return -1;
-    if (bake_json_get_array_alias(json, toks, count, object, "use-runtime", "use_runtime", &cfg->use_runtime) < 0) return -1;
+    if (bake_json_get_array_alias(object, "use", NULL, &cfg->use) < 0) return -1;
+    if (bake_json_get_array_alias(object, "use-private", "use_private", &cfg->use_private) < 0) return -1;
+    if (bake_json_get_array_alias(object, "use-build", "use_build", &cfg->use_build) < 0) return -1;
+    if (bake_json_get_array_alias(object, "use-runtime", "use_runtime", &cfg->use_runtime) < 0) return -1;
 
     if (bake_parse_project_value_lang_array(
-        json, toks, count, object, "cflags", NULL,
+        object, "cflags", NULL,
         &cfg->c_lang.cflags, &cfg->cpp_lang.cflags) != 0) return -1;
     if (bake_parse_project_value_lang_array(
-        json, toks, count, object, "cxxflags", NULL,
+        object, "cxxflags", NULL,
         &cfg->c_lang.cxxflags, &cfg->cpp_lang.cxxflags) != 0) return -1;
     if (bake_parse_project_value_lang_array(
-        json, toks, count, object, "defines", NULL,
+        object, "defines", NULL,
         &cfg->c_lang.defines, &cfg->cpp_lang.defines) != 0) return -1;
     if (bake_parse_project_value_lang_array(
-        json, toks, count, object, "ldflags", NULL,
+        object, "ldflags", NULL,
         &cfg->c_lang.ldflags, &cfg->cpp_lang.ldflags) != 0) return -1;
     if (bake_parse_project_value_lang_array(
-        json, toks, count, object, "lib", "libs",
+        object, "lib", "libs",
         &cfg->c_lang.libs, &cfg->cpp_lang.libs) != 0) return -1;
     if (bake_parse_project_value_lang_array(
-        json, toks, count, object, "static-lib", "static_lib",
+        object, "static-lib", "static_lib",
         &cfg->c_lang.static_libs, &cfg->cpp_lang.static_libs) != 0) return -1;
     if (bake_parse_project_value_lang_array(
-        json, toks, count, object, "libpath", "libpaths",
+        object, "libpath", "libpaths",
         &cfg->c_lang.libpaths, &cfg->cpp_lang.libpaths) != 0) return -1;
     if (bake_parse_project_value_lang_array(
-        json, toks, count, object, "link", "links",
+        object, "link", "links",
         &cfg->c_lang.links, &cfg->cpp_lang.links) != 0) return -1;
     if (bake_parse_project_value_lang_array(
-        json, toks, count, object, "include", NULL,
+        object, "include", NULL,
         &cfg->c_lang.include_paths, &cfg->cpp_lang.include_paths) != 0) return -1;
 
-    if (bake_json_get_string(json, toks, count, object, "c-standard", &cfg->c_lang.c_standard) < 0) return -1;
-    if (bake_json_get_string(json, toks, count, object, "cpp-standard", &cfg->cpp_lang.cpp_standard) < 0) return -1;
+    if (bake_json_get_string(object, "c-standard", &cfg->c_lang.c_standard) < 0) return -1;
+    if (bake_json_get_string(object, "cpp-standard", &cfg->cpp_lang.cpp_standard) < 0) return -1;
 
     if (bake_parse_project_value_lang_bool(
-        json, toks, count, object, "static",
+        object, "static",
         &cfg->c_lang.static_lib, &cfg->cpp_lang.static_lib) != 0) return -1;
     if (bake_parse_project_value_lang_bool(
-        json, toks, count, object, "export-symbols",
+        object, "export-symbols",
         &cfg->c_lang.export_symbols, &cfg->cpp_lang.export_symbols) != 0) return -1;
     if (bake_parse_project_value_lang_bool(
-        json, toks, count, object, "precompile-header",
+        object, "precompile-header",
         &cfg->c_lang.precompile_header, &cfg->cpp_lang.precompile_header) != 0) return -1;
 
     return 0;
 }
 
 static int bake_parse_project_lang_cfg(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     bake_project_cfg_t *cfg)
 {
-    int c_obj = bake_json_find_object_key(json, toks, count, object, "lang.c");
-    if (bake_parse_lang_cfg(json, toks, count, c_obj, &cfg->c_lang) != 0) return -1;
+    const JSON_Object *lang_c = NULL;
+    if (bake_json_get_object_optional(object, "lang.c", &lang_c) != 0) return -1;
+    if (bake_parse_lang_cfg(lang_c, &cfg->c_lang) != 0) return -1;
 
-    int cpp_obj = bake_json_find_object_key(json, toks, count, object, "lang.cpp");
-    if (bake_parse_lang_cfg(json, toks, count, cpp_obj, &cfg->cpp_lang) != 0) return -1;
+    const JSON_Object *lang_cpp = NULL;
+    if (bake_json_get_object_optional(object, "lang.cpp", &lang_cpp) != 0) return -1;
+    if (bake_parse_lang_cfg(lang_cpp, &cfg->cpp_lang) != 0) return -1;
 
-    int lang_obj = bake_json_find_object_key(json, toks, count, object, "lang");
-    if (lang_obj >= 0) {
-        if (toks[lang_obj].type != JSMN_OBJECT) {
-            return -1;
-        }
+    const JSON_Object *lang = NULL;
+    if (bake_json_get_object_optional(object, "lang", &lang) != 0) return -1;
+    if (lang) {
+        const JSON_Object *lang_c_obj = NULL;
+        if (bake_json_get_object_optional(lang, "c", &lang_c_obj) != 0) return -1;
+        if (bake_parse_lang_cfg(lang_c_obj, &cfg->c_lang) != 0) return -1;
 
-        int lang_c_obj = bake_json_find_object_key(json, toks, count, lang_obj, "c");
-        if (bake_parse_lang_cfg(json, toks, count, lang_c_obj, &cfg->c_lang) != 0) return -1;
-
-        int lang_cpp_obj = bake_json_find_object_key(json, toks, count, lang_obj, "cpp");
-        if (bake_parse_lang_cfg(json, toks, count, lang_cpp_obj, &cfg->cpp_lang) != 0) return -1;
+        const JSON_Object *lang_cpp_obj = NULL;
+        if (bake_json_get_object_optional(lang, "cpp", &lang_cpp_obj) != 0) return -1;
+        if (bake_parse_lang_cfg(lang_cpp_obj, &cfg->cpp_lang) != 0) return -1;
     }
 
     return 0;
 }
 
 static int bake_parse_dependee_cfg(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     bake_dependee_cfg_t *cfg);
 
 static int bake_parse_project_cfg_conditionals(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     bake_project_cfg_t *cfg,
     bool parse_dependee)
 {
-    if (object < 0) {
+    if (!object) {
         return 0;
     }
 
-    if (toks[object].type != JSMN_OBJECT) {
-        return -1;
-    }
-
-    int i = object + 1;
-    int end = bake_json_skip(toks, count, object);
-    while (i < end) {
-        int key_tok = i;
-        int val_tok = key_tok + 1;
-        if (val_tok >= end) {
-            break;
-        }
-
-        int cond = bake_json_conditional_key_matches(json, toks, count, key_tok);
+    size_t key_count = json_object_get_count(object);
+    for (size_t i = 0; i < key_count; i++) {
+        const char *key = json_object_get_name(object, i);
+        int cond = bake_json_conditional_key_matches(key);
         if (cond < 0) {
             return -1;
         }
 
         if (cond > 0) {
-            if (toks[val_tok].type != JSMN_OBJECT) {
+            JSON_Value *val = json_object_get_value_at(object, i);
+            const JSON_Object *nested = json_value_get_object(val);
+            if (!nested) {
                 return -1;
             }
-            if (bake_parse_project_cfg_object(
-                json, toks, count, val_tok, cfg, false, parse_dependee) != 0)
-            {
+            if (bake_parse_project_cfg_object(nested, cfg, false, parse_dependee) != 0) {
                 return -1;
             }
         }
-
-        i = bake_json_skip(toks, count, val_tok);
     }
 
     return 0;
 }
 
 static int bake_parse_project_cfg_object(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     bake_project_cfg_t *cfg,
     bool parse_meta,
     bool parse_dependee)
 {
-    if (object < 0) {
+    if (!object) {
         return 0;
     }
 
-    if (toks[object].type != JSMN_OBJECT) {
-        return -1;
-    }
-
     if (parse_meta) {
-        if (bake_json_get_string(json, toks, count, object, "id", &cfg->id) < 0) return -1;
+        if (bake_json_get_string(object, "id", &cfg->id) < 0) return -1;
 
         char *type = NULL;
-        if (bake_json_get_string(json, toks, count, object, "type", &type) < 0) return -1;
+        if (bake_json_get_string(object, "type", &type) < 0) return -1;
         if (type) {
             cfg->kind = bake_project_kind_parse(type);
             ecs_os_free(type);
         }
 
-        if (bake_json_get_array(json, toks, count, object, "drivers", &cfg->drivers) < 0) return -1;
-        if (bake_json_get_array(json, toks, count, object, "plugins", &cfg->plugins) < 0) return -1;
+        if (bake_json_get_array(object, "drivers", &cfg->drivers) < 0) return -1;
+        if (bake_json_get_array(object, "plugins", &cfg->plugins) < 0) return -1;
 
-        int test_obj = bake_json_find_object_key(json, toks, count, object, "test");
-        if (test_obj >= 0) {
-            if (toks[test_obj].type != JSMN_OBJECT) return -1;
+        JSON_Value *test_value = json_object_get_value(object, "test");
+        if (test_value) {
+            if (json_value_get_type(test_value) != JSONObject) {
+                return -1;
+            }
             cfg->has_test_spec = true;
             if (cfg->kind == BAKE_PROJECT_APPLICATION) {
                 cfg->kind = BAKE_PROJECT_TEST;
             }
         }
 
-        int rules_tok = bake_json_find_object_key(json, toks, count, object, "rules");
-        if (bake_parse_rules(json, toks, count, rules_tok, &cfg->rules) != 0) return -1;
+        JSON_Value *rules_value = json_object_get_value(object, "rules");
+        if (rules_value) {
+            if (json_value_get_type(rules_value) != JSONArray) {
+                return -1;
+            }
+            if (bake_parse_rules(json_value_get_array(rules_value), &cfg->rules) != 0) return -1;
+        }
     }
 
-    if (bake_parse_project_value_cfg(json, toks, count, object, cfg) != 0) return -1;
+    if (bake_parse_project_value_cfg(object, cfg) != 0) return -1;
 
-    int value_obj = bake_json_find_object_key(json, toks, count, object, "value");
-    if (bake_parse_project_value_cfg(json, toks, count, value_obj, cfg) != 0) return -1;
+    const JSON_Object *value_obj = NULL;
+    if (bake_json_get_object_optional(object, "value", &value_obj) != 0) return -1;
+    if (bake_parse_project_value_cfg(value_obj, cfg) != 0) return -1;
 
-    if (bake_parse_project_lang_cfg(json, toks, count, object, cfg) != 0) return -1;
+    if (bake_parse_project_lang_cfg(object, cfg) != 0) return -1;
 
     if (parse_dependee) {
-        int value_dependee_obj = -1;
-        if (value_obj >= 0) {
-            value_dependee_obj = bake_json_find_object_key(
-                json, toks, count, value_obj, "dependee");
+        const JSON_Object *value_dependee_obj = NULL;
+        if (value_obj && bake_json_get_object_optional(value_obj, "dependee", &value_dependee_obj) != 0) {
+            return -1;
         }
-        if (bake_parse_dependee_cfg(
-            json, toks, count, value_dependee_obj, &cfg->dependee) != 0)
-        {
+        if (bake_parse_dependee_cfg(value_dependee_obj, &cfg->dependee) != 0) {
             return -1;
         }
 
-        int root_dependee_obj = bake_json_find_object_key(
-            json, toks, count, object, "dependee");
-        if (bake_parse_dependee_cfg(
-            json, toks, count, root_dependee_obj, &cfg->dependee) != 0)
-        {
+        const JSON_Object *root_dependee_obj = NULL;
+        if (bake_json_get_object_optional(object, "dependee", &root_dependee_obj) != 0) {
+            return -1;
+        }
+        if (bake_parse_dependee_cfg(root_dependee_obj, &cfg->dependee) != 0) {
             return -1;
         }
     }
 
-    if (bake_parse_project_cfg_conditionals(
-        json, toks, count, object, cfg, parse_dependee) != 0)
-    {
+    if (bake_parse_project_cfg_conditionals(object, cfg, parse_dependee) != 0) {
         return -1;
     }
 
-    if (bake_parse_project_cfg_conditionals(
-        json, toks, count, value_obj, cfg, parse_dependee) != 0)
-    {
+    if (bake_parse_project_cfg_conditionals(value_obj, cfg, parse_dependee) != 0) {
         return -1;
     }
 
@@ -938,18 +845,11 @@ static int bake_parse_project_cfg_object(
 }
 
 static int bake_parse_dependee_cfg(
-    const char *json,
-    const jsmntok_t *toks,
-    int count,
-    int object,
+    const JSON_Object *object,
     bake_dependee_cfg_t *cfg)
 {
-    if (object < 0) {
+    if (!object) {
         return 0;
-    }
-
-    if (toks[object].type != JSMN_OBJECT) {
-        return -1;
     }
 
     if (!cfg->cfg) {
@@ -960,13 +860,18 @@ static int bake_parse_dependee_cfg(
         bake_project_cfg_init_impl(cfg->cfg, false, false);
     }
 
-    if (bake_parse_project_cfg_object(
-        json, toks, count, object, cfg->cfg, false, false) != 0)
-    {
+    if (bake_parse_project_cfg_object(object, cfg->cfg, false, false) != 0) {
         return -1;
     }
 
-    char *dependee_json = bake_json_strdup(json, &toks[object]);
+    JSON_Value *wrapped = json_object_get_wrapping_value((JSON_Object*)object);
+    char *serialized = wrapped ? json_serialize_to_string(wrapped) : NULL;
+    if (!serialized) {
+        return -1;
+    }
+
+    char *dependee_json = bake_strdup(serialized);
+    json_free_serialized_string(serialized);
     if (!dependee_json) {
         return -1;
     }
@@ -976,37 +881,27 @@ static int bake_parse_dependee_cfg(
     return 0;
 }
 
-static int bake_parse_rules(const char *json, const jsmntok_t *toks, int count, int rules_tok, bake_rule_list_t *rules) {
-    if (rules_tok < 0) {
+static int bake_parse_rules(const JSON_Array *rules, bake_rule_list_t *rules_out) {
+    if (!rules) {
         return 0;
     }
 
-    if (toks[rules_tok].type != JSMN_ARRAY) {
-        return -1;
-    }
-
-    int i = rules_tok + 1;
-    for (int32_t n = 0; n < toks[rules_tok].size; n++) {
-        if (toks[i].type != JSMN_OBJECT) {
+    size_t count = json_array_get_count(rules);
+    for (size_t i = 0; i < count; i++) {
+        JSON_Value *rule_value = json_array_get_value(rules, i);
+        const JSON_Object *rule = json_value_get_object(rule_value);
+        if (!rule) {
             return -1;
         }
 
-        int ext_tok = bake_json_find_object_key(json, toks, count, i, "ext");
-        int cmd_tok = bake_json_find_object_key(json, toks, count, i, "command");
+        const char *ext = json_object_get_string(rule, "ext");
+        const char *cmd = json_object_get_string(rule, "command");
 
-        if (ext_tok >= 0 && cmd_tok >= 0 && toks[ext_tok].type == JSMN_STRING && toks[cmd_tok].type == JSMN_STRING) {
-            char *ext = bake_json_strdup(json, &toks[ext_tok]);
-            char *cmd = bake_json_strdup(json, &toks[cmd_tok]);
-            if (!ext || !cmd || bake_rule_list_append(rules, ext, cmd) != 0) {
-                ecs_os_free(ext);
-                ecs_os_free(cmd);
+        if (ext && cmd) {
+            if (bake_rule_list_append(rules_out, ext, cmd) != 0) {
                 return -1;
             }
-            ecs_os_free(ext);
-            ecs_os_free(cmd);
         }
-
-        i = bake_json_skip(toks, count, i);
     }
 
     return 0;
@@ -1059,34 +954,16 @@ int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t
         return -1;
     }
 
-    int token_count = 512;
-    jsmntok_t *tokens = NULL;
-    int parsed = JSMN_ERROR_NOMEM;
-
-    while (parsed == JSMN_ERROR_NOMEM) {
-        token_count *= 2;
-        ecs_os_free(tokens);
-        tokens = ecs_os_calloc_n(jsmntok_t, token_count);
-        if (!tokens) {
-            ecs_os_free(json);
-            return -1;
-        }
-
-        jsmn_parser parser;
-        jsmn_init(&parser);
-        parsed = jsmn_parse(&parser, json, json_len, tokens, (unsigned int)token_count);
-    }
-
-    if (parsed < 0 || parsed < 1 || tokens[0].type != JSMN_OBJECT) {
-        ecs_os_free(tokens);
+    JSON_Value *root_value = json_parse_string(json);
+    const JSON_Object *root = root_value ? json_value_get_object(root_value) : NULL;
+    if (!root) {
+        json_value_free(root_value);
         ecs_os_free(json);
+        ecs_os_free(json_raw);
         return -1;
     }
 
-    int root = 0;
-    if (bake_parse_project_cfg_object(
-        json, tokens, parsed, root, cfg, true, true) != 0)
-    {
+    if (bake_parse_project_cfg_object(root, cfg, true, true) != 0) {
         goto error;
     }
 
@@ -1096,13 +973,13 @@ int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t
         goto error;
     }
 
-    ecs_os_free(tokens);
+    json_value_free(root_value);
     ecs_os_free(json);
     ecs_os_free(json_raw);
     return 0;
 
 error:
-    ecs_os_free(tokens);
+    json_value_free(root_value);
     ecs_os_free(json);
     ecs_os_free(json_raw);
     return -1;
