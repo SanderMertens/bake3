@@ -487,6 +487,34 @@ cleanup:
     return rc;
 }
 
+static bool bake_is_unresolved_external_dependency(const BakeProject *project) {
+    if (!project || !project->external || !project->cfg || !project->cfg->id) {
+        return false;
+    }
+
+    return project->cfg->path == NULL && project->cfg->output_name == NULL;
+}
+
+static int bake_validate_build_graph_dependencies(const ecs_world_t *world, ecs_entity_t *order, int32_t count) {
+    int32_t unresolved_count = 0;
+
+    for (int32_t i = 0; i < count; i++) {
+        const BakeProject *project = ecs_get(world, order[i], BakeProject);
+        if (!bake_is_unresolved_external_dependency(project)) {
+            continue;
+        }
+
+        ecs_err("unresolved dependency: %s", project->cfg->id);
+        unresolved_count++;
+    }
+
+    if (unresolved_count) {
+        return -1;
+    }
+
+    return 0;
+}
+
 static int bake_execute_build_graph(bake_context_t *ctx, const char *target, bool recursive, bool standalone) {
     bake_model_mark_build_targets(ctx->world, target, ctx->opts.mode, recursive, standalone);
 
@@ -498,6 +526,11 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
 
     if (target && target[0] && count == 0) {
         ecs_err("target not found: %s", target);
+        ecs_os_free(order);
+        return -1;
+    }
+
+    if (bake_validate_build_graph_dependencies(ctx->world, order, count) != 0) {
         ecs_os_free(order);
         return -1;
     }
@@ -630,6 +663,33 @@ cleanup:
     return rc;
 }
 
+int bake_build_build(bake_context_t *ctx) {
+    int rc = 0;
+    bake_proc_clear_interrupt();
+
+    if (bake_prepare_discovery(ctx) != 0) {
+        return -1;
+    }
+
+    char *target_path = bake_resolve_target_path(ctx, ctx->opts.target);
+    const char *target_resolved = target_path ? target_path : ctx->opts.target;
+
+    if (bake_execute_build_graph(ctx, target_resolved, true, ctx->opts.standalone) != 0) {
+        rc = -1;
+    }
+
+    ecs_os_free(target_path);
+    return rc;
+}
+
+int bake_build_rebuild(bake_context_t *ctx) {
+    if (bake_build_clean(ctx) != 0) {
+        return -1;
+    }
+
+    return bake_build_build(ctx);
+}
+
 int bake_build_run(bake_context_t *ctx) {
     int rc = 0;
     bake_proc_clear_interrupt();
@@ -643,12 +703,6 @@ int bake_build_run(bake_context_t *ctx) {
 
     if (bake_execute_build_graph(ctx, target_resolved, true, ctx->opts.standalone) != 0) {
         rc = -1;
-        goto cleanup;
-    }
-
-    if (!strcmp(ctx->opts.command, "build") ||
-        !strcmp(ctx->opts.command, "rebuild"))
-    {
         goto cleanup;
     }
 
@@ -699,11 +753,4 @@ int bake_build_run(bake_context_t *ctx) {
 cleanup:
     ecs_os_free(target_path);
     return rc;
-}
-
-int bake_build_rebuild(bake_context_t *ctx) {
-    if (bake_build_clean(ctx) != 0) {
-        return -1;
-    }
-    return bake_build_run(ctx);
 }

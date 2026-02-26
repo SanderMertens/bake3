@@ -548,10 +548,10 @@ static int bake_info_project(bake_context_t *ctx) {
 
 int bake_execute(bake_context_t *ctx, const char *argv0) {
     if (!ctx->opts.command || !strcmp(ctx->opts.command, "build")) {
-        return bake_build_run(ctx);
+        return bake_build_build(ctx);
     }
 
-    if (!strcmp(ctx->opts.command, "run") || !strcmp(ctx->opts.command, "test")) {
+    if (!strcmp(ctx->opts.command, "run")) {
         return bake_build_run(ctx);
     }
 
