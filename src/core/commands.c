@@ -35,17 +35,6 @@ void bake_print_help(void) {
     fputs(bake_help_text, stdout);
 }
 
-static const char* bake_kind_label(bake_project_kind_t kind) {
-    switch (kind) {
-    case BAKE_PROJECT_APPLICATION: return "application";
-    case BAKE_PROJECT_PACKAGE: return "library";
-    case BAKE_PROJECT_CONFIG: return "config";
-    case BAKE_PROJECT_TEST: return "test";
-    case BAKE_PROJECT_TEMPLATE: return "template";
-    default: return "application";
-    }
-}
-
 typedef struct bake_list_project_t {
     char *id;
     bake_project_kind_t kind;
@@ -523,7 +512,7 @@ static int bake_info_project(bake_context_t *ctx) {
 
     const bake_project_cfg_t *cfg = project->cfg;
     printf("id:          %s\n", cfg->id);
-    printf("kind:        %s\n", bake_kind_label(cfg->kind));
+    printf("kind:        %s\n", bake_project_kind_str(cfg->kind));
     printf("path:        %s\n", cfg->path ? cfg->path : "<external>");
     printf("language:    %s\n", cfg->language ? cfg->language : "<none>");
     printf("output:      %s\n", cfg->output_name ? cfg->output_name : "<none>");

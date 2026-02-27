@@ -121,7 +121,7 @@ static void bake_log_build_header(const bake_context_t *ctx, const bake_project_
     const char *kind = bake_project_kind_str(cfg->kind);
     const char *id = cfg->id ? cfg->id : "<unnamed>";
     char *path = bake_build_display_path(ctx, cfg->path);
-    ecs_trace("#[green][#[normal]%s#[green]]#[normal] %s %s => '%s'", command, kind, id, path ? path : ".");
+    ecs_trace("#[green][#[normal]%s#[green]] %s#[normal] %s => '%s'", command, kind, id, path ? path : ".");
     ecs_os_free(path);
 }
 
