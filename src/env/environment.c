@@ -780,14 +780,32 @@ int bake_environment_sync_project(
          cfg->kind == BAKE_PROJECT_APPLICATION ||
          cfg->kind == BAKE_PROJECT_TEST))
     {
+        bool copy_scoped = true;
+        size_t legacy_prefix_len = 0;
         legacy_path = bake_env_artefact_path(ctx, cfg, mode);
         scoped_path = bake_env_artefact_path_scoped(ctx, cfg, mode);
-        if (!legacy_path || !scoped_path ||
-            bake_env_copy_artefact_to_path(result->artefact, legacy_path) != 0 ||
-            bake_env_copy_artefact_to_path(result->artefact, scoped_path) != 0)
+
+        if (legacy_path && scoped_path &&
+            bake_path_has_prefix_normalized(scoped_path, legacy_path, &legacy_prefix_len) &&
+            (scoped_path[legacy_prefix_len] == '/' || scoped_path[legacy_prefix_len] == '\\'))
+        {
+            /* Scoped artefact path nests under legacy file path when id equals output name. */
+            copy_scoped = false;
+        }
+
+        if (!legacy_path ||
+            bake_env_copy_artefact_to_path(result->artefact, legacy_path) != 0)
         {
             goto cleanup;
         }
+
+        if (copy_scoped &&
+            (!scoped_path ||
+             bake_env_copy_artefact_to_path(result->artefact, scoped_path) != 0))
+        {
+            goto cleanup;
+        }
+
         ecs_os_free(legacy_path); legacy_path = NULL;
         ecs_os_free(scoped_path); scoped_path = NULL;
     }

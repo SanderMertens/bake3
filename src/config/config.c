@@ -571,6 +571,7 @@ static int bake_parse_project_value_cfg(
     if (bake_json_get_array_alias(object, "use-private", "use_private", &cfg->use_private) < 0) return -1;
     if (bake_json_get_array_alias(object, "use-build", "use_build", &cfg->use_build) < 0) return -1;
     if (bake_json_get_array_alias(object, "use-runtime", "use_runtime", &cfg->use_runtime) < 0) return -1;
+    if (bake_json_get_array_alias(object, "use-bundle", "use_bundle", &cfg->use_build) < 0) return -1;
 
     if (bake_parse_project_value_lang_array(
         object, "cflags", NULL,
