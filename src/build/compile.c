@@ -104,7 +104,25 @@ static bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
     return outdated;
 }
 
-static bool bake_compile_unit_outdated(const bake_compile_unit_t *unit) {
+static int64_t bake_project_json_mtime(const bake_project_cfg_t *cfg) {
+    if (!cfg || !cfg->path || !cfg->path[0]) {
+        return -1;
+    }
+
+    char *project_json = bake_path_join(cfg->path, "project.json");
+    if (!project_json) {
+        return -1;
+    }
+
+    int64_t mtime = bake_file_mtime(project_json);
+    ecs_os_free(project_json);
+    return mtime;
+}
+
+static bool bake_compile_unit_outdated(
+    const bake_compile_unit_t *unit,
+    int64_t project_json_mtime)
+{
     if (!unit || !unit->src || !unit->obj) {
         return true;
     }
@@ -123,6 +141,10 @@ static bool bake_compile_unit_outdated(const bake_compile_unit_t *unit) {
         return true;
     }
 
+    if (project_json_mtime < 0 || project_json_mtime > obj_mtime) {
+        return true;
+    }
+
     if (unit->dep) {
         int64_t dep_mtime = bake_file_mtime(unit->dep);
         if (dep_mtime < 0 || dep_mtime < src_mtime) {
@@ -134,6 +156,18 @@ static bool bake_compile_unit_outdated(const bake_compile_unit_t *unit) {
     }
 
     return false;
+}
+
+static bool bake_project_json_outdated(
+    const bake_project_cfg_t *cfg,
+    int64_t artefact_mtime)
+{
+    int64_t project_json_mtime = bake_project_json_mtime(cfg);
+    if (project_json_mtime < 0) {
+        return true;
+    }
+
+    return project_json_mtime > artefact_mtime;
 }
 
 int bake_list_append_fmt(ecs_strbuf_t *buf, const bake_strlist_t *list, const char *prefix, bool quote) {
@@ -528,8 +562,11 @@ int bake_compile_units_parallel(
         goto cleanup;
     }
 
+    int64_t project_json_mtime = bake_project_json_mtime(cfg);
     for (int32_t i = 0; i < units->count; i++) {
-        compile_ctx.compile_mask[i] = bake_compile_unit_outdated(&units->items[i]);
+        compile_ctx.compile_mask[i] = bake_compile_unit_outdated(
+            &units->items[i],
+            project_json_mtime);
         if (compile_ctx.compile_mask[i]) {
             compile_ctx.compile_total++;
         }
@@ -587,6 +624,7 @@ cleanup:
 }
 
 static bool bake_link_inputs_outdated(
+    const bake_project_cfg_t *cfg,
     const char *artefact,
     const bake_compile_list_t *units,
     const bake_strlist_t *dep_artefacts)
@@ -597,6 +635,10 @@ static bool bake_link_inputs_outdated(
 
     int64_t artefact_mtime = bake_file_mtime(artefact);
     if (artefact_mtime < 0) {
+        return true;
+    }
+
+    if (bake_project_json_outdated(cfg, artefact_mtime)) {
         return true;
     }
 
@@ -676,7 +718,7 @@ int bake_link_project_binary(
         goto cleanup;
     }
 
-    if (!bake_link_inputs_outdated(artefact, units, &dep_artefacts)) {
+    if (!bake_link_inputs_outdated(cfg, artefact, units, &dep_artefacts)) {
         *artefact_out = artefact;
         artefact = NULL;
         rc = 0;

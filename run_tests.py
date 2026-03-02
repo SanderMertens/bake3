@@ -4,6 +4,7 @@ import os
 import platform
 import re
 import subprocess
+import time
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
@@ -90,6 +91,47 @@ class BakeTests(unittest.TestCase):
     @staticmethod
     def strip_ansi(text: str) -> str:
         return ANSI_ESCAPE_RE.sub("", text)
+
+    def artefact_path(self, target: str) -> Path:
+        project_dir = self.repo_root / target
+        info = self.strip_ansi(self.bake(["info", str(project_dir)], cwd=project_dir))
+
+        kind_match = re.search(r"^kind:\s*(.+)$", info, re.MULTILINE)
+        output_match = re.search(r"^output:\s*(.+)$", info, re.MULTILINE)
+        path_match = re.search(r"^path:\s*(.+)$", info, re.MULTILINE)
+        if not kind_match or not output_match or not path_match:
+            raise AssertionError(f"Failed to parse bake info output:\n{info}")
+
+        kind = kind_match.group(1).strip()
+        output_name = output_match.group(1).strip()
+        project_path = Path(path_match.group(1).strip())
+
+        if kind == "package":
+            artefact_name = f"{output_name}.lib" if platform.system() == "Windows" else f"lib{output_name}.a"
+        else:
+            artefact_name = f"{output_name}.exe" if platform.system() == "Windows" else output_name
+
+        matches = sorted(project_path.glob(f".bake/*/{artefact_name}"))
+        if not matches:
+            raise AssertionError(
+                f"Could not find artefact '{artefact_name}' for target '{target}' under {project_path / '.bake'}"
+            )
+
+        return max(matches, key=lambda p: p.stat().st_mtime_ns)
+
+    def object_paths(self, target: str) -> list[Path]:
+        project_dir = self.repo_root / target
+        obj_dirs = sorted(project_dir.glob(".bake/*/obj"))
+        if not obj_dirs:
+            raise AssertionError(f"Could not find object directory for target '{target}'")
+
+        obj_dir = max(obj_dirs, key=lambda p: p.stat().st_mtime_ns)
+        obj_ext = ".obj" if platform.system() == "Windows" else ".o"
+        objects = sorted(p for p in obj_dir.rglob(f"*{obj_ext}") if p.is_file())
+        if not objects:
+            raise AssertionError(f"Could not find object files in {obj_dir}")
+
+        return objects
 
     @classmethod
     def list_state(cls, cwd: Path | None = None) -> ListState:
@@ -185,6 +227,36 @@ class BakeTests(unittest.TestCase):
         self.bake(["build", "test/integration/flecs-modules-test"])
         output = self.bake(["build", "test/integration/flecs-modules-test/apps/tower_defense"])
         self.assertNotIn("main.cpp", self.strip_ansi(output))
+
+    def test_project_json_newer_than_artefact_triggers_rebuild(self) -> None:
+        target = "test/projects/c/app_helloworld"
+        project_json = self.repo_root / target / "project.json"
+
+        self.bake(["build", target])
+        artefact = self.artefact_path(target)
+        objects_before = {obj: obj.stat().st_mtime_ns for obj in self.object_paths(target)}
+        before_mtime = artefact.stat().st_mtime_ns
+
+        time.sleep(0.02)
+        os.utime(project_json, None)
+        self.bake(["build", target])
+
+        objects_after = {obj: obj.stat().st_mtime_ns for obj in self.object_paths(target)}
+        after_mtime = artefact.stat().st_mtime_ns
+        rebuilt_object = any(
+            objects_after.get(obj, 0) > before
+            for obj, before in objects_before.items()
+        )
+
+        self.assertTrue(
+            rebuilt_object,
+            "Expected at least one object file to be rebuilt after touching project.json",
+        )
+        self.assertGreater(
+            after_mtime,
+            before_mtime,
+            "Expected build to update artefact after touching project.json",
+        )
 
     def test_rebuild_from_test_directory(self) -> None:
         self.bake(["build", "test/integration/flecs-modules-test"])
