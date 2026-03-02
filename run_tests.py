@@ -181,6 +181,11 @@ class BakeTests(unittest.TestCase):
         self.bake(["build", "test/integration/flecs-modules-test/apps/city"])
         self.bake(["build", "test/integration/flecs-modules-test/apps/tower_defense"])
 
+    def test_tower_defense_incremental_does_not_rebuild_main_cpp(self) -> None:
+        self.bake(["build", "test/integration/flecs-modules-test"])
+        output = self.bake(["build", "test/integration/flecs-modules-test/apps/tower_defense"])
+        self.assertNotIn("main.cpp", self.strip_ansi(output))
+
     def test_rebuild_from_test_directory(self) -> None:
         self.bake(["build", "test/integration/flecs-modules-test"])
         test_dir = self.repo_root / "test"
