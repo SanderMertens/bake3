@@ -73,7 +73,5 @@ int bake_proc_run(
     const bake_process_stdio_t *stdio_cfg,
     bake_process_result_t *result);
 int bake_proc_run_argv(const char *const *argv, bake_process_result_t *result);
-bool bake_proc_was_interrupted(void);
-void bake_proc_clear_interrupt(void);
 
 #endif

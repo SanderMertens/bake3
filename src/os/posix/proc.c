@@ -8,27 +8,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-static volatile sig_atomic_t bake_proc_interrupted = 0;
-static bool bake_proc_handler_installed = false;
-
-static void bake_proc_sigint_handler(int sig) {
-    BAKE_UNUSED(sig);
-    bake_proc_interrupted = 1;
-}
-
-static void bake_proc_install_signal_handler(void) {
-    if (bake_proc_handler_installed) {
-        return;
-    }
-
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = bake_proc_sigint_handler;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGINT, &sa, NULL);
-    bake_proc_handler_installed = true;
-}
-
 static int bake_proc_redirect_file(const char *path, int fd, int flags) {
     int file = open(path, flags, 0644);
     if (file < 0) {
@@ -53,7 +32,7 @@ int bake_proc_run(
         return -1;
     }
 
-    bake_proc_install_signal_handler();
+    // bake_proc_install_signal_handler();
 
     pid_t pid = fork();
     if (pid < 0) {
@@ -93,10 +72,6 @@ int bake_proc_run(
 
     int status = 0;
     for (;;) {
-        if (bake_proc_interrupted) {
-            kill(pid, SIGINT);
-        }
-
         pid_t rc = waitpid(pid, &status, WNOHANG);
         if (rc == pid) {
             break;
@@ -126,9 +101,8 @@ int bake_proc_run(
             result->exit_code = 128 + result->term_signal;
         }
 
-        if (bake_proc_interrupted || result->term_signal == SIGINT) {
+        if (result->term_signal == SIGINT) {
             result->interrupted = true;
-            bake_proc_interrupted = 1;
         }
     }
 
@@ -137,14 +111,6 @@ int bake_proc_run(
 
 int bake_proc_run_argv(const char *const *argv, bake_process_result_t *result) {
     return bake_proc_run(argv, NULL, result);
-}
-
-bool bake_proc_was_interrupted(void) {
-    return bake_proc_interrupted != 0;
-}
-
-void bake_proc_clear_interrupt(void) {
-    bake_proc_interrupted = 0;
 }
 
 #endif

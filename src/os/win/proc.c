@@ -4,26 +4,6 @@
 
 #include <windows.h>
 
-static volatile LONG bake_proc_interrupted = 0;
-static bool bake_proc_handler_installed = false;
-
-static BOOL WINAPI bake_proc_console_handler(DWORD type) {
-    if (type == CTRL_C_EVENT || type == CTRL_BREAK_EVENT) {
-        InterlockedExchange(&bake_proc_interrupted, 1);
-        return TRUE;
-    }
-    return FALSE;
-}
-
-static void bake_proc_install_signal_handler(void) {
-    if (bake_proc_handler_installed) {
-        return;
-    }
-
-    SetConsoleCtrlHandler(bake_proc_console_handler, TRUE);
-    bake_proc_handler_installed = true;
-}
-
 static char* bake_proc_quote_arg(const char *arg) {
     if (!arg) {
         return ecs_os_strdup("\"\"");
@@ -258,14 +238,6 @@ int bake_proc_run(
 
 int bake_proc_run_argv(const char *const *argv, bake_process_result_t *result) {
     return bake_proc_run(argv, NULL, result);
-}
-
-bool bake_proc_was_interrupted(void) {
-    return InterlockedCompareExchange(&bake_proc_interrupted, 0, 0) != 0;
-}
-
-void bake_proc_clear_interrupt(void) {
-    InterlockedExchange(&bake_proc_interrupted, 0);
 }
 
 #endif

@@ -458,7 +458,7 @@ static void* bake_compile_worker(void *arg) {
     bake_compile_ctx_t *ctx = arg;
 
     for (;;) {
-        if (ctx->failed || bake_proc_was_interrupted()) {
+        if (ctx->failed) {
             break;
         }
 
@@ -491,7 +491,6 @@ int bake_compile_units_parallel(
     const bake_strlist_t *mode_cxxflags,
     int32_t *compiled_count_out)
 {
-    bake_proc_clear_interrupt();
     if (compiled_count_out) {
         *compiled_count_out = 0;
     }

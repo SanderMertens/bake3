@@ -709,7 +709,6 @@ static int bake_clean_project(const bake_project_cfg_t *cfg, bool recursive) {
 
 int bake_build_clean(bake_context_t *ctx) {
     int rc = -1;
-    bake_proc_clear_interrupt();
 
     if (bake_prepare_discovery(ctx) != 0) {
         return -1;
@@ -752,7 +751,6 @@ cleanup:
 
 int bake_build_build(bake_context_t *ctx) {
     int rc = 0;
-    bake_proc_clear_interrupt();
 
     if (bake_prepare_discovery(ctx) != 0) {
         return -1;
@@ -780,7 +778,6 @@ int bake_build_rebuild(bake_context_t *ctx) {
 
 int bake_build_run(bake_context_t *ctx) {
     int rc = 0;
-    bake_proc_clear_interrupt();
 
     if (bake_prepare_discovery(ctx) != 0) {
         return -1;
