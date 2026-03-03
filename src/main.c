@@ -34,6 +34,7 @@ int main(int argc, char *argv[]) {
         .strict = false,
         .trace = false,
         .setup_local = false,
+        .local_env = false,
         .jobs = 0,
         .run_argc = 0,
         .run_argv = NULL
@@ -54,10 +55,12 @@ int main(int argc, char *argv[]) {
             exe_path = bake_path_join(cwd, argv[0]);
         }
 
-        if (exe_path) {
+        if (exe_path && bake_path_exists(exe_path)) {
             bake_setenv("BAKE2_EXEC_PATH", exe_path);
-            ecs_os_free(exe_path);
+        } else {
+            bake_unsetenv("BAKE2_EXEC_PATH");
         }
+        ecs_os_free(exe_path);
     }
 
     bool seen_command = false;
@@ -99,6 +102,11 @@ int main(int argc, char *argv[]) {
 
         if (!strcmp(arg, "--local")) {
             opts.setup_local = true;
+            continue;
+        }
+
+        if (!strcmp(arg, "--local-env")) {
+            opts.local_env = true;
             continue;
         }
 
@@ -151,8 +159,31 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    char *local_bake_home = NULL;
+    if (opts.local_env) {
+        const char *existing_bake_home = getenv("BAKE_HOME");
+        if (existing_bake_home && existing_bake_home[0]) {
+            bake_setenv("BAKE_GLOBAL_HOME", existing_bake_home);
+        } else {
+            bake_unsetenv("BAKE_GLOBAL_HOME");
+        }
+
+        local_bake_home = bake_path_join3(cwd, ".bake", "local_env");
+        if (!local_bake_home) {
+            ecs_err("failed to resolve local bake environment path");
+            ecs_os_free(cwd);
+            return 1;
+        }
+        bake_setenv("BAKE_HOME", local_bake_home);
+        bake_setenv("BAKE_LOCAL_ENV", "1");
+    } else {
+        bake_setenv("BAKE_LOCAL_ENV", "0");
+        bake_unsetenv("BAKE_GLOBAL_HOME");
+    }
+
     if (opts.setup_local && strcmp(opts.command, "setup")) {
         ecs_err("--local can only be used with the setup command");
+        ecs_os_free(local_bake_home);
         ecs_os_free(cwd);
         return 1;
     }
@@ -160,12 +191,14 @@ int main(int argc, char *argv[]) {
     bake_context_t ctx;
     if (bake_context_init(&ctx, &opts) != 0) {
         ecs_err("failed to initialize bake context");
+        ecs_os_free(local_bake_home);
         ecs_os_free(cwd);
         return 1;
     }
 
     int rc = bake_execute(&ctx, argv[0]);
     bake_context_fini(&ctx);
+    ecs_os_free(local_bake_home);
     ecs_os_free(cwd);
 
     return rc == 0 ? 0 : 1;

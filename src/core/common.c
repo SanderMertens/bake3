@@ -64,7 +64,7 @@ char* bake_text_replace(const char *input, const char *needle, const char *repla
     return out;
 }
 
-char* bake_project_build_root(const char *project_path, const char *mode) {
+char* bake_project_build_root(const char *project_path, const char *project_id, const char *mode) {
     if (!project_path || !project_path[0]) {
         return NULL;
     }
@@ -72,6 +72,34 @@ char* bake_project_build_root(const char *project_path, const char *mode) {
     char *triplet = bake_host_triplet(mode);
     if (!triplet) {
         return NULL;
+    }
+
+    const char *local_env = getenv("BAKE_LOCAL_ENV");
+    const char *bake_home = getenv("BAKE_HOME");
+    if (local_env &&
+        !strcmp(local_env, "1") &&
+        bake_home &&
+        bake_home[0] &&
+        project_id &&
+        project_id[0])
+    {
+        char *build_dir = bake_path_join(bake_home, "build");
+        if (!build_dir) {
+            ecs_os_free(triplet);
+            return NULL;
+        }
+
+        char *project_dir = bake_path_join(build_dir, project_id);
+        ecs_os_free(build_dir);
+        if (!project_dir) {
+            ecs_os_free(triplet);
+            return NULL;
+        }
+
+        char *root = bake_path_join(project_dir, triplet);
+        ecs_os_free(project_dir);
+        ecs_os_free(triplet);
+        return root;
     }
 
     char *bake_dir = bake_path_join(project_path, ".bake");

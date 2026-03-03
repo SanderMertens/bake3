@@ -679,11 +679,18 @@ static int bake_prepare_discovery(bake_context_t *ctx) {
     return 0;
 }
 
-static int bake_clean_project(const bake_project_cfg_t *cfg, bool recursive) {
+static int bake_clean_project(const bake_context_t *ctx, const bake_project_cfg_t *cfg, bool recursive) {
     BAKE_UNUSED(recursive);
-    char *bake_dir = bake_path_join(cfg->path, ".bake");
+    char *bake_dir = NULL;
+    if (ctx && ctx->opts.local_env && ctx->bake_home && cfg->id && cfg->id[0]) {
+        char *build_root = bake_path_join(ctx->bake_home, "build");
+        bake_dir = build_root ? bake_path_join(build_root, cfg->id) : NULL;
+        ecs_os_free(build_root);
+    } else {
+        bake_dir = bake_path_join(cfg->path, ".bake");
+    }
+
     if (!bake_dir) {
-        ecs_os_free(bake_dir);
         return -1;
     }
 
@@ -747,7 +754,7 @@ int bake_build_clean(bake_context_t *ctx) {
         }
 
         ecs_trace("#[green][#[normal]  clean#[green]]#[normal] %s", project->cfg->id);
-        if (bake_clean_project(project->cfg, ctx->opts.recursive) != 0) {
+        if (bake_clean_project(ctx, project->cfg, ctx->opts.recursive) != 0) {
             goto cleanup;
         }
     }

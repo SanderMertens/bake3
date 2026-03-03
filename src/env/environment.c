@@ -5,6 +5,53 @@ static bool bake_env_is_dot(const char *name) {
     return !strcmp(name, ".") || !strcmp(name, "..");
 }
 
+static const char *bake_env_required_test_templates[] = {
+    "bake_test.h",
+    "bake_test.c",
+    "bake_test_runtime.h",
+    "bake_test_runtime.c"
+};
+
+static bool bake_env_local_mode_enabled(const bake_context_t *ctx) {
+    if (ctx && ctx->opts.local_env) {
+        return true;
+    }
+
+    const char *local_env = getenv("BAKE_LOCAL_ENV");
+    return local_env && !strcmp(local_env, "1");
+}
+
+static bool bake_env_has_required_test_templates(const char *dir, const char **missing_out) {
+    if (missing_out) {
+        *missing_out = NULL;
+    }
+
+    if (!dir || !bake_path_exists(dir) || !bake_is_dir(dir)) {
+        if (missing_out) {
+            *missing_out = "<directory>";
+        }
+        return false;
+    }
+
+    size_t template_count =
+        sizeof(bake_env_required_test_templates) / sizeof(bake_env_required_test_templates[0]);
+    for (size_t i = 0; i < template_count; i++) {
+        const char *name = bake_env_required_test_templates[i];
+        char *path = bake_path_join(dir, name);
+        bool exists = path && bake_path_exists(path);
+        ecs_os_free(path);
+
+        if (!exists) {
+            if (missing_out) {
+                *missing_out = name;
+            }
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static char* bake_env_meta_dir(const bake_context_t *ctx) {
     return bake_path_join(ctx->bake_home, "meta");
 }
@@ -85,6 +132,107 @@ static int bake_env_copy_tree_exact(const char *src, const char *dst) {
     }
 
     return bake_env_copy_tree_recursive(src, dst);
+}
+
+static char* bake_env_test_templates_from_home(const char *home) {
+    if (!home || !home[0]) {
+        return NULL;
+    }
+
+    char *test_dir = bake_path_join(home, "test");
+    if (test_dir && bake_env_has_required_test_templates(test_dir, NULL)) {
+        return test_dir;
+    }
+
+    ecs_os_free(test_dir);
+    return NULL;
+}
+
+static char* bake_env_find_test_template_source(void) {
+    char *cwd = bake_getcwd();
+    char *cwd_templates = cwd ? bake_path_join(cwd, "templates/test_harness") : NULL;
+    ecs_os_free(cwd);
+    if (cwd_templates && bake_env_has_required_test_templates(cwd_templates, NULL)) {
+        return cwd_templates;
+    }
+    ecs_os_free(cwd_templates);
+
+    const char *exe_path = getenv("BAKE2_EXEC_PATH");
+    if (exe_path && exe_path[0]) {
+        char *exe_dir = bake_dirname(exe_path);
+        char *exe_test_templates = bake_env_test_templates_from_home(exe_dir);
+        if (exe_test_templates) {
+            ecs_os_free(exe_dir);
+            return exe_test_templates;
+        }
+
+        char *root_dir = exe_dir ? bake_dirname(exe_dir) : NULL;
+        char *root_templates = root_dir ?
+            bake_path_join(root_dir, "templates/test_harness") : NULL;
+
+        ecs_os_free(exe_dir);
+        ecs_os_free(root_dir);
+
+        if (root_templates && bake_env_has_required_test_templates(root_templates, NULL)) {
+            return root_templates;
+        }
+        ecs_os_free(root_templates);
+    }
+
+    const char *global_home = getenv("BAKE_GLOBAL_HOME");
+    char *global_templates = bake_env_test_templates_from_home(global_home);
+    if (global_templates) {
+        return global_templates;
+    }
+
+    char *home = bake_get_home();
+    char *default_home = home ? bake_path_join(home, "bake3") : NULL;
+    ecs_os_free(home);
+
+    char *default_templates = bake_env_test_templates_from_home(default_home);
+    ecs_os_free(default_home);
+    if (default_templates) {
+        return default_templates;
+    }
+
+    return NULL;
+}
+
+static int bake_env_ensure_local_test_templates(const bake_context_t *ctx) {
+    if (!bake_env_local_mode_enabled(ctx)) {
+        return 0;
+    }
+
+    char *test_dst = bake_path_join(ctx->bake_home, "test");
+    if (!test_dst) {
+        return -1;
+    }
+
+    if (bake_env_has_required_test_templates(test_dst, NULL)) {
+        ecs_os_free(test_dst);
+        return 0;
+    }
+
+    char *test_src = bake_env_find_test_template_source();
+    if (!test_src) {
+        const char *missing = NULL;
+        bake_env_has_required_test_templates(test_dst, &missing);
+        ecs_err(
+            "failed to initialize local test harness templates at %s (missing %s); expected templates/test_harness in current working directory, test templates next to bake executable, BAKE_GLOBAL_HOME/test, or ~/bake3/test",
+            test_dst,
+            missing ? missing : "<unknown>");
+        ecs_os_free(test_dst);
+        return -1;
+    }
+
+    int rc = bake_env_copy_tree_exact(test_src, test_dst);
+    if (rc != 0) {
+        ecs_err("failed to install local test harness templates from %s to %s", test_src, test_dst);
+    }
+
+    ecs_os_free(test_src);
+    ecs_os_free(test_dst);
+    return rc;
 }
 
 static char* bake_env_read_trimmed_file(const char *path) {
@@ -446,6 +594,10 @@ int bake_environment_init_paths(bake_context_t *ctx) {
     bake_setenv("BAKE_HOME", ctx->bake_home);
 
     if (bake_mkdirs(ctx->bake_home) != 0) {
+        return -1;
+    }
+
+    if (bake_env_ensure_local_test_templates(ctx) != 0) {
         return -1;
     }
 

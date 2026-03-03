@@ -3,6 +3,7 @@
 import os
 import platform
 import re
+import shutil
 import subprocess
 import time
 import unittest
@@ -62,12 +63,13 @@ class BakeTests(unittest.TestCase):
         cls,
         args: list[str],
         cwd: Path | None = None,
+        env: dict[str, str] | None = None,
     ) -> str:
         run_cwd = str(cwd if cwd is not None else cls.repo_root)
         proc = subprocess.run(
             args,
             cwd=run_cwd,
-            env=cls.env,
+            env=env if env is not None else cls.env,
             text=True,
             capture_output=True,
             check=False,
@@ -85,8 +87,41 @@ class BakeTests(unittest.TestCase):
         return output
 
     @classmethod
-    def bake(cls, args: list[str], cwd: Path | None = None) -> str:
-        return cls.run_cmd([str(cls.bake_bin), *args], cwd=cwd)
+    def bake(
+        cls,
+        args: list[str],
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+    ) -> str:
+        return cls.run_cmd([str(cls.bake_bin), *args], cwd=cwd, env=env)
+
+    @classmethod
+    def bake_expect_failure(
+        cls,
+        args: list[str],
+        cwd: Path | None = None,
+        env: dict[str, str] | None = None,
+    ) -> str:
+        run_cwd = str(cwd if cwd is not None else cls.repo_root)
+        proc = subprocess.run(
+            [str(cls.bake_bin), *args],
+            cwd=run_cwd,
+            env=env if env is not None else cls.env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        output = (proc.stdout or "") + (proc.stderr or "")
+        if proc.returncode == 0:
+            raise AssertionError(
+                "Expected command to fail but it succeeded\n"
+                f"cwd: {run_cwd}\n"
+                f"cmd: {str(cls.bake_bin)} {' '.join(args)}\n"
+                f"output:\n{output}"
+            )
+
+        return output
 
     @staticmethod
     def strip_ansi(text: str) -> str:
@@ -435,6 +470,235 @@ class BakeTests(unittest.TestCase):
             main_c.stat().st_mtime_ns,
             "main.c was rewritten even though generated content was unchanged",
         )
+
+    def test_local_env_routes_build_outputs_to_workspace_env(self) -> None:
+        target = "test/projects/c/app_helloworld"
+        project_id = "examples.c.app_helloworld"
+        project_dir = self.repo_root / target
+        local_env_home = self.repo_root / ".bake" / "local_env"
+        project_local_bake = project_dir / ".bake"
+
+        if local_env_home.exists():
+            shutil.rmtree(local_env_home)
+        if project_local_bake.exists():
+            shutil.rmtree(project_local_bake)
+
+        self.bake(["--local-env", "build", target])
+
+        self.assertTrue(local_env_home.is_dir(), f"Expected local env dir at {local_env_home}")
+        self.assertFalse(
+            project_local_bake.exists(),
+            f"Project-local build dir should not exist with --local-env: {project_local_bake}",
+        )
+
+        project_build_root = local_env_home / "build" / project_id
+        self.assertTrue(
+            project_build_root.is_dir(),
+            f"Expected project build root in local env: {project_build_root}",
+        )
+
+        triplet_dirs = sorted(p for p in project_build_root.iterdir() if p.is_dir())
+        self.assertTrue(triplet_dirs, f"Expected triplet build directories in {project_build_root}")
+        build_dir = max(triplet_dirs, key=lambda p: p.stat().st_mtime_ns)
+
+        self.assertTrue((build_dir / "obj").is_dir(), f"Expected obj dir in {build_dir}")
+        self.assertTrue((build_dir / "generated").is_dir(), f"Expected generated dir in {build_dir}")
+        artefacts = sorted(p for p in build_dir.iterdir() if p.is_file())
+        self.assertTrue(artefacts, f"Expected build artefacts in {build_dir}")
+
+    def test_local_env_overrides_preset_bake_home(self) -> None:
+        target = "test/projects/c/app_helloworld"
+        project_id = "examples.c.app_helloworld"
+        local_env_home = self.repo_root / ".bake" / "local_env"
+        override_home = self.repo_root / "test" / "tmp" / "bake_home_override_probe"
+
+        if local_env_home.exists():
+            shutil.rmtree(local_env_home)
+        if override_home.exists():
+            shutil.rmtree(override_home)
+
+        env = self.env.copy()
+        env["BAKE_HOME"] = str(override_home)
+        env["BAKE_LOCAL_ENV"] = "0"
+
+        self.bake(["--local-env", "build", target], env=env)
+
+        self.assertTrue(
+            (local_env_home / "meta" / project_id).is_dir(),
+            "Expected project metadata in local env BAKE_HOME",
+        )
+        self.assertFalse(
+            (override_home / "meta" / project_id).exists(),
+            "Preset BAKE_HOME should be ignored when --local-env is set",
+        )
+        self.assertFalse(
+            (override_home / "build" / project_id).exists(),
+            "Preset BAKE_HOME should not receive local-env build output",
+        )
+
+    def test_local_env_dependency_isolation_between_workspaces(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"local_env_isolation_{stamp}"
+        ws_a = root / "ws_a"
+        ws_b = root / "ws_b"
+
+        ws_a_src = ws_a / "src"
+        ws_a_inc = ws_a / "include"
+        ws_a_src.mkdir(parents=True, exist_ok=True)
+        ws_a_inc.mkdir(parents=True, exist_ok=True)
+
+        (ws_a / "project.json").write_text(
+            "{\n"
+            "    \"id\": \"dep.isolated.lib\",\n"
+            "    \"type\": \"package\"\n"
+            "}\n"
+        )
+        (ws_a_inc / "dep_isolated_lib.h").write_text(
+            "#ifndef DEP_ISOLATED_LIB_H\n"
+            "#define DEP_ISOLATED_LIB_H\n"
+            "\n"
+            "#include \"dep-isolated-lib/bake_config.h\"\n"
+            "\n"
+            "DEP_ISOLATED_LIB_API\n"
+            "int dep_isolated_lib_value(void);\n"
+            "\n"
+            "#endif\n"
+        )
+        (ws_a_src / "main.c").write_text(
+            "#include <dep_isolated_lib.h>\n"
+            "\n"
+            "int dep_isolated_lib_value(void) {\n"
+            "    return 42;\n"
+            "}\n"
+        )
+
+        ws_b_src = ws_b / "src"
+        ws_b_inc = ws_b / "include"
+        ws_b_src.mkdir(parents=True, exist_ok=True)
+        ws_b_inc.mkdir(parents=True, exist_ok=True)
+
+        (ws_b / "project.json").write_text(
+            "{\n"
+            "    \"id\": \"app.isolated.consumer\",\n"
+            "    \"type\": \"application\",\n"
+            "    \"value\": {\n"
+            "        \"use\": [\"dep.isolated.lib\"]\n"
+            "    }\n"
+            "}\n"
+        )
+        (ws_b_inc / "app_isolated_consumer.h").write_text(
+            "#ifndef APP_ISOLATED_CONSUMER_H\n"
+            "#define APP_ISOLATED_CONSUMER_H\n"
+            "\n"
+            "#include \"app-isolated-consumer/bake_config.h\"\n"
+            "\n"
+            "#endif\n"
+        )
+        (ws_b_src / "main.c").write_text(
+            "#include <app_isolated_consumer.h>\n"
+            "\n"
+            "int main(void) {\n"
+            "    return dep_isolated_lib_value() == 42 ? 0 : 1;\n"
+            "}\n"
+        )
+
+        self.bake(["--local-env", "build", "."], cwd=ws_a)
+        fail_output = self.strip_ansi(
+            self.bake_expect_failure(["--local-env", "build", "."], cwd=ws_b)
+        )
+
+        self.assertIn("unresolved dependency: dep.isolated.lib", fail_output)
+        self.assertTrue(
+            (ws_a / ".bake" / "local_env" / "meta" / "dep.isolated.lib").is_dir(),
+            "Workspace A should contain dependency in its local env",
+        )
+        self.assertFalse(
+            (ws_b / ".bake" / "local_env" / "meta" / "dep.isolated.lib").exists(),
+            "Workspace B should not be able to resolve dependency from workspace A",
+        )
+
+    def test_local_env_initializes_test_harness_templates(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.localenv.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"local_env_test_project_{stamp}"
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        project_json = project_dir / "project.json"
+        project_json.write_text(
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"test\",\n"
+            "    \"value\": {\n"
+            "        \"output\": \"local_env_test_project\"\n"
+            "    },\n"
+            "    \"test\": {\n"
+            "        \"testsuites\": [{\n"
+            "            \"id\": \"Math\",\n"
+            "            \"testcases\": [\"add\"]\n"
+            "        }]\n"
+            "    }\n"
+            "}\n"
+        )
+
+        local_env_home = self.repo_root / ".bake" / "local_env"
+        if local_env_home.exists():
+            shutil.rmtree(local_env_home)
+
+        output = self.strip_ansi(self.bake(["--local-env", "run", str(project_dir)]))
+        self.assertIn("PASS:", output)
+
+        test_templates = local_env_home / "test"
+        self.assertTrue(test_templates.is_dir(), f"Expected local test template dir: {test_templates}")
+        self.assertTrue((test_templates / "bake_test.h").is_file())
+        self.assertTrue((test_templates / "bake_test.c").is_file())
+        self.assertTrue((test_templates / "bake_test_runtime.h").is_file())
+        self.assertTrue((test_templates / "bake_test_runtime.c").is_file())
+
+    def test_local_env_initializes_templates_from_global_bake_home(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.localenv.global.{stamp}"
+        workspace = self.repo_root / "test" / "tmp" / f"local_env_global_home_{stamp}"
+        project_dir = workspace / "project"
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        project_json = project_dir / "project.json"
+        project_json.write_text(
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"test\",\n"
+            "    \"value\": {\n"
+            "        \"output\": \"local_env_global_home_test\"\n"
+            "    },\n"
+            "    \"test\": {\n"
+            "        \"testsuites\": [{\n"
+            "            \"id\": \"Math\",\n"
+            "            \"testcases\": [\"add\"]\n"
+            "        }]\n"
+            "    }\n"
+            "}\n"
+        )
+
+        seed_home = workspace / "seed_bake_home"
+        seed_test = seed_home / "test"
+        source_templates = self.repo_root / "templates" / "test_harness"
+        shutil.copytree(source_templates, seed_test)
+
+        env = self.env.copy()
+        env["BAKE_HOME"] = str(seed_home)
+        env["BAKE_LOCAL_ENV"] = "0"
+        env.pop("BAKE_GLOBAL_HOME", None)
+
+        output = self.strip_ansi(self.bake(["--local-env", "run", "."], cwd=project_dir, env=env))
+        self.assertIn("PASS:", output)
+
+        local_templates = project_dir / ".bake" / "local_env" / "test"
+        self.assertTrue(local_templates.is_dir(), f"Expected local template dir: {local_templates}")
+        self.assertTrue((local_templates / "bake_test.h").is_file())
+        self.assertTrue((local_templates / "bake_test.c").is_file())
+        self.assertTrue((local_templates / "bake_test_runtime.h").is_file())
+        self.assertTrue((local_templates / "bake_test_runtime.c").is_file())
 
     def test_worktree_unchanged_after_run(self) -> None:
         current_snapshot = self.git_snapshot()

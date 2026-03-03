@@ -455,7 +455,7 @@ static int bake_model_collect_resolved_deps(
             bake_model_try_append_include_path(cfg, bake_home, dep_project->external, resolved);
 
             if (!dep_project->external && cfg->path) {
-                char *lib = bake_project_build_root(cfg->path, mode);
+                char *lib = bake_project_build_root(cfg->path, cfg->id, mode);
                 if (lib && bake_path_exists(lib) &&
                     !bake_strlist_contains(&resolved->build_libpaths, lib))
                 {

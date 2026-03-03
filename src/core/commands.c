@@ -23,6 +23,7 @@ static const char *bake_help_text =
     "  --cc <compiler>     Override C compiler\n"
     "  --cxx <compiler>    Override C++ compiler\n"
     "  --run-prefix <cmd>  Prefix command when running binaries\n"
+    "  --local-env         Use ./.bake/local_env as isolated BAKE_HOME and build root\n"
     "  --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)\n"
     "  --standalone        Use amalgamated dependency sources in deps/\n"
     "  --strict            Enable strict compiler warnings and checks\n"

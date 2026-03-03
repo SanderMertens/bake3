@@ -16,6 +16,7 @@ typedef struct bake_options_t {
     bool strict;
     bool trace;
     bool setup_local;
+    bool local_env;
     int32_t jobs;
     int run_argc;
     const char **run_argv;
