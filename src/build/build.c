@@ -355,6 +355,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 
     const bake_project_cfg_t *cfg = project->cfg;
     char *builtin_test_src = NULL;
+    char *test_exe_path = NULL;
     if (project->external) {
         return 0;
     }
@@ -389,7 +390,15 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     if (cfg->kind == BAKE_PROJECT_TEST) {
-        if (bake_test_generate_harness(ctx, cfg) != 0) {
+        char *artefact_name = bake_project_cfg_artefact_name(cfg);
+        test_exe_path = artefact_name ? bake_path_join(paths.bin_dir, artefact_name) : NULL;
+        ecs_os_free(artefact_name);
+        if (!test_exe_path) {
+            ecs_err("failed to resolve test executable path for %s", cfg->id);
+            goto cleanup;
+        }
+
+        if (bake_test_generate_harness(ctx, cfg, test_exe_path) != 0) {
             ecs_err("test harness generation failed for %s", cfg->id);
             goto cleanup;
         }
@@ -554,6 +563,7 @@ cleanup:
     bake_mode_lists_fini(&mode_cflags, &mode_cxxflags, &mode_ldflags);
     bake_lang_cfg_fini(&c_lang);
     bake_lang_cfg_fini(&cpp_lang);
+    ecs_os_free(test_exe_path);
     ecs_os_free(builtin_test_src);
     bake_build_paths_fini(&paths);
     return rc;

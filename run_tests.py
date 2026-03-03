@@ -298,6 +298,144 @@ class BakeTests(unittest.TestCase):
         self.assertEqual(state.application_names, frozenset())
         self.assertEqual(state.package_names - {"flecs"}, frozenset())
 
+    def test_project_json_testsuites_generate_missing_stubs(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.harness.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_project_{stamp}"
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        project_json = project_dir / "project.json"
+        project_json.write_text(
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"test\",\n"
+            "    \"value\": {\n"
+            "        \"output\": \"harness_project\"\n"
+            "    },\n"
+            "    \"test\": {\n"
+            "        \"testsuites\": [{\n"
+            "            \"id\": \"Math\",\n"
+            "            \"testcases\": [\"add\"]\n"
+            "        }]\n"
+            "    }\n"
+            "}\n"
+        )
+
+        math_c = src_dir / "Math.c"
+        initial_math = (
+            "int helper_value  (void) {\n"
+            "    return 42;\n"
+            "}\n"
+            "\n"
+            "void Math_add(void){ }\n"
+        )
+        math_c.write_text(initial_math)
+
+        self.bake(["build", str(project_dir)])
+
+        time.sleep(1.1)
+        project_json.write_text(
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"test\",\n"
+            "    \"value\": {\n"
+            "        \"output\": \"harness_project\"\n"
+            "    },\n"
+            "    \"test\": {\n"
+            "        \"testsuites\": [{\n"
+            "            \"id\": \"Math\",\n"
+            "            \"testcases\": [\"add\", \"sub\"]\n"
+            "        }, {\n"
+            "            \"id\": \"Util\",\n"
+            "            \"teardown\": true,\n"
+            "            \"testcases\": [\"case_1\"],\n"
+            "            \"params\": {\n"
+            "                \"mode\": [\"fast\", \"slow\"]\n"
+            "            }\n"
+            "        }]\n"
+            "    }\n"
+            "}\n"
+        )
+
+        self.bake(["build", str(project_dir)])
+
+        math_text = math_c.read_text()
+        self.assertTrue(
+            math_text.startswith(initial_math),
+            "Existing code in suite source file changed unexpectedly",
+        )
+        self.assertEqual(math_text.count("void Math_add(void)"), 1)
+        self.assertIn("void Math_sub(void) {\n}\n", math_text)
+        self.assertIn("int helper_value  (void)", math_text)
+
+        util_c = src_dir / "Util.c"
+        self.assertTrue(util_c.exists(), "Expected missing suite source file to be created")
+        util_text = util_c.read_text()
+        self.assertIn("void Util_teardown(void) {\n}\n", util_text)
+        self.assertIn("void Util_case_1(void) {\n}\n", util_text)
+
+        main_c = src_dir / "main.c"
+        self.assertTrue(main_c.exists(), "Expected generated src/main.c file")
+        main_text = main_c.read_text()
+        self.assertIn("void Math_sub(void);", main_text)
+        self.assertIn("void Util_case_1(void);", main_text)
+        self.assertIn("bake_test_param Util_params[]", main_text)
+
+    def test_project_json_testsuites_do_not_rewrite_unchanged_files(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.harness.mtime.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_project_mtime_{stamp}"
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        project_json = project_dir / "project.json"
+        project_json_content = (
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"test\",\n"
+            "    \"value\": {\n"
+            "        \"output\": \"harness_project_mtime\"\n"
+            "    },\n"
+            "    \"test\": {\n"
+            "        \"testsuites\": [{\n"
+            "            \"id\": \"Math\",\n"
+            "            \"testcases\": [\"add\", \"sub\"]\n"
+            "        }]\n"
+            "    }\n"
+            "}\n"
+        )
+        project_json.write_text(project_json_content)
+
+        self.bake(["build", str(project_dir)])
+
+        math_c = src_dir / "Math.c"
+        main_c = src_dir / "main.c"
+        self.assertTrue(math_c.exists())
+        self.assertTrue(main_c.exists())
+
+        math_before = math_c.stat().st_mtime_ns
+        main_before = main_c.stat().st_mtime_ns
+
+        self.bake(["build", str(project_dir)])
+        self.assertEqual(math_before, math_c.stat().st_mtime_ns)
+        self.assertEqual(main_before, main_c.stat().st_mtime_ns)
+
+        time.sleep(1.1)
+        project_json.write_text(project_json_content)
+        self.bake(["build", str(project_dir)])
+
+        self.assertEqual(
+            math_before,
+            math_c.stat().st_mtime_ns,
+            "Suite source was rewritten even though generated content was unchanged",
+        )
+        self.assertEqual(
+            main_before,
+            main_c.stat().st_mtime_ns,
+            "main.c was rewritten even though generated content was unchanged",
+        )
+
     def test_worktree_unchanged_after_run(self) -> None:
         current_snapshot = self.git_snapshot()
         self.assertEqual(

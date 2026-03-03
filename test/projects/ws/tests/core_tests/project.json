@@ -7,5 +7,11 @@
     },
     "lang.c": {
         "include": ["src"]
+    },
+    "test": {
+        "testsuites": [{
+            "id": "math",
+            "testcases": ["add", "add_again"]
+        }]
     }
 }

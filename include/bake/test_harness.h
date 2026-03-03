@@ -3,7 +3,10 @@
 
 #include "bake/discovery.h"
 
-int bake_test_generate_harness(bake_context_t *ctx, const bake_project_cfg_t *cfg);
+int bake_test_generate_harness(
+    bake_context_t *ctx,
+    const bake_project_cfg_t *cfg,
+    const char *exe_path);
 int bake_test_generate_builtin_api(
     bake_context_t *ctx,
     const bake_project_cfg_t *cfg,
