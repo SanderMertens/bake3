@@ -20,6 +20,7 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
     }
 
     struct dirent *de = NULL;
+    errno = 0;
     while ((de = readdir(dir))) {
         if (count == capacity) {
             int32_t next = capacity * 2;
@@ -42,6 +43,12 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
         if (stat(entry->path, &st) == 0) {
             entry->is_dir = S_ISDIR(st.st_mode);
         }
+    }
+
+    if (errno != 0) {
+        bake_dir_entries_free(entries, count);
+        closedir(dir);
+        return -1;
     }
 
     closedir(dir);

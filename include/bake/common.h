@@ -5,6 +5,12 @@
 #define _DEFAULT_SOURCE
 #endif
 
+#if defined(__linux__) && !defined(_FILE_OFFSET_BITS)
+/* Use large-file/direntry variants on 32-bit Linux so mounted filesystems
+ * with large inode values don't break stat/readdir. */
+#define _FILE_OFFSET_BITS 64
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>

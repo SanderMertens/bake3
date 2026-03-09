@@ -320,6 +320,15 @@ class BakeTests(unittest.TestCase):
         )
         self.assertIn("PASS:", self.strip_ansi(output))
 
+    def test_build_from_flecs_directory_with_no_target(self) -> None:
+        flecs_dir = self.repo_root / "test" / "integration" / "flecs-modules-test" / "flecs"
+        self.bake([], cwd=flecs_dir)
+
+        state = self.list_state(cwd=flecs_dir)
+        self.assertIn("flecs", state.package_names)
+        self.assertEqual(state.application_names, frozenset())
+        self.assertEqual(state.package_names - {"flecs"}, frozenset())
+
     def test_run_query_from_flecs_directory_and_empty_env(self) -> None:
         flecs_dir = self.repo_root / "test" / "integration" / "flecs-modules-test" / "flecs"
         self.bake(["run", "test/query", "--", "-j", "12"], cwd=flecs_dir)
