@@ -413,9 +413,117 @@ class BakeTests(unittest.TestCase):
         main_c = src_dir / "main.c"
         self.assertTrue(main_c.exists(), "Expected generated src/main.c file")
         main_text = main_c.read_text()
-        self.assertIn("void Math_sub(void);", main_text)
-        self.assertIn("void Util_case_1(void);", main_text)
-        self.assertIn("bake_test_param Util_params[]", main_text)
+        self.assertEqual(
+            main_text,
+            (
+                "\n"
+                "/* A friendly warning from bake.test\n"
+                " * ----------------------------------------------------------------------------\n"
+                " * This file is generated. To add/remove testcases modify the 'project.json' of\n"
+                " * the test project. ANY CHANGE TO THIS FILE IS LOST AFTER (RE)BUILDING!\n"
+                " * ----------------------------------------------------------------------------\n"
+                " */\n"
+                "\n"
+                "#include <bake_test.h>\n"
+                "\n"
+                "// Testsuite 'Math'\n"
+                "void Math_add(void);\n"
+                "void Math_sub(void);\n"
+                "\n"
+                "// Testsuite 'Util'\n"
+                "void Util_teardown(void);\n"
+                "void Util_case_1(void);\n"
+                "\n"
+                "bake_test_case Math_testcases[] = {\n"
+                "    {\n"
+                "        \"add\",\n"
+                "        Math_add\n"
+                "    },\n"
+                "    {\n"
+                "        \"sub\",\n"
+                "        Math_sub\n"
+                "    }\n"
+                "};\n"
+                "\n"
+                "bake_test_case Util_testcases[] = {\n"
+                "    {\n"
+                "        \"case_1\",\n"
+                "        Util_case_1\n"
+                "    }\n"
+                "};\n"
+                "\n"
+                "const char* Util_mode_param[] = {\"fast\", \"slow\"};\n"
+                "bake_test_param Util_params[] = {\n"
+                "    {\"mode\", (char**)Util_mode_param, 2}\n"
+                "};\n"
+                "\n"
+                "static bake_test_suite suites[] = {\n"
+                "    {\n"
+                "        \"Math\",\n"
+                "        NULL,\n"
+                "        NULL,\n"
+                "        2,\n"
+                "        Math_testcases\n"
+                "    },\n"
+                "    {\n"
+                "        \"Util\",\n"
+                "        NULL,\n"
+                "        Util_teardown,\n"
+                "        1,\n"
+                "        Util_testcases,\n"
+                "        1,\n"
+                "        Util_params\n"
+                "    }\n"
+                "};\n"
+                "\n"
+                "int main(int argc, char *argv[]) {\n"
+                f"    return bake_test_run(\"{project_id}\", argc, argv, suites, 2);\n"
+                "}\n"
+            ),
+        )
+
+    def test_project_json_testsuites_main_uses_project_header_when_available(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        header_name = f"header_{stamp}"
+        project_id = f"compat.{header_name}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_project_header_{stamp}"
+        src_dir = project_dir / "src"
+        include_dir = project_dir / "include"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        include_dir.mkdir(parents=True, exist_ok=True)
+
+        project_json = project_dir / "project.json"
+        project_json.write_text(
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"test\",\n"
+            "    \"value\": {\n"
+            "        \"output\": \"harness_project_header\"\n"
+            "    },\n"
+            "    \"test\": {\n"
+            "        \"testsuites\": [{\n"
+            "            \"id\": \"Math\",\n"
+            "            \"testcases\": [\"add\"]\n"
+            "        }]\n"
+            "    }\n"
+            "}\n"
+        )
+
+        header_guard = f"{header_name.upper()}_H"
+        (include_dir / f"{header_name}.h").write_text(
+            f"#ifndef {header_guard}\n"
+            f"#define {header_guard}\n\n"
+            f"#include <compat-{header_name}/bake_config.h>\n\n"
+            "#endif\n"
+        )
+
+        self.bake(["build", str(project_dir)])
+
+        main_c = src_dir / "main.c"
+        self.assertTrue(main_c.exists(), "Expected generated src/main.c file")
+        main_text = main_c.read_text()
+        self.assertIn(f"#include <{header_name}.h>", main_text)
+        self.assertNotIn("#include <bake_test.h>", main_text)
 
     def test_project_json_testsuites_do_not_rewrite_unchanged_files(self) -> None:
         stamp = int(time.time() * 1_000_000)
