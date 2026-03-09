@@ -136,9 +136,11 @@ static char* bake_normalize_existing_path(const char *path) {
         return ecs_os_strdup(buf);
     }
 #else
-    char buf[PATH_MAX];
-    if (realpath(path, buf)) {
-        return ecs_os_strdup(buf);
+    char *resolved = realpath(path, NULL);
+    if (resolved) {
+        char *out = ecs_os_strdup(resolved);
+        free(resolved);
+        return out;
     }
 #endif
 

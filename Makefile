@@ -1,12 +1,16 @@
 CC ?= cc
 OPTIMIZE ?= 0
+UNAME_S := $(shell uname -s 2>/dev/null)
+
 ifeq ($(OPTIMIZE),1)
   OPTFLAGS ?= -O3
 else
   OPTFLAGS ?= -g
 endif
 
-CFLAGS ?= -std=c99 -Wall -Wextra -Werror -pedantic $(OPTFLAGS)
+CSTD ?= -std=gnu99
+
+CFLAGS ?= $(CSTD) -Wall -Wextra -Werror -pedantic $(OPTFLAGS)
 LDFLAGS ?=
 
 SRC := $(shell find src -name '*.c' | sort)
@@ -15,8 +19,6 @@ OBJ += build/flecs.o
 OBJ += build/parson.o
 
 BIN := build/bake
-
-UNAME_S := $(shell uname -s 2>/dev/null)
 ifeq ($(UNAME_S),Linux)
   LDFLAGS += -pthread -lm
 endif

@@ -1,6 +1,10 @@
 #ifndef BAKE2_COMMON_H
 #define BAKE2_COMMON_H
 
+#if defined(__linux__) && !defined(_DEFAULT_SOURCE)
+#define _DEFAULT_SOURCE
+#endif
+
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
@@ -10,6 +14,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#define strcasecmp _stricmp
+#else
+#include <strings.h>
+#endif
 #include <stdarg.h>
 
 #include <flecs.h>

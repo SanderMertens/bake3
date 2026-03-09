@@ -52,11 +52,30 @@ int bake_os_mkdir(const char *path) {
 }
 
 char* bake_os_getcwd(void) {
-    char buf[PATH_MAX];
-    if (!getcwd(buf, sizeof(buf))) {
-        return NULL;
+    size_t size = 256;
+
+    for (;;) {
+        char *buf = ecs_os_malloc(size);
+        if (!buf) {
+            return NULL;
+        }
+
+        if (getcwd(buf, size)) {
+            return buf;
+        }
+
+        int err = errno;
+        ecs_os_free(buf);
+        if (err != ERANGE) {
+            return NULL;
+        }
+
+        if (size > (SIZE_MAX / 2)) {
+            return NULL;
+        }
+
+        size *= 2;
     }
-    return ecs_os_strdup(buf);
 }
 
 int bake_os_rmdir(const char *path) {
