@@ -589,6 +589,38 @@ class BakeTests(unittest.TestCase):
             "main.c was rewritten even though generated content was unchanged",
         )
 
+    def test_project_json_testsuites_report_empty_testcases(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.harness.empty.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_project_empty_{stamp}"
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        project_json = project_dir / "project.json"
+        project_json.write_text(
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"test\",\n"
+            "    \"value\": {\n"
+            "        \"output\": \"harness_project_empty\"\n"
+            "    },\n"
+            "    \"test\": {\n"
+            "        \"testsuites\": [{\n"
+            "            \"id\": \"Math\",\n"
+            "            \"testcases\": [\"add\"]\n"
+            "        }]\n"
+            "    }\n"
+            "}\n"
+        )
+
+        self.bake(["build", str(project_dir)])
+
+        output = self.strip_ansi(self.bake(["run", str(project_dir)]))
+
+        self.assertIn("EMPTY Math.add (add test statements)", output)
+        self.assertIn("PASS:  0, FAIL:  0, EMPTY:  1", output)
+        self.assertNotIn("PASS:  1, FAIL:  0, EMPTY:  0", output)
+
     def test_setup_local_reinstalls_executable_bake_binary(self) -> None:
         installed_bake = self.bake_home / "bake3"
         self.assertTrue(installed_bake.is_file(), f"Expected installed bake binary at {installed_bake}")

@@ -557,6 +557,10 @@ static int bake_run_case(bake_test_suite *suite, bake_test_case *tc) {
         return -1;
     }
 
+    if (!suite->assert_count) {
+        return BAKE_TEST_EMPTY;
+    }
+
     return 0;
 }
 
