@@ -62,6 +62,7 @@ int bake_os_mkdir(const char *path) {
 char* bake_os_getcwd(void) {
     char buf[MAX_PATH];
     if (!_getcwd(buf, (int)sizeof(buf))) {
+        bake_log_last_errno("get current directory", NULL);
         return NULL;
     }
     return ecs_os_strdup(buf);

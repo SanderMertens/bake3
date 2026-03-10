@@ -994,14 +994,16 @@ static int bake_env_remove_cfg_artefacts(
         goto cleanup;
     }
 
-    if ((bake_path_exists(path) && remove(path) != 0) ||
-        (bake_path_exists(scoped_path) && remove(scoped_path) != 0))
+    if (bake_remove_file_if_exists(path) != 0 ||
+        bake_remove_file_if_exists(scoped_path) != 0)
     {
         goto cleanup;
     }
 
     if (bake_path_exists(scoped_dir)) {
-        (void)bake_os_rmdir(scoped_dir);
+        if (bake_os_rmdir(scoped_dir) != 0 && errno != ENOENT && errno != ENOTEMPTY) {
+            bake_log_last_errno("remove empty directory", scoped_dir);
+        }
     }
 
     rc = 0;

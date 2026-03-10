@@ -39,6 +39,15 @@ int bake_path_is_dir(const char *path);
 bool bake_path_equal_normalized(const char *lhs, const char *rhs);
 bool bake_path_has_prefix_normalized(const char *path, const char *prefix, size_t *prefix_len_out);
 int bake_path_exists(const char *path);
+void bake_log_errno(const char *action, const char *path, int err);
+void bake_log_last_errno(const char *action, const char *path);
+int bake_remove_file(const char *path);
+int bake_remove_file_if_exists(const char *path);
+int bake_rename_file(const char *src, const char *dst);
+#if defined(_WIN32)
+void bake_log_win_error(const char *action, const char *path, unsigned long err);
+void bake_log_last_win_error(const char *action, const char *path);
+#endif
 
 int bake_setenv(const char *name, const char *value);
 int bake_unsetenv(const char *name);

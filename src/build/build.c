@@ -261,7 +261,7 @@ static int bake_cleanup_standalone_outputs(
         }
 
         if (!bake_strlist_contains(expected_outputs, entries[i].name)) {
-            if (remove(entries[i].path) != 0) {
+            if (bake_remove_file(entries[i].path) != 0) {
                 rc = -1;
                 break;
             }

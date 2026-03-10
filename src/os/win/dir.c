@@ -15,6 +15,7 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
     ecs_os_free(pattern);
 
     if (handle == INVALID_HANDLE_VALUE) {
+        bake_log_last_win_error("open directory", path);
         return -1;
     }
 
@@ -42,10 +43,27 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
         bake_dir_entry_t *entry = &entries[count++];
         entry->name = ecs_os_strdup(ffd.cFileName);
         entry->path = bake_path_join(path, ffd.cFileName);
+        if (!entry->name || !entry->path) {
+            bake_dir_entries_free(entries, count);
+            FindClose(handle);
+            return -1;
+        }
         entry->is_dir = (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
     } while (FindNextFileA(handle, &ffd) != 0);
 
-    FindClose(handle);
+    DWORD err = GetLastError();
+    if (err != ERROR_NO_MORE_FILES) {
+        bake_log_win_error("read directory", path, err);
+        bake_dir_entries_free(entries, count);
+        FindClose(handle);
+        return -1;
+    }
+
+    if (!FindClose(handle)) {
+        bake_log_last_win_error("close directory", path);
+        bake_dir_entries_free(entries, count);
+        return -1;
+    }
 
     *entries_out = entries;
     *count_out = count;

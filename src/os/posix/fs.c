@@ -67,10 +67,12 @@ char* bake_os_getcwd(void) {
         int err = errno;
         ecs_os_free(buf);
         if (err != ERANGE) {
+            bake_log_errno("get current directory", NULL, err);
             return NULL;
         }
 
         if (size > (SIZE_MAX / 2)) {
+            ecs_err("failed to get current directory: path is too long");
             return NULL;
         }
 

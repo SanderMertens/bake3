@@ -106,11 +106,17 @@ static HANDLE bake_proc_open_redirect(
         NULL);
 
     if (h == INVALID_HANDLE_VALUE) {
+        bake_log_last_win_error("open redirected stdio file", path);
         return NULL;
     }
 
     if (write_mode && append_mode) {
-        SetFilePointer(h, 0, NULL, FILE_END);
+        DWORD rc = SetFilePointer(h, 0, NULL, FILE_END);
+        if (rc == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
+            bake_log_last_win_error("seek redirected stdio file", path);
+            CloseHandle(h);
+            return NULL;
+        }
     }
 
     return h;
@@ -144,23 +150,42 @@ int bake_proc_run(
     BOOL inherit_handles = FALSE;
 
     if (stdio_cfg) {
-        std_in = bake_proc_open_redirect(stdio_cfg->stdin_path, false, false);
-        std_out = bake_proc_open_redirect(
-            stdio_cfg->stdout_path,
-            true,
-            stdio_cfg->stdout_append);
-        std_err = bake_proc_open_redirect(
-            stdio_cfg->stderr_path,
-            true,
-            stdio_cfg->stderr_append);
-
-        if (!std_in) {
+        if (stdio_cfg->stdin_path && stdio_cfg->stdin_path[0]) {
+            std_in = bake_proc_open_redirect(stdio_cfg->stdin_path, false, false);
+            if (!std_in) {
+                ecs_os_free(cmd_line);
+                return -1;
+            }
+        } else {
             std_in = bake_proc_dup_inheritable(GetStdHandle(STD_INPUT_HANDLE));
         }
-        if (!std_out) {
+
+        if (stdio_cfg->stdout_path && stdio_cfg->stdout_path[0]) {
+            std_out = bake_proc_open_redirect(
+                stdio_cfg->stdout_path,
+                true,
+                stdio_cfg->stdout_append);
+            if (!std_out) {
+                ecs_os_free(cmd_line);
+                if (std_in) CloseHandle(std_in);
+                return -1;
+            }
+        } else {
             std_out = bake_proc_dup_inheritable(GetStdHandle(STD_OUTPUT_HANDLE));
         }
-        if (!std_err) {
+
+        if (stdio_cfg->stderr_path && stdio_cfg->stderr_path[0]) {
+            std_err = bake_proc_open_redirect(
+                stdio_cfg->stderr_path,
+                true,
+                stdio_cfg->stderr_append);
+            if (!std_err) {
+                ecs_os_free(cmd_line);
+                if (std_in) CloseHandle(std_in);
+                if (std_out) CloseHandle(std_out);
+                return -1;
+            }
+        } else {
             std_err = bake_proc_dup_inheritable(GetStdHandle(STD_ERROR_HANDLE));
         }
 

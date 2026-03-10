@@ -63,10 +63,17 @@ int bake_is_dir(const char *path) {
 
 int bake_mkdirs(const char *path) {
     if (!path || !path[0]) {
+        ecs_err("failed to create directory: invalid path");
         return -1;
     }
 
     if (bake_path_exists(path)) {
+        if (!bake_is_dir(path)) {
+            ecs_err(
+                "failed to create directory '%s': path exists and is not a directory",
+                path);
+            return -1;
+        }
         return 0;
     }
 
@@ -80,15 +87,36 @@ int bake_mkdirs(const char *path) {
         if (tmp[i] == '/' || tmp[i] == '\\') {
             char prev = tmp[i];
             tmp[i] = '\0';
-            if (tmp[0] && !bake_path_exists(tmp) && bake_os_mkdir(tmp) != 0 && errno != EEXIST) {
-                ecs_os_free(tmp);
-                return -1;
+            if (tmp[0]) {
+                if (bake_path_exists(tmp)) {
+                    if (!bake_is_dir(tmp)) {
+                        ecs_err(
+                            "failed to create directory '%s': path component '%s' is not a directory",
+                            path,
+                            tmp);
+                        ecs_os_free(tmp);
+                        return -1;
+                    }
+                } else if (bake_os_mkdir(tmp) != 0 && errno != EEXIST) {
+                    bake_log_last_errno("create directory", tmp);
+                    ecs_os_free(tmp);
+                    return -1;
+                }
             }
             tmp[i] = prev;
         }
     }
 
-    if (!bake_path_exists(tmp) && bake_os_mkdir(tmp) != 0 && errno != EEXIST) {
+    if (bake_path_exists(tmp)) {
+        if (!bake_is_dir(tmp)) {
+            ecs_err(
+                "failed to create directory '%s': path exists and is not a directory",
+                path);
+            ecs_os_free(tmp);
+            return -1;
+        }
+    } else if (bake_os_mkdir(tmp) != 0 && errno != EEXIST) {
+        bake_log_last_errno("create directory", tmp);
         ecs_os_free(tmp);
         return -1;
     }
@@ -103,7 +131,7 @@ int bake_rmtree(const char *path) {
     }
 
     if (!bake_is_dir(path)) {
-        return remove(path);
+        return bake_remove_file(path);
     }
 
     bake_dir_entry_t *entries = NULL;
@@ -123,7 +151,12 @@ int bake_rmtree(const char *path) {
     }
     bake_dir_entries_free(entries, count);
 
-    return bake_os_rmdir(path);
+    if (bake_os_rmdir(path) != 0) {
+        bake_log_last_errno("remove directory", path);
+        return -1;
+    }
+
+    return 0;
 }
 
 char* bake_dirname(const char *path) {
