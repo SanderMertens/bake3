@@ -4,6 +4,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import time
 import unittest
@@ -586,6 +587,27 @@ class BakeTests(unittest.TestCase):
             main_before,
             main_c.stat().st_mtime_ns,
             "main.c was rewritten even though generated content was unchanged",
+        )
+
+    def test_setup_local_reinstalls_executable_bake_binary(self) -> None:
+        installed_bake = self.bake_home / "bake3"
+        self.assertTrue(installed_bake.is_file(), f"Expected installed bake binary at {installed_bake}")
+        self.assertTrue(
+            installed_bake.stat().st_mode & stat.S_IXUSR,
+            f"Expected installed bake binary to be executable: {installed_bake}",
+        )
+
+        installed_bake.chmod(installed_bake.stat().st_mode & ~0o111)
+        self.assertFalse(
+            installed_bake.stat().st_mode & stat.S_IXUSR,
+            f"Test setup failed to remove execute bit from {installed_bake}",
+        )
+
+        self.bake(["setup", "--local"])
+
+        self.assertTrue(
+            installed_bake.stat().st_mode & stat.S_IXUSR,
+            f"Expected setup to restore execute bit on {installed_bake}",
         )
 
     def test_local_env_routes_build_outputs_to_workspace_env(self) -> None:

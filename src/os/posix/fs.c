@@ -39,6 +39,25 @@ int64_t bake_os_file_mtime(const char *path) {
 #endif
 }
 
+int bake_file_sync_mode(const char *src, const char *dst) {
+    if (!src || !dst) {
+        return -1;
+    }
+
+    struct stat st;
+    if (stat(src, &st) != 0) {
+        bake_log_last_errno("stat file", src);
+        return -1;
+    }
+
+    if (chmod(dst, st.st_mode & 0777) != 0) {
+        bake_log_last_errno("set file mode", dst);
+        return -1;
+    }
+
+    return 0;
+}
+
 int bake_path_is_dir(const char *path) {
     struct stat st;
     if (stat(path, &st) != 0) {

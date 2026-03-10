@@ -140,7 +140,7 @@ int bake_file_copy(const char *src, const char *dst) {
             if (existing_len == len && !memcmp(existing, content, len)) {
                 ecs_os_free(existing);
                 ecs_os_free(content);
-                return 0;
+                return bake_file_sync_mode(src, dst);
             }
             ecs_os_free(existing);
         }
@@ -167,5 +167,5 @@ int bake_file_copy(const char *src, const char *dst) {
     }
 
     ecs_os_free(content);
-    return 0;
+    return bake_file_sync_mode(src, dst);
 }

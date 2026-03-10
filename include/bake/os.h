@@ -71,6 +71,7 @@ int bake_mkdirs(const char *path);
 int bake_rmtree(const char *path);
 int64_t bake_file_mtime(const char *path);
 int bake_file_copy(const char *src, const char *dst);
+int bake_file_sync_mode(const char *src, const char *dst);
 int bake_is_dir(const char *path);
 char* bake_dirname(const char *path);
 char* bake_basename(const char *path);
