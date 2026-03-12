@@ -751,6 +751,52 @@ class BakeTests(unittest.TestCase):
             "Preset BAKE_HOME should not receive local-env build output",
         )
 
+    def test_local_env_named_variants_do_not_interfere(self) -> None:
+        workspace = self.repo_root / "test" / "projects" / "ws"
+        target = "apps/hello"
+        project_id = "ws.apps.hello"
+        stamp = int(time.time() * 1_000_000)
+        env_a = f"named_a_{stamp}"
+        env_b = f"named_b_{stamp}"
+        local_env_root = workspace / ".bake" / "local_env"
+        env_a_home = local_env_root / env_a
+        env_b_home = local_env_root / env_b
+        env_a_build_root = env_a_home / "build" / project_id
+        env_b_build_root = env_b_home / "build" / project_id
+
+        if env_a_home.exists():
+            shutil.rmtree(env_a_home)
+        if env_b_home.exists():
+            shutil.rmtree(env_b_home)
+
+        self.bake([f"--local-env={env_a}", "build", target], cwd=workspace)
+        self.bake([f"--local-env={env_b}", "build", target], cwd=workspace)
+
+        self.assertTrue(env_a_build_root.is_dir(), f"Expected named local env build root: {env_a_build_root}")
+        self.assertTrue(env_b_build_root.is_dir(), f"Expected named local env build root: {env_b_build_root}")
+        self.assertTrue(
+            (env_a_home / "meta" / project_id).is_dir(),
+            f"Expected project metadata in named local env: {env_a_home / 'meta' / project_id}",
+        )
+        self.assertTrue(
+            (env_b_home / "meta" / project_id).is_dir(),
+            f"Expected project metadata in named local env: {env_b_home / 'meta' / project_id}",
+        )
+
+        self.bake([f"--local-env={env_a}", "clean", target], cwd=workspace)
+
+        self.assertFalse(
+            env_a_build_root.exists(),
+            f"Cleaning one named local env should not leave build output behind: {env_a_build_root}",
+        )
+        self.assertTrue(
+            env_b_build_root.is_dir(),
+            f"Cleaning one named local env should not remove the other: {env_b_build_root}",
+        )
+
+        output = self.strip_ansi(self.bake([f"--local-env={env_b}", "run", target], cwd=workspace))
+        self.assertIn("hello 42", output)
+
     def test_local_env_dependency_isolation_between_workspaces(self) -> None:
         stamp = int(time.time() * 1_000_000)
         root = self.repo_root / "test" / "tmp" / f"local_env_isolation_{stamp}"

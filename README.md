@@ -93,7 +93,7 @@ Options:
   --cc <compiler>     Override C compiler
   --cxx <compiler>    Override C++ compiler
   --run-prefix <cmd>  Prefix command when running binaries
-  --local-env         Use ./.bake/local_env as isolated BAKE_HOME and build root
+  --local-env[=<name>] Use ./.bake/local_env (or ./.bake/local_env/<name>) as isolated BAKE_HOME and build root
   --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)
   --standalone        Use amalgamated dependency sources in deps/
   --strict            Enable strict compiler warnings and checks
@@ -125,6 +125,12 @@ When `--local-env` is used, build artefacts are isolated to:
 - `.bake/local_env/build/<project-id>/arch-os-config`: Stores the executable or library binary
 - `.bake/local_env/build/<project-id>/arch-os-config/obj`: Stores generated object files
 - `.bake/local_env/build/<project-id>/arch-os-config/generated`: Stores generated files (such as header dependencies)
+
+When `--local-env=<name>` is used, build artefacts are isolated to:
+
+- `.bake/local_env/<name>/build/<project-id>/arch-os-config`: Stores the executable or library binary
+- `.bake/local_env/<name>/build/<project-id>/arch-os-config/obj`: Stores generated object files
+- `.bake/local_env/<name>/build/<project-id>/arch-os-config/generated`: Stores generated files (such as header dependencies)
 
 ## Project configuration
 Bake projects are configured with a `project.json` file in the root of the project directory. The simplest configuration looks like this:
@@ -252,7 +258,7 @@ If the project also cannot be found in the bake environment, the build cannot pr
 ## Bake Environment
 When a project is built with bake, an entry for it will be stored in the bake environment. The location of the bake environment is read from the `BAKE_HOME` environment variable. If the variable is not set, `~/bake3` is used.
 
-When `--local-env` is used, bake always overrides `BAKE_HOME` for that invocation to `./.bake/local_env`.
+When `--local-env` is used, bake overrides `BAKE_HOME` for that invocation to `./.bake/local_env`. When `--local-env=<name>` is used, bake overrides it to `./.bake/local_env/<name>`.
 
 The bake environment has the following directories:
 

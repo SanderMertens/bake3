@@ -2,6 +2,30 @@
 #include "bake/context.h"
 #include "bake/os.h"
 
+static bool bake_local_env_name_char_valid(char ch) {
+    return
+        (ch >= 'a' && ch <= 'z') ||
+        (ch >= 'A' && ch <= 'Z') ||
+        (ch >= '0' && ch <= '9') ||
+        ch == '.' ||
+        ch == '_' ||
+        ch == '-';
+}
+
+static bool bake_local_env_name_valid(const char *name) {
+    if (!name || !name[0] || !strcmp(name, ".") || !strcmp(name, "..")) {
+        return false;
+    }
+
+    for (const char *ptr = name; *ptr; ptr ++) {
+        if (!bake_local_env_name_char_valid(*ptr)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static bool bake_is_command(const char *arg) {
     return !strcmp(arg, "build") ||
         !strcmp(arg, "run") ||
@@ -39,6 +63,7 @@ int main(int argc, char *argv[]) {
         .run_argc = 0,
         .run_argv = NULL
     };
+    const char *local_env_name = NULL;
 
     char *cwd = bake_getcwd();
     if (!cwd) {
@@ -107,6 +132,42 @@ int main(int argc, char *argv[]) {
 
         if (!strcmp(arg, "--local-env")) {
             opts.local_env = true;
+            local_env_name = NULL;
+            if ((i + 2) < argc &&
+                argv[i + 1][0] &&
+                argv[i + 1][0] != '-' &&
+                !bake_is_command(argv[i + 1]) &&
+                bake_is_command(argv[i + 2]))
+            {
+                const char *candidate = argv[++i];
+                if (!bake_local_env_name_valid(candidate)) {
+                    ecs_err(
+                        "invalid --local-env name '%s' (use letters, digits, '.', '_' or '-')",
+                        candidate);
+                    ecs_os_free(cwd);
+                    return 1;
+                }
+                local_env_name = candidate;
+            }
+            continue;
+        }
+
+        if (!strncmp(arg, "--local-env=", 12)) {
+            const char *candidate = arg + 12;
+            if (!candidate[0]) {
+                ecs_err("missing value for --local-env");
+                ecs_os_free(cwd);
+                return 1;
+            }
+            if (!bake_local_env_name_valid(candidate)) {
+                ecs_err(
+                    "invalid --local-env name '%s' (use letters, digits, '.', '_' or '-')",
+                    candidate);
+                ecs_os_free(cwd);
+                return 1;
+            }
+            opts.local_env = true;
+            local_env_name = candidate;
             continue;
         }
 
@@ -168,7 +229,13 @@ int main(int argc, char *argv[]) {
             bake_unsetenv("BAKE_GLOBAL_HOME");
         }
 
-        local_bake_home = bake_path_join3(cwd, ".bake", "local_env");
+        char *local_env_root = bake_path_join3(cwd, ".bake", "local_env");
+        local_bake_home = local_env_name ?
+            (local_env_root ? bake_path_join(local_env_root, local_env_name) : NULL) :
+            local_env_root;
+        if (local_env_name) {
+            ecs_os_free(local_env_root);
+        }
         if (!local_bake_home) {
             ecs_err("failed to resolve local bake environment path");
             ecs_os_free(cwd);
