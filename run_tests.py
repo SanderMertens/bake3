@@ -128,6 +128,12 @@ class BakeTests(unittest.TestCase):
     def strip_ansi(text: str) -> str:
         return ANSI_ESCAPE_RE.sub("", text)
 
+    @staticmethod
+    def strict_link_warning_flag() -> str:
+        if platform.system() == "Darwin":
+            return "-Wl,-fatal_warnings"
+        return "-Wl,--fatal-warnings"
+
     def artefact_path(self, target: str) -> Path:
         project_dir = self.repo_root / target
         info = self.strip_ansi(self.bake(["info", str(project_dir)], cwd=project_dir))
@@ -237,6 +243,44 @@ class BakeTests(unittest.TestCase):
         state = self.list_state()
         self.assertIn("examples.c.app_clib", state.application_names)
         self.assertIn("examples.c.pkg_helloworld", state.package_names)
+
+    def test_strict_build_enables_extended_c_warning_flags(self) -> None:
+        output = self.strip_ansi(
+            self.bake(["--trace", "--strict", "build", "test/projects/c/app_helloworld"])
+        )
+
+        self.assertIn("-Wall", output)
+        self.assertIn("-Wextra", output)
+        self.assertIn("-Wcast-align", output)
+        self.assertIn("-Wformat=2", output)
+        self.assertIn("-Wmissing-prototypes", output)
+        self.assertIn("-Wstrict-prototypes", output)
+        self.assertIn("-Wold-style-definition", output)
+        self.assertIn(self.strict_link_warning_flag(), output)
+
+    def test_strict_build_enables_extended_cpp_warning_flags(self) -> None:
+        output = self.strip_ansi(
+            self.bake(["--trace", "--strict", "build", "test/projects/cpp/app_helloworld"])
+        )
+
+        self.assertIn("-Wall", output)
+        self.assertIn("-Wextra", output)
+        self.assertIn("-Wcast-align", output)
+        self.assertIn("-Wformat=2", output)
+        self.assertIn("-Wnon-virtual-dtor", output)
+        self.assertIn("-Wold-style-cast", output)
+        self.assertIn("-Woverloaded-virtual", output)
+        self.assertIn("-Wzero-as-null-pointer-constant", output)
+        self.assertIn(self.strict_link_warning_flag(), output)
+
+    def test_strict_build_avoids_duplicate_dependency_link_inputs(self) -> None:
+        self.bake(["build", "test/projects/envpkgs/libmath"])
+        output = self.strip_ansi(
+            self.bake(["--trace", "--strict", "build", "test/projects/ws/apps/use_env"])
+        )
+
+        self.assertIn(self.strict_link_warning_flag(), output)
+        self.assertNotIn(" -lenvmath -lenvmath", output)
 
     def test_build_integration_target(self) -> None:
         self.bake(["build", "test/integration"])

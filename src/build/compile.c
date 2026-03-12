@@ -227,6 +227,58 @@ static void bake_append_lang_flags(
     bake_append_flags(cxxflags, flags);
 }
 
+static char* bake_library_name_from_artefact(const char *artefact) {
+    char *name = bake_basename(artefact);
+    if (!name) {
+        return NULL;
+    }
+
+#if defined(_WIN32)
+    const char *suffix = ".lib";
+    size_t len = strlen(name);
+    size_t suffix_len = strlen(suffix);
+    if (len > suffix_len && !strcmp(name + len - suffix_len, suffix)) {
+        name[len - suffix_len] = '\0';
+    }
+#else
+    const char *suffix = ".a";
+    size_t len = strlen(name);
+    size_t suffix_len = strlen(suffix);
+    if (len > suffix_len && !strcmp(name + len - suffix_len, suffix)) {
+        name[len - suffix_len] = '\0';
+    }
+    if (!strncmp(name, "lib", 3)) {
+        memmove(name, name + 3, strlen(name + 3) + 1);
+    }
+#endif
+
+    return name;
+}
+
+static bool bake_has_dep_artefact_for_lib(
+    const bake_strlist_t *artefacts,
+    const char *lib)
+{
+    if (!artefacts || !lib || !lib[0]) {
+        return false;
+    }
+
+    for (int32_t i = 0; i < artefacts->count; i++) {
+        char *name = bake_library_name_from_artefact(artefacts->items[i]);
+        if (!name) {
+            continue;
+        }
+
+        bool match = !strcmp(name, lib);
+        ecs_os_free(name);
+        if (match) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bake_compiler_kind_t bake_detect_compiler_kind(const char *cc, const char *cxx) {
     const char *probe = cxx && cxx[0] ? cxx : cc;
     if (!probe) {
@@ -307,12 +359,39 @@ void bake_add_strict_flags(
     bake_strlist_t *cxxflags,
     bake_strlist_t *ldflags)
 {
-    static const char *msvc[] = {"/W3", "/WX", NULL};
-    static const char *gnu[] = {
-        "-Werror", "-Wshadow", "-Wconversion", "-Wsign-conversion",
-        "-Wfloat-conversion", "-Wundef", "-Wpedantic", NULL
+    static const char *msvc[] = {
+        "/W4", "/WX",
+        "/w14242", "/w14254", "/w14263",
+        "/w14265", "/w14287", "/we4289",
+        "/w14296", "/w14311", "/w14545",
+        "/w14546", "/w14547", "/w14549",
+        "/w14555", "/w14619", "/w14640",
+        "/w14826", "/w14905", "/w14906",
+        "/w14928", NULL
     };
-    static const char *gnu_ld[] = {"-Werror", "-Wpedantic", NULL};
+    static const char *gnu_common[] = {
+        "-Wall", "-Wextra", "-Werror",
+        "-Wcast-align", "-Wcast-qual", "-Wconversion",
+        "-Wdouble-promotion", "-Wfloat-conversion", "-Wformat=2",
+        "-Wimplicit-fallthrough", "-Wnull-dereference", "-Wpedantic",
+        "-Wshadow", "-Wsign-conversion", "-Wswitch-enum",
+        "-Wundef", NULL
+    };
+    static const char *gnu_c[] = {
+        "-Wbad-function-cast", "-Wmissing-declarations",
+        "-Wmissing-prototypes", "-Wold-style-definition",
+        "-Wstrict-prototypes", NULL
+    };
+    static const char *gnu_cxx[] = {
+        "-Wmissing-declarations", "-Wnon-virtual-dtor",
+        "-Wold-style-cast", "-Woverloaded-virtual",
+        "-Wzero-as-null-pointer-constant", NULL
+    };
+#if defined(__APPLE__)
+    static const char *gnu_ld[] = {"-Werror", "-Wl,-fatal_warnings", NULL};
+#else
+    static const char *gnu_ld[] = {"-Werror", "-Wl,--fatal-warnings", NULL};
+#endif
 
     if (!strict) {
         return;
@@ -324,7 +403,9 @@ void bake_add_strict_flags(
         return;
     }
 
-    bake_append_lang_flags(cflags, cxxflags, gnu);
+    bake_append_lang_flags(cflags, cxxflags, gnu_common);
+    bake_append_flags(cflags, gnu_c);
+    bake_append_flags(cxxflags, gnu_cxx);
     bake_append_flags(ldflags, gnu_ld);
 }
 
@@ -341,7 +422,6 @@ static int bake_collect_dependency_link_inputs(
     }
 
     bake_merge_strlist_unique_local(libpaths, &resolved->build_libpaths);
-    bake_merge_strlist_unique_local(libs, &resolved->libs);
     bake_merge_strlist_unique_local(ldflags, &resolved->ldflags);
 
     for (int32_t i = 0; i < resolved->dep_count; i++) {
@@ -360,6 +440,17 @@ static int bake_collect_dependency_link_inputs(
             }
             ecs_os_free(libdir);
         }
+    }
+
+    for (int32_t i = 0; i < resolved->libs.count; i++) {
+        const char *lib = resolved->libs.items[i];
+        if (bake_has_dep_artefact_for_lib(artefacts, lib) ||
+            bake_strlist_contains(libs, lib))
+        {
+            continue;
+        }
+
+        bake_strlist_append(libs, lib);
     }
 
     return 0;
