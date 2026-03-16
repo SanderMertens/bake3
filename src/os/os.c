@@ -110,9 +110,10 @@ const char* bake_host_os(void) {
     return "Darwin";
 #elif defined(__linux__)
     return "Linux";
-#elif defined (_WIN32)
-#else
+#elif defined(_WIN32)
     return "Windows";
+#else
+    return "unknown";
 #endif
 }
 

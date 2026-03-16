@@ -1,5 +1,5 @@
-#ifndef BAKE2_COMMANDS_H
-#define BAKE2_COMMANDS_H
+#ifndef BAKE3_COMMANDS_H
+#define BAKE3_COMMANDS_H
 
 #include "bake/build.h"
 

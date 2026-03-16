@@ -1,5 +1,5 @@
-#ifndef BAKE2_TEST_HARNESS_H
-#define BAKE2_TEST_HARNESS_H
+#ifndef BAKE3_TEST_HARNESS_H
+#define BAKE3_TEST_HARNESS_H
 
 #include "bake/discovery.h"
 

@@ -20,23 +20,10 @@ typedef struct bake_collect_sources_ctx_t {
     bake_strlist_t *sources;
 } bake_collect_sources_ctx_t;
 
-static int bake_has_suffix(const char *value, const char *suffix) {
-    size_t value_len = strlen(value);
-    size_t suffix_len = strlen(suffix);
-    if (suffix_len > value_len) {
-        return 0;
-    }
-    return strcmp(value + value_len - suffix_len, suffix) == 0;
-}
-
-static bool bake_source_is_cpp(const bake_project_cfg_t *cfg) {
-    return cfg->language && !strcmp(cfg->language, "cpp");
-}
-
 static int bake_concat_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     bake_concat_ctx_t *ctx = ctx_ptr;
     if (entry->is_dir) {
-        if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..") || entry->name[0] == '.') {
+        if (bake_is_dot_dir(entry->name) || entry->name[0] == '.') {
             return 1;
         }
         return 0;
@@ -205,34 +192,8 @@ static char* bake_parse_include_file(const char *line, bool *relative_out) {
     return out;
 }
 
-static char* bake_path_normalize(const char *path) {
-    char *out = ecs_os_strdup(path);
-    if (!out) {
-        return NULL;
-    }
-    for (char *p = out; *p; p++) {
-        if (*p == '\\') {
-            *p = '/';
-        }
-    }
-    return out;
-}
-
 static char* bake_path_canonical(const char *path) {
-#if defined(_WIN32)
-    char buffer[PATH_MAX];
-    if (_fullpath(buffer, path, PATH_MAX)) {
-        return bake_path_normalize(buffer);
-    }
-#else
-    char *resolved = realpath(path, NULL);
-    if (resolved) {
-        char *normalized = bake_path_normalize(resolved);
-        free(resolved);
-        return normalized;
-    }
-#endif
-    return bake_path_normalize(path);
+    return bake_path_resolve(path);
 }
 
 static bool bake_path_mark_parsed(bake_strlist_t *parsed, const char *path) {
@@ -384,21 +345,21 @@ static int bake_amalgamate_file(
 
     fprintf(out, "\n");
     ecs_os_free(cur_path);
+
+    if (ferror(in)) {
+        ecs_err("read error while amalgamating '%s'", file);
+        fclose(in);
+        return -1;
+    }
+
+    if (ferror(out)) {
+        ecs_err("write error while amalgamating '%s'", file);
+        fclose(in);
+        return -1;
+    }
+
     fclose(in);
     return 0;
-}
-
-static char* bake_project_id_base(const char *id) {
-    if (!id) {
-        return NULL;
-    }
-
-    const char *dot = strrchr(id, '.');
-    if (!dot || !dot[1]) {
-        return ecs_os_strdup(id);
-    }
-
-    return ecs_os_strdup(dot + 1);
 }
 
 static int bake_try_source_name(
@@ -427,7 +388,7 @@ static char* bake_find_main_src_file(
 {
     static const char *c_exts[] = {"c", NULL};
     static const char *cpp_exts[] = {"cpp", "cc", "cxx", "C", NULL};
-    const char *const *exts = bake_source_is_cpp(cfg) ? cpp_exts : c_exts;
+    const char *const *exts = bake_language_is_cpp(cfg) ? cpp_exts : c_exts;
 
     char *id_base = bake_project_id_base(cfg->id);
     if (!id_base) {
@@ -465,7 +426,7 @@ static bool bake_is_supported_source(const char *path) {
 static int bake_collect_source_files_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     bake_collect_sources_ctx_t *ctx = ctx_ptr;
     if (entry->is_dir) {
-        if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..") || entry->name[0] == '.') {
+        if (bake_is_dot_dir(entry->name) || entry->name[0] == '.') {
             return 1;
         }
         return 0;
@@ -577,7 +538,7 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
         goto cleanup;
     }
 
-    const char *src_ext = bake_source_is_cpp(cfg) ? "cpp" : "c";
+    const char *src_ext = bake_language_is_cpp(cfg) ? "cpp" : "c";
     include_out = flecs_asprintf("%s/%s.h", output_path, project_id);
     include_tmp = flecs_asprintf("%s/%s.h.tmp", output_path, project_id);
     src_out = flecs_asprintf("%s/%s.%s", output_path, project_id, src_ext);

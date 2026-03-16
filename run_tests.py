@@ -961,6 +961,70 @@ class BakeTests(unittest.TestCase):
         self.assertTrue((local_templates / "bake_test_runtime.h").is_file())
         self.assertTrue((local_templates / "bake_test_runtime.c").is_file())
 
+    def test_build_nonexistent_target_fails(self) -> None:
+        output = self.strip_ansi(
+            self.bake_expect_failure(["build", "test/projects/c/does_not_exist"])
+        )
+        self.assertIn("not found", output.lower())
+
+    def test_build_invalid_project_json_fails(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_dir = self.repo_root / "test" / "tmp" / f"invalid_json_{stamp}"
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        project_json = project_dir / "project.json"
+        project_json.write_text("{invalid json")
+
+        (src_dir / "main.c").write_text(
+            "int main(void) {\n"
+            "    return 0;\n"
+            "}\n"
+        )
+
+        self.bake_expect_failure(["build", str(project_dir)])
+
+    def test_build_missing_dependency_fails(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_dir = self.repo_root / "test" / "tmp" / f"missing_dep_{stamp}"
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        project_json = project_dir / "project.json"
+        project_json.write_text(
+            "{\n"
+            f"    \"id\": \"tmp.missing_dep_test.{stamp}\",\n"
+            "    \"type\": \"application\",\n"
+            "    \"value\": {\n"
+            "        \"use\": [\"nonexistent.package.xyz\"]\n"
+            "    }\n"
+            "}\n"
+        )
+
+        (src_dir / "main.c").write_text(
+            "int main(void) {\n"
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.strip_ansi(
+            self.bake_expect_failure(["build", str(project_dir)])
+        )
+        has_useful_message = (
+            "unresolved dependency" in output.lower()
+            or "nonexistent.package.xyz" in output
+        )
+        self.assertTrue(
+            has_useful_message,
+            f"Expected error about unresolved dependency or missing package name, got:\n{output}",
+        )
+
+    def test_run_nonexistent_target_fails(self) -> None:
+        self.bake_expect_failure(["run", "test/projects/c/does_not_exist"])
+
+    def test_clean_nonexistent_target_succeeds(self) -> None:
+        self.bake(["clean", "test/projects/c/app_helloworld"])
+
     def test_worktree_unchanged_after_run(self) -> None:
         current_snapshot = self.git_snapshot()
         self.assertEqual(

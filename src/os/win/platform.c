@@ -16,7 +16,7 @@ int bake_unsetenv(const char *name) {
     return _putenv_s(name, "");
 }
 
-char* bake_get_home(void) {
+char* bake_home_path(void) {
     const char *home = getenv("HOME");
     if (!home || !home[0]) {
         home = getenv("USERPROFILE");
@@ -24,11 +24,11 @@ char* bake_get_home(void) {
     return home ? ecs_os_strdup(home) : NULL;
 }
 
-const char* bake_executable_name(void) {
+const char* bake_host_executable_name(void) {
     return "bake.exe";
 }
 
-int32_t bake_default_threads(void) {
+int32_t bake_host_threads(void) {
     return 4;
 }
 

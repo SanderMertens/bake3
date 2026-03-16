@@ -1,5 +1,9 @@
 #include "bake/os.h"
 
+bool bake_is_dot_dir(const char *name) {
+    return !strcmp(name, ".") || !strcmp(name, "..");
+}
+
 void bake_dir_entries_free(bake_dir_entry_t *entries, int32_t count) {
     if (!entries) {
         return;
@@ -27,7 +31,7 @@ static int bake_dir_walk_recurse(const char *root, bake_walk_ctx_t *walk) {
     for (int32_t i = 0; i < count; i++) {
         const bake_dir_entry_t *entry = &entries[i];
 
-        if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..")) {
+        if (bake_is_dot_dir(entry->name)) {
             continue;
         }
 
@@ -57,10 +61,6 @@ int bake_dir_walk_recursive(const char *root, bake_dir_walk_cb cb, void *ctx) {
     return bake_dir_walk_recurse(root, &walk);
 }
 
-int bake_is_dir(const char *path) {
-    return bake_path_is_dir(path);
-}
-
 int bake_mkdirs(const char *path) {
     if (!path || !path[0]) {
         ecs_err("failed to create directory: invalid path");
@@ -68,7 +68,7 @@ int bake_mkdirs(const char *path) {
     }
 
     if (bake_path_exists(path)) {
-        if (!bake_is_dir(path)) {
+        if (!bake_path_is_dir(path)) {
             ecs_err(
                 "failed to create directory '%s': path exists and is not a directory",
                 path);
@@ -89,7 +89,7 @@ int bake_mkdirs(const char *path) {
             tmp[i] = '\0';
             if (tmp[0]) {
                 if (bake_path_exists(tmp)) {
-                    if (!bake_is_dir(tmp)) {
+                    if (!bake_path_is_dir(tmp)) {
                         ecs_err(
                             "failed to create directory '%s': path component '%s' is not a directory",
                             path,
@@ -108,7 +108,7 @@ int bake_mkdirs(const char *path) {
     }
 
     if (bake_path_exists(tmp)) {
-        if (!bake_is_dir(tmp)) {
+        if (!bake_path_is_dir(tmp)) {
             ecs_err(
                 "failed to create directory '%s': path exists and is not a directory",
                 path);
@@ -130,7 +130,7 @@ int bake_rmtree(const char *path) {
         return 0;
     }
 
-    if (!bake_is_dir(path)) {
+    if (!bake_path_is_dir(path)) {
         return bake_remove_file(path);
     }
 
@@ -141,7 +141,7 @@ int bake_rmtree(const char *path) {
     }
 
     for (int32_t i = 0; i < count; i++) {
-        if (!strcmp(entries[i].name, ".") || !strcmp(entries[i].name, "..")) {
+        if (bake_is_dot_dir(entries[i].name)) {
             continue;
         }
         if (bake_rmtree(entries[i].path) != 0) {

@@ -128,7 +128,7 @@ int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
         }
 
         if (ctx->thread_count == 0) {
-            ctx->thread_count = bake_default_threads();
+            ctx->thread_count = bake_host_threads();
         }
     }
 
@@ -149,7 +149,7 @@ int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
 
     ecs_log_set_level(0);
 
-    if (bake_environment_init_paths(ctx) != 0) {
+    if (bake_env_init_paths(ctx) != 0) {
         bake_context_fini(ctx);
         return -1;
     }

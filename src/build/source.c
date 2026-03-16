@@ -3,15 +3,6 @@
 
 #include <ctype.h>
 
-static int bake_has_suffix(const char *value, const char *suffix) {
-    size_t value_len = strlen(value);
-    size_t suffix_len = strlen(suffix);
-    if (suffix_len > value_len) {
-        return 0;
-    }
-    return strcmp(value + value_len - suffix_len, suffix) == 0;
-}
-
 static int bake_is_compile_source(const char *path, bool *cpp_out) {
     if (bake_has_suffix(path, ".c")) {
         *cpp_out = false;
@@ -81,14 +72,18 @@ int bake_compile_list_append(
         list->capacity = next;
     }
 
-    bake_compile_unit_t *unit = &list->items[list->count++];
+    bake_compile_unit_t *unit = &list->items[list->count];
     unit->src = ecs_os_strdup(src);
     unit->obj = ecs_os_strdup(obj);
     unit->dep = dep ? ecs_os_strdup(dep) : NULL;
     unit->cpp = cpp;
     if (!unit->src || !unit->obj || (dep && !unit->dep)) {
+        ecs_os_free(unit->src);
+        ecs_os_free(unit->obj);
+        ecs_os_free(unit->dep);
         return -1;
     }
+    list->count++;
     return 0;
 }
 
@@ -143,7 +138,7 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     bake_collect_ctx_t *ctx = ctx_ptr;
 
     if (entry->is_dir) {
-        if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..")) {
+        if (bake_is_dot_dir(entry->name)) {
             return 1;
         }
         if (entry->name[0] == '.') {
@@ -251,44 +246,6 @@ int bake_collect_compile_units(
     return 0;
 }
 
-static char* bake_replace_all(const char *input, const char *needle, const char *replacement) {
-    const char *cur = input;
-    size_t needle_len = strlen(needle);
-    size_t repl_len = strlen(replacement);
-    size_t out_len = 1;
-
-    while (true) {
-        const char *hit = strstr(cur, needle);
-        if (!hit) {
-            out_len += strlen(cur);
-            break;
-        }
-        out_len += (size_t)(hit - cur) + repl_len;
-        cur = hit + needle_len;
-    }
-
-    char *out = ecs_os_malloc(out_len);
-    if (!out) {
-        return NULL;
-    }
-    out[0] = '\0';
-
-    cur = input;
-    while (true) {
-        const char *hit = strstr(cur, needle);
-        if (!hit) {
-            strcat(out, cur);
-            break;
-        }
-
-        strncat(out, cur, (size_t)(hit - cur));
-        strcat(out, replacement);
-        cur = hit + needle_len;
-    }
-
-    return out;
-}
-
 typedef struct bake_rule_exec_ctx_t {
     const bake_project_cfg_t *cfg;
     const bake_build_paths_t *paths;
@@ -299,7 +256,7 @@ typedef struct bake_rule_exec_ctx_t {
 static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     bake_rule_exec_ctx_t *ctx = ctx_ptr;
     if (entry->is_dir) {
-        if (!strcmp(entry->name, ".") || !strcmp(entry->name, "..") || entry->name[0] == '.') {
+        if (bake_is_dot_dir(entry->name) || entry->name[0] == '.') {
             return 1;
         }
         return 0;
@@ -314,27 +271,27 @@ static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return -1;
     }
 
-    char *cmd = bake_replace_all(ctx->command, "{input}", entry->path);
+    char *cmd = bake_text_replace(ctx->command, "{input}", entry->path);
     if (!cmd) {
         ecs_os_free(stem);
         return -1;
     }
 
-    char *tmp = bake_replace_all(cmd, "{project}", ctx->cfg->path);
+    char *tmp = bake_text_replace(cmd, "{project}", ctx->cfg->path);
     ecs_os_free(cmd);
     if (!tmp) {
         ecs_os_free(stem);
         return -1;
     }
 
-    cmd = bake_replace_all(tmp, "{out_dir}", ctx->paths->gen_dir);
+    cmd = bake_text_replace(tmp, "{out_dir}", ctx->paths->gen_dir);
     ecs_os_free(tmp);
     if (!cmd) {
         ecs_os_free(stem);
         return -1;
     }
 
-    tmp = bake_replace_all(cmd, "{stem}", stem);
+    tmp = bake_text_replace(cmd, "{stem}", stem);
     ecs_os_free(cmd);
     ecs_os_free(stem);
     if (!tmp) {
@@ -373,41 +330,6 @@ int bake_execute_rules(
     }
 
     return 0;
-}
-
-static char* bake_project_id_as_dash(const char *id) {
-    if (!id) {
-        return NULL;
-    }
-
-    size_t len = strlen(id);
-    char *out = ecs_os_malloc(len + 1);
-    if (!out) {
-        return NULL;
-    }
-
-    for (size_t i = 0; i < len; i++) {
-        out[i] = id[i] == '.' ? '-' : id[i];
-    }
-    out[len] = '\0';
-    return out;
-}
-
-static char* bake_macro_upper(const char *value) {
-    if (!value) {
-        return NULL;
-    }
-
-    char *out = ecs_os_strdup(value);
-    if (!out) {
-        return NULL;
-    }
-
-    for (char *ptr = out; *ptr; ptr++) {
-        *ptr = (char)toupper((unsigned char)*ptr);
-    }
-
-    return out;
 }
 
 static int bake_append_dep_include(
@@ -647,30 +569,22 @@ cleanup:
     return rc;
 }
 
-static void bake_merge_strlist_unique(bake_strlist_t *dst, const bake_strlist_t *src) {
-    for (int32_t i = 0; i < src->count; i++) {
-        if (!bake_strlist_contains(dst, src->items[i])) {
-            bake_strlist_append(dst, src->items[i]);
-        }
-    }
-}
-
 static void bake_merge_lang_cfg_unique(
     bake_lang_cfg_t *dst,
     const bake_lang_cfg_t *src)
 {
-    bake_merge_strlist_unique(&dst->cflags, &src->cflags);
-    bake_merge_strlist_unique(&dst->cxxflags, &src->cxxflags);
-    bake_merge_strlist_unique(&dst->defines, &src->defines);
-    bake_merge_strlist_unique(&dst->ldflags, &src->ldflags);
-    bake_merge_strlist_unique(&dst->libs, &src->libs);
-    bake_merge_strlist_unique(&dst->static_libs, &src->static_libs);
-    bake_merge_strlist_unique(&dst->libpaths, &src->libpaths);
-    bake_merge_strlist_unique(&dst->links, &src->links);
-    bake_merge_strlist_unique(&dst->include_paths, &src->include_paths);
+    bake_strlist_merge_unique(&dst->cflags, &src->cflags);
+    bake_strlist_merge_unique(&dst->cxxflags, &src->cxxflags);
+    bake_strlist_merge_unique(&dst->defines, &src->defines);
+    bake_strlist_merge_unique(&dst->ldflags, &src->ldflags);
+    bake_strlist_merge_unique(&dst->libs, &src->libs);
+    bake_strlist_merge_unique(&dst->static_libs, &src->static_libs);
+    bake_strlist_merge_unique(&dst->libpaths, &src->libpaths);
+    bake_strlist_merge_unique(&dst->links, &src->links);
+    bake_strlist_merge_unique(&dst->include_paths, &src->include_paths);
 }
 
-int bake_apply_dependee_config(
+int bake_apply_dependee_cfg(
     ecs_world_t *world,
     ecs_entity_t project_entity,
     bake_lang_cfg_t *dst,

@@ -53,6 +53,17 @@ int bake_strlist_append_owned(bake_strlist_t *list, char *value) {
     return 0;
 }
 
+int bake_strlist_merge_unique(bake_strlist_t *dst, const bake_strlist_t *src) {
+    for (int32_t i = 0; i < src->count; i++) {
+        if (!bake_strlist_contains(dst, src->items[i])) {
+            if (bake_strlist_append(dst, src->items[i]) != 0) {
+                return -1;
+            }
+        }
+    }
+    return 0;
+}
+
 int bake_strlist_contains(const bake_strlist_t *list, const char *value) {
     for (int32_t i = 0; i < list->count; i++) {
         if (!strcmp(list->items[i], value)) {
@@ -60,6 +71,22 @@ int bake_strlist_contains(const bake_strlist_t *list, const char *value) {
         }
     }
     return 0;
+}
+
+int bake_strlist_copy(bake_strlist_t *dst, const bake_strlist_t *src) {
+    for (int32_t i = 0; i < src->count; i++) {
+        if (bake_strlist_append(dst, src->items[i]) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int bake_strlist_append_unique(bake_strlist_t *list, const char *value) {
+    if (bake_strlist_contains(list, value)) {
+        return 0;
+    }
+    return bake_strlist_append(list, value);
 }
 
 char* bake_strlist_join(const bake_strlist_t *list, const char *separator) {

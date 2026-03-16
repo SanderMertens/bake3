@@ -1,5 +1,10 @@
 #include "bake/os.h"
 
+#include <stdlib.h>
+#if defined(_WIN32)
+#include <limits.h>
+#endif
+
 static size_t bake_path_trim_len(const char *path) {
     size_t len = strlen(path);
     while (len > 0 && bake_path_is_sep(path[len - 1])) {
@@ -86,4 +91,41 @@ bool bake_path_has_prefix_normalized(const char *path, const char *prefix, size_
         *prefix_len_out = prefix_len;
     }
     return true;
+}
+
+void bake_path_normalize(char *path) {
+    if (!path) {
+        return;
+    }
+    for (char *p = path; *p; p++) {
+        if (*p == '\\') {
+            *p = '/';
+        }
+    }
+}
+
+char* bake_path_resolve(const char *path) {
+    if (!path || !path[0]) {
+        return NULL;
+    }
+
+#if defined(_WIN32)
+    char buf[_MAX_PATH];
+    if (_fullpath(buf, path, _MAX_PATH)) {
+        char *out = ecs_os_strdup(buf);
+        if (out) {
+            bake_path_normalize(out);
+        }
+        return out;
+    }
+#else
+    char *resolved = realpath(path, NULL);
+    if (resolved) {
+        char *out = ecs_os_strdup(resolved);
+        free(resolved);
+        return out;
+    }
+#endif
+
+    return ecs_os_strdup(path);
 }

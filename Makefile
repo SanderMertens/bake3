@@ -8,10 +8,17 @@ else
   OPTFLAGS ?= -g
 endif
 
+SANITIZE ?= 0
+ifeq ($(SANITIZE),1)
+  SANFLAGS := -fsanitize=address -fno-omit-frame-pointer
+else
+  SANFLAGS :=
+endif
+
 CSTD ?= -std=gnu99
 
-CFLAGS ?= $(CSTD) -Wall -Wextra -Werror -pedantic $(OPTFLAGS)
-LDFLAGS ?=
+CFLAGS ?= $(CSTD) -Wall -Wextra -Werror -pedantic $(OPTFLAGS) $(SANFLAGS)
+LDFLAGS ?= $(SANFLAGS)
 
 SRC := $(shell find src -name '*.c' | sort)
 OBJ := $(patsubst %.c,build/%.o,$(SRC))

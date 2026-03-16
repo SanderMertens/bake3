@@ -1,5 +1,5 @@
-#ifndef BAKE2_CONTEXT_H
-#define BAKE2_CONTEXT_H
+#ifndef BAKE3_CONTEXT_H
+#define BAKE3_CONTEXT_H
 
 #include "bake/config.h"
 

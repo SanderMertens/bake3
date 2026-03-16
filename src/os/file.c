@@ -66,6 +66,20 @@ char* bake_file_read(const char *path, size_t *len_out) {
     return buf;
 }
 
+static bool bake_file_content_matches(const char *path, const char *content, size_t len) {
+    if (!bake_path_exists(path)) {
+        return false;
+    }
+    size_t existing_len = 0;
+    char *existing = bake_file_read(path, &existing_len);
+    if (!existing) {
+        return false;
+    }
+    bool matches = (existing_len == len && !memcmp(existing, content, len));
+    ecs_os_free(existing);
+    return matches;
+}
+
 int bake_file_write(const char *path, const char *content) {
     if (!path || !content) {
         return -1;
@@ -83,16 +97,8 @@ int bake_file_write(const char *path, const char *content) {
     ecs_os_free(dir);
 
     size_t len = strlen(content);
-    if (bake_path_exists(path)) {
-        size_t existing_len = 0;
-        char *existing = bake_file_read(path, &existing_len);
-        if (existing) {
-            if (existing_len == len && !memcmp(existing, content, len)) {
-                ecs_os_free(existing);
-                return 0;
-            }
-            ecs_os_free(existing);
-        }
+    if (bake_file_content_matches(path, content, len)) {
+        return 0;
     }
 
     FILE *f = fopen(path, "wb");
@@ -115,6 +121,25 @@ int64_t bake_file_mtime(const char *path) {
     return bake_os_file_mtime(path);
 }
 
+char* bake_file_read_trimmed(const char *path) {
+    size_t len = 0;
+    char *text = bake_file_read(path, &len);
+    if (!text) {
+        return NULL;
+    }
+
+    while (len > 0) {
+        char ch = text[len - 1];
+        if (ch != '\n' && ch != '\r') {
+            break;
+        }
+        text[len - 1] = '\0';
+        len--;
+    }
+
+    return text;
+}
+
 int bake_file_copy(const char *src, const char *dst) {
     size_t len = 0;
     char *content = bake_file_read(src, &len);
@@ -133,17 +158,9 @@ int bake_file_copy(const char *src, const char *dst) {
     }
     ecs_os_free(dir);
 
-    if (bake_path_exists(dst)) {
-        size_t existing_len = 0;
-        char *existing = bake_file_read(dst, &existing_len);
-        if (existing) {
-            if (existing_len == len && !memcmp(existing, content, len)) {
-                ecs_os_free(existing);
-                ecs_os_free(content);
-                return bake_file_sync_mode(src, dst);
-            }
-            ecs_os_free(existing);
-        }
+    if (bake_file_content_matches(dst, content, len)) {
+        ecs_os_free(content);
+        return bake_file_sync_mode(src, dst);
     }
 
     FILE *f = fopen(dst, "wb");

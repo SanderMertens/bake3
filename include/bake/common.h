@@ -1,5 +1,5 @@
-#ifndef BAKE2_COMMON_H
-#define BAKE2_COMMON_H
+#ifndef BAKE3_COMMON_H
+#define BAKE3_COMMON_H
 
 #if defined(__linux__) && !defined(_DEFAULT_SOURCE)
 #define _DEFAULT_SOURCE
@@ -32,13 +32,14 @@
 #define BAKE_UNUSED(x) (void)(x)
 
 int bake_run_command(const char *cmd, bool log_command);
-char* bake_project_build_root(const char *project_path, const char *project_id, const char *mode);
 char* bake_text_replace(const char *input, const char *needle, const char *replacement);
 
-int bake_entity_list_append_unique(
-    ecs_entity_t **entities,
-    int32_t *count,
-    int32_t *capacity,
-    ecs_entity_t entity);
+char* bake_project_id_as_dash(const char *id);
+char* bake_macro_upper(const char *value);
+
+bool bake_has_suffix(const char *value, const char *suffix);
+bool bake_char_is_space(char ch);
+char* bake_project_id_as_macro(const char *id);
+char* bake_project_id_base(const char *id);
 
 #endif

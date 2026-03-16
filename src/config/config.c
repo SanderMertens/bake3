@@ -95,7 +95,12 @@ static int bake_json_conditional_key_matches(const char *key) {
     return match;
 }
 
-static char* bake_json_strdup_value(const JSON_Value *value) {
+bool bake_language_is_cpp(const bake_project_cfg_t *cfg) {
+    return cfg->language &&
+        (!strcmp(cfg->language, "cpp") || !strcmp(cfg->language, "c++"));
+}
+
+char* bake_json_strdup_value(const JSON_Value *value) {
     if (!value) {
         return NULL;
     }
@@ -139,7 +144,6 @@ static int bake_json_parse_strlist(const JSON_Array *array, bake_strlist_t *list
         }
 
         if (bake_strlist_append_owned(list, str) != 0) {
-            ecs_os_free(str);
             return -1;
         }
     }
@@ -301,37 +305,23 @@ char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg) {
 }
 
 void bake_rule_list_init(bake_rule_list_t *list) {
-    list->items = NULL;
-    list->count = 0;
-    list->capacity = 0;
+    memset(&list->vec, 0, sizeof(list->vec));
 }
 
 void bake_rule_list_fini(bake_rule_list_t *list) {
-    for (int32_t i = 0; i < list->count; i++) {
-        ecs_os_free(list->items[i].ext);
-        ecs_os_free(list->items[i].command);
+    bake_rule_t *items = ecs_vec_first_t(&list->vec, bake_rule_t);
+    int32_t count = ecs_vec_count(&list->vec);
+    for (int32_t i = 0; i < count; i++) {
+        ecs_os_free(items[i].ext);
+        ecs_os_free(items[i].command);
     }
-    ecs_os_free(list->items);
-    list->items = NULL;
-    list->count = 0;
-    list->capacity = 0;
+    ecs_vec_fini_t(NULL, &list->vec, bake_rule_t);
 }
 
 int bake_rule_list_append(bake_rule_list_t *list, const char *ext, const char *command) {
-    if (list->count == list->capacity) {
-        int32_t next = list->capacity ? list->capacity * 2 : 8;
-        bake_rule_t *rules = ecs_os_realloc_n(list->items, bake_rule_t, next);
-        if (!rules) {
-            return -1;
-        }
-        list->items = rules;
-        list->capacity = next;
-    }
-
-    bake_rule_t *rule = &list->items[list->count++];
+    bake_rule_t *rule = ecs_vec_append_t(NULL, &list->vec, bake_rule_t);
     rule->ext = ecs_os_strdup(ext);
     rule->command = ecs_os_strdup(command);
-
     return (rule->ext && rule->command) ? 0 : -1;
 }
 
@@ -875,7 +865,9 @@ int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t
         goto error;
     }
 
-    cfg->path = bake_dirname(project_json_path);
+    if (!cfg->path) {
+        cfg->path = bake_dirname(project_json_path);
+    }
 
     if (bake_project_cfg_finalize_defaults(project_json_path, cfg) != 0) {
         goto error;

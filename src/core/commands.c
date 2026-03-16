@@ -75,10 +75,6 @@ static void bake_list_template_fini(bake_list_template_t *template_info) {
     bake_strlist_fini(&template_info->entries);
 }
 
-static bool bake_list_is_dot(const char *name) {
-    return !strcmp(name, ".") || !strcmp(name, "..");
-}
-
 static void bake_list_projects_free(bake_list_project_t *projects, int32_t count) {
     for (int32_t i = 0; i < count; i++) {
         bake_list_project_fini(&projects[i]);
@@ -109,7 +105,7 @@ static int bake_list_collect_cfgs(
         return 0;
     }
 
-    if (!bake_path_exists(platform_dir) || !bake_is_dir(platform_dir)) {
+    if (!bake_path_exists(platform_dir) || !bake_path_is_dir(platform_dir)) {
         ecs_os_free(artefact_name);
         return 0;
     }
@@ -171,15 +167,13 @@ static int bake_list_collect_projects(
     int rc = -1;
     bake_dir_entry_t *entries = NULL;
     int32_t entry_count = 0;
-    int32_t count = 0;
-    int32_t capacity = 16;
-    bake_list_project_t *projects = NULL;
+    ecs_vec_t vec = {0};
     char *meta_dir = bake_path_join(ctx->bake_home, "meta");
     if (!meta_dir) {
         goto cleanup;
     }
 
-    if (!bake_path_exists(meta_dir) || !bake_is_dir(meta_dir)) {
+    if (!bake_path_exists(meta_dir) || !bake_path_is_dir(meta_dir)) {
         rc = 0;
         goto cleanup;
     }
@@ -188,14 +182,9 @@ static int bake_list_collect_projects(
         goto cleanup;
     }
 
-    projects = ecs_os_calloc_n(bake_list_project_t, capacity);
-    if (!projects) {
-        goto cleanup;
-    }
-
     for (int32_t i = 0; i < entry_count; i++) {
         const bake_dir_entry_t *entry = &entries[i];
-        if (!entry->is_dir || bake_list_is_dot(entry->name)) {
+        if (!entry->is_dir || bake_is_dot_dir(entry->name)) {
             continue;
         }
 
@@ -232,42 +221,33 @@ static int bake_list_collect_projects(
             continue;
         }
 
-        if (count == capacity) {
-            int32_t next = capacity * 2;
-            bake_list_project_t *next_projects = ecs_os_realloc_n(projects, bake_list_project_t, next);
-            if (!next_projects) {
-                bake_strlist_fini(&cfgs);
-                bake_project_cfg_fini(&cfg);
-                goto cleanup;
-            }
-            projects = next_projects;
-            capacity = next;
-        }
-
-        projects[count].id = ecs_os_strdup(entry->name);
-        projects[count].kind = cfg.kind;
-        projects[count].cfgs = cfgs;
-        if (!projects[count].id) {
-            bake_strlist_fini(&projects[count].cfgs);
+        bake_list_project_t *project = ecs_vec_append_t(NULL, &vec, bake_list_project_t);
+        project->id = ecs_os_strdup(entry->name);
+        project->kind = cfg.kind;
+        project->cfgs = cfgs;
+        if (!project->id) {
+            bake_strlist_fini(&project->cfgs);
+            ecs_vec_remove_last(&vec);
             bake_project_cfg_fini(&cfg);
             goto cleanup;
         }
-        count++;
         bake_project_cfg_fini(&cfg);
     }
 
-    if (count > 1) {
-        qsort(projects, (size_t)count, sizeof(bake_list_project_t), bake_list_cmp_project);
-    }
+    {
+        int32_t count = ecs_vec_count(&vec);
+        if (count > 1) {
+            qsort(ecs_vec_first(&vec), (size_t)count, sizeof(bake_list_project_t), bake_list_cmp_project);
+        }
 
-    *projects_out = projects;
-    *count_out = count;
-    projects = NULL;
+        *projects_out = ecs_vec_first_t(&vec, bake_list_project_t);
+        *count_out = count;
+    }
     rc = 0;
 
 cleanup:
-    if (projects) {
-        bake_list_projects_free(projects, count);
+    if (rc != 0) {
+        bake_list_projects_free(ecs_vec_first_t(&vec, bake_list_project_t), ecs_vec_count(&vec));
     }
     bake_dir_entries_free(entries, entry_count);
     ecs_os_free(meta_dir);
@@ -285,15 +265,13 @@ static int bake_list_collect_templates(
     int rc = -1;
     bake_dir_entry_t *entries = NULL;
     int32_t entry_count = 0;
-    int32_t count = 0;
-    int32_t capacity = 8;
-    bake_list_template_t *templates = NULL;
+    ecs_vec_t vec = {0};
     char *template_root = bake_path_join(ctx->bake_home, "template");
     if (!template_root) {
         goto cleanup;
     }
 
-    if (!bake_path_exists(template_root) || !bake_is_dir(template_root)) {
+    if (!bake_path_exists(template_root) || !bake_path_is_dir(template_root)) {
         rc = 0;
         goto cleanup;
     }
@@ -302,14 +280,9 @@ static int bake_list_collect_templates(
         goto cleanup;
     }
 
-    templates = ecs_os_calloc_n(bake_list_template_t, capacity);
-    if (!templates) {
-        goto cleanup;
-    }
-
     for (int32_t i = 0; i < entry_count; i++) {
         const bake_dir_entry_t *entry = &entries[i];
-        if (!entry->is_dir || bake_list_is_dot(entry->name)) {
+        if (!entry->is_dir || bake_is_dot_dir(entry->name)) {
             continue;
         }
 
@@ -325,7 +298,7 @@ static int bake_list_collect_templates(
 
         for (int32_t j = 0; j < item_count; j++) {
             const bake_dir_entry_t *item = &item_entries[j];
-            if (!item->is_dir || bake_list_is_dot(item->name)) {
+            if (!item->is_dir || bake_is_dot_dir(item->name)) {
                 continue;
             }
             if (bake_strlist_append(&items, item->name) != 0) {
@@ -342,38 +315,30 @@ static int bake_list_collect_templates(
         }
         qsort(items.items, (size_t)items.count, sizeof(char*), bake_list_cmp_string_ptr);
 
-        if (count == capacity) {
-            int32_t next = capacity * 2;
-            bake_list_template_t *next_templates = ecs_os_realloc_n(templates, bake_list_template_t, next);
-            if (!next_templates) {
-                bake_strlist_fini(&items);
-                goto cleanup;
-            }
-            templates = next_templates;
-            capacity = next;
-        }
-
-        templates[count].id = ecs_os_strdup(entry->name);
-        templates[count].entries = items;
-        if (!templates[count].id) {
-            bake_strlist_fini(&templates[count].entries);
+        bake_list_template_t *tmpl = ecs_vec_append_t(NULL, &vec, bake_list_template_t);
+        tmpl->id = ecs_os_strdup(entry->name);
+        tmpl->entries = items;
+        if (!tmpl->id) {
+            bake_strlist_fini(&tmpl->entries);
+            ecs_vec_remove_last(&vec);
             goto cleanup;
         }
-        count++;
     }
 
-    if (count > 1) {
-        qsort(templates, (size_t)count, sizeof(bake_list_template_t), bake_list_cmp_template);
-    }
+    {
+        int32_t count = ecs_vec_count(&vec);
+        if (count > 1) {
+            qsort(ecs_vec_first(&vec), (size_t)count, sizeof(bake_list_template_t), bake_list_cmp_template);
+        }
 
-    *templates_out = templates;
-    *count_out = count;
-    templates = NULL;
+        *templates_out = ecs_vec_first_t(&vec, bake_list_template_t);
+        *count_out = count;
+    }
     rc = 0;
 
 cleanup:
-    if (templates) {
-        bake_list_templates_free(templates, count);
+    if (rc != 0) {
+        bake_list_templates_free(ecs_vec_first_t(&vec, bake_list_template_t), ecs_vec_count(&vec));
     }
     bake_dir_entries_free(entries, entry_count);
     ecs_os_free(template_root);
@@ -529,7 +494,7 @@ static int bake_info_project(bake_context_t *ctx) {
 
 int bake_execute(bake_context_t *ctx, const char *argv0) {
     if (!ctx->opts.command || !strcmp(ctx->opts.command, "build")) {
-        return bake_build_build(ctx);
+        return bake_build(ctx);
     }
 
     if (!strcmp(ctx->opts.command, "run")) {
@@ -553,12 +518,12 @@ int bake_execute(bake_context_t *ctx, const char *argv0) {
     }
 
     if (!strcmp(ctx->opts.command, "reset")) {
-        return bake_environment_reset(ctx);
+        return bake_env_reset(ctx);
     }
 
     if (!strcmp(ctx->opts.command, "cleanup")) {
         int32_t removed = 0;
-        int rc = bake_environment_cleanup(ctx, &removed);
+        int rc = bake_env_cleanup(ctx, &removed);
         if (rc == 0) {
             ecs_trace("removed %d stale project(s) from bake environment", removed);
         }
@@ -566,7 +531,7 @@ int bake_execute(bake_context_t *ctx, const char *argv0) {
     }
 
     if (!strcmp(ctx->opts.command, "setup")) {
-        return bake_environment_setup(ctx, argv0);
+        return bake_env_setup(ctx, argv0);
     }
 
     if (!strcmp(ctx->opts.command, "help") || !strcmp(ctx->opts.command, "--help") || !strcmp(ctx->opts.command, "-h")) {

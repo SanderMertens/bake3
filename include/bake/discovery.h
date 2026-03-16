@@ -1,5 +1,5 @@
-#ifndef BAKE2_DISCOVERY_H
-#define BAKE2_DISCOVERY_H
+#ifndef BAKE3_DISCOVERY_H
+#define BAKE3_DISCOVERY_H
 
 #include "bake/model.h"
 

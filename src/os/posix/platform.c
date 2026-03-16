@@ -18,16 +18,16 @@ int bake_unsetenv(const char *name) {
     return unsetenv(name);
 }
 
-char* bake_get_home(void) {
+char* bake_home_path(void) {
     const char *home = getenv("HOME");
     return home ? ecs_os_strdup(home) : NULL;
 }
 
-const char* bake_executable_name(void) {
+const char* bake_host_executable_name(void) {
     return "bake";
 }
 
-int32_t bake_default_threads(void) {
+int32_t bake_host_threads(void) {
     long cpu = sysconf(_SC_NPROCESSORS_ONLN);
     if (cpu > 1 && cpu < 256) {
         return (int32_t)cpu;

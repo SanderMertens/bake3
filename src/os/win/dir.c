@@ -19,32 +19,15 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
         return -1;
     }
 
-    int32_t count = 0;
-    int32_t capacity = 16;
-    bake_dir_entry_t *entries = ecs_os_calloc_n(bake_dir_entry_t, capacity);
-    if (!entries) {
-        FindClose(handle);
-        return -1;
-    }
+    ecs_vec_t vec = {0};
+    ecs_vec_init_t(NULL, &vec, bake_dir_entry_t, 0);
 
     do {
-        if (count == capacity) {
-            int32_t next = capacity * 2;
-            bake_dir_entry_t *next_entries = ecs_os_realloc_n(entries, bake_dir_entry_t, next);
-            if (!next_entries) {
-                bake_dir_entries_free(entries, count);
-                FindClose(handle);
-                return -1;
-            }
-            entries = next_entries;
-            capacity = next;
-        }
-
-        bake_dir_entry_t *entry = &entries[count++];
+        bake_dir_entry_t *entry = ecs_vec_append_t(NULL, &vec, bake_dir_entry_t);
         entry->name = ecs_os_strdup(ffd.cFileName);
         entry->path = bake_path_join(path, ffd.cFileName);
         if (!entry->name || !entry->path) {
-            bake_dir_entries_free(entries, count);
+            bake_dir_entries_free(ecs_vec_first_t(&vec, bake_dir_entry_t), ecs_vec_count(&vec));
             FindClose(handle);
             return -1;
         }
@@ -54,19 +37,19 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
     DWORD err = GetLastError();
     if (err != ERROR_NO_MORE_FILES) {
         bake_log_win_error("read directory", path, err);
-        bake_dir_entries_free(entries, count);
+        bake_dir_entries_free(ecs_vec_first_t(&vec, bake_dir_entry_t), ecs_vec_count(&vec));
         FindClose(handle);
         return -1;
     }
 
     if (!FindClose(handle)) {
         bake_log_last_win_error("close directory", path);
-        bake_dir_entries_free(entries, count);
+        bake_dir_entries_free(ecs_vec_first_t(&vec, bake_dir_entry_t), ecs_vec_count(&vec));
         return -1;
     }
 
-    *entries_out = entries;
-    *count_out = count;
+    *entries_out = ecs_vec_first_t(&vec, bake_dir_entry_t);
+    *count_out = ecs_vec_count(&vec);
     return 0;
 }
 

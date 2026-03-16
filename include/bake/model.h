@@ -1,5 +1,5 @@
-#ifndef BAKE2_MODEL_H
-#define BAKE2_MODEL_H
+#ifndef BAKE3_MODEL_H
+#define BAKE3_MODEL_H
 
 #include "bake/context.h"
 
@@ -71,5 +71,6 @@ void bake_model_link_dependencies(ecs_world_t *world);
 void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const char *mode, bool recursive, bool standalone);
 int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities, int32_t *out_count);
 int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode);
+bool bake_project_is_placeholder(const BakeProject *project);
 
 #endif

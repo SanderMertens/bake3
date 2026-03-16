@@ -3,7 +3,7 @@
 #include "bake/os.h"
 
 static int bake_should_skip_dir(const char *name, bool skip_special_dirs) {
-    if (!strcmp(name, ".") || !strcmp(name, "..")) {
+    if (bake_is_dot_dir(name)) {
         return 1;
     }
     if (name[0] == '.') {
@@ -81,13 +81,13 @@ int bake_discover_projects(
         return -1;
     }
 
-    if (bake_environment_import_dependency_closure(ctx) < 0) {
+    if (bake_env_import_dependency_closure(ctx) < 0) {
         return -1;
     }
 
     bake_model_link_dependencies(ctx->world);
 
-    if (bake_environment_resolve_external_dependency_binaries(ctx) < 0) {
+    if (bake_env_resolve_external_dependency_binaries(ctx) < 0) {
         return -1;
     }
 

@@ -1,5 +1,5 @@
-#ifndef BAKE2_CONFIG_H
-#define BAKE2_CONFIG_H
+#ifndef BAKE3_CONFIG_H
+#define BAKE3_CONFIG_H
 
 #include "bake/strlist.h"
 
@@ -24,9 +24,7 @@ typedef struct bake_rule_t {
 } bake_rule_t;
 
 typedef struct bake_rule_list_t {
-    bake_rule_t *items;
-    int32_t count;
-    int32_t capacity;
+    ecs_vec_t vec;
 } bake_rule_list_t;
 
 typedef struct bake_project_cfg_t bake_project_cfg_t;
@@ -110,5 +108,7 @@ void bake_project_cfg_set_eval_context(const char *mode, const char *target);
 
 void bake_build_mode_init(bake_build_mode_t *mode, const char *id);
 void bake_build_mode_fini(bake_build_mode_t *mode);
+
+bool bake_language_is_cpp(const bake_project_cfg_t *cfg);
 
 #endif
