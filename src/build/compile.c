@@ -214,9 +214,7 @@ static int bake_collect_dependency_link_inputs(
         bake_strlist_append(artefacts, result->artefact);
         char *libdir = bake_path_dirname(result->artefact);
         if (libdir) {
-            if (!bake_strlist_contains(libpaths, libdir)) {
-                bake_strlist_append(libpaths, libdir);
-            }
+            bake_strlist_append_unique(libpaths, libdir);
             ecs_os_free(libdir);
         }
     }
@@ -404,12 +402,6 @@ int bake_compile_units_parallel(
         .cpp_lang = cpp_lang,
         .mode_cflags = mode_cflags,
         .mode_cxxflags = mode_cxxflags,
-        .compile_mask = NULL,
-        .compile_total = 0,
-        .compile_done = 0,
-        .print_lock = 0,
-        .cursor = 0,
-        .failed = 0
     };
 
     int rc = -1;

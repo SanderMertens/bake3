@@ -63,44 +63,34 @@ int bake_test_generate_harness(
 {
     BAKE_UNUSED(ctx);
 
-    char *project_json = bake_path_join(cfg->path, "project.json");
-    if (!project_json) {
-        return -1;
-    }
-
-    if (!bake_path_exists(project_json)) {
-        ecs_os_free(project_json);
-        return 0;
-    }
-
-    if (!bake_should_generate_harness(project_json, exe_path)) {
-        ecs_os_free(project_json);
-        return 0;
-    }
-
+    int rc = 0;
     bake_suite_list_t suites = {0};
-    if (bake_parse_project_tests(project_json, &suites) != 0) {
-        ecs_os_free(project_json);
-        bake_suite_list_fini(&suites);
-        return -1;
+    char *project_json = bake_path_join(cfg->path, "project.json");
+    if (!project_json) return -1;
+
+    if (!bake_path_exists(project_json) ||
+        !bake_should_generate_harness(project_json, exe_path))
+    {
+        goto cleanup;
     }
 
-    if (!suites.count) {
-        ecs_os_free(project_json);
-        bake_suite_list_fini(&suites);
-        return 0;
+    if (bake_parse_project_tests(project_json, &suites) != 0) {
+        rc = -1;
+        goto cleanup;
     }
 
     for (int32_t i = 0; i < suites.count; i++) {
         if (bake_generate_suite_file(cfg, &suites.items[i]) != 0) {
-            bake_suite_list_fini(&suites);
-            ecs_os_free(project_json);
-            return -1;
+            rc = -1;
+            goto cleanup;
         }
     }
 
-    int rc = bake_generate_main(cfg, &suites);
+    if (suites.count) {
+        rc = bake_generate_main(cfg, &suites);
+    }
 
+cleanup:
     bake_suite_list_fini(&suites);
     ecs_os_free(project_json);
     return rc;
@@ -113,34 +103,25 @@ int bake_test_generate_builtin_api(
     char **src_out)
 {
     BAKE_UNUSED(cfg);
-    if (!gen_dir || !src_out) {
-        return -1;
-    }
+    if (!gen_dir || !src_out) return -1;
 
+    int rc = -1;
     char *hdr_path = bake_path_join(gen_dir, "bake_test.h");
     char *src_path = bake_path_join(gen_dir, "bake_test.c");
     char *tmpl_hdr = bake_test_template_file(ctx, "bake_test.h");
     char *tmpl_src = bake_test_template_file(ctx, "bake_test.c");
-    if (!hdr_path || !src_path || !tmpl_hdr || !tmpl_src) {
-        ecs_os_free(hdr_path);
-        ecs_os_free(src_path);
-        ecs_os_free(tmpl_hdr);
-        ecs_os_free(tmpl_src);
-        return -1;
-    }
 
-    int rc = bake_os_file_copy(tmpl_hdr, hdr_path);
-    if (rc == 0) {
-        rc = bake_os_file_copy(tmpl_src, src_path);
-    }
-
-    if (rc == 0) {
+    if (hdr_path && src_path && tmpl_hdr && tmpl_src &&
+        bake_os_file_copy(tmpl_hdr, hdr_path) == 0 &&
+        bake_os_file_copy(tmpl_src, src_path) == 0)
+    {
         *src_out = src_path;
-    } else {
-        ecs_os_free(src_path);
+        src_path = NULL;
+        rc = 0;
     }
 
     ecs_os_free(hdr_path);
+    ecs_os_free(src_path);
     ecs_os_free(tmpl_hdr);
     ecs_os_free(tmpl_src);
     return rc;

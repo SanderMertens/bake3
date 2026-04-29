@@ -128,13 +128,9 @@ cleanup:
     if (rc != 0 && out_c) {
         *out_c = NULL;
     }
-    ecs_os_free(base);
-    ecs_os_free(h_name);
-    ecs_os_free(c_name);
-    ecs_os_free(h_path);
-    ecs_os_free(c_path);
-    ecs_os_free(h_content);
-    ecs_os_free(c_content);
+#define F(p) ecs_os_free(p)
+    F(base); F(h_name); F(c_name); F(h_path); F(c_path); F(h_content); F(c_content);
+#undef F
     return rc;
 }
 
@@ -192,12 +188,8 @@ static char* bake_parse_include_file(const char *line, bool *relative_out) {
     return out;
 }
 
-static char* bake_path_canonical(const char *path) {
-    return bake_path_resolve(path);
-}
-
 static bool bake_path_mark_parsed(bake_strlist_t *parsed, const char *path) {
-    char *normalized = bake_path_canonical(path);
+    char *normalized = bake_path_resolve(path);
     if (!normalized) {
         return false;
     }

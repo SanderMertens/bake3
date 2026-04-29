@@ -22,20 +22,16 @@ static const char* bake_project_entity_id(const ecs_world_t *world, ecs_entity_t
     return id ? id : "";
 }
 
-static int bake_entity_cmp_by_project_id(const ecs_world_t *world, ecs_entity_t lhs, ecs_entity_t rhs) {
-    return strcmp(bake_project_entity_id(world, lhs), bake_project_entity_id(world, rhs));
-}
+typedef struct bake_sort_entry_t {
+    ecs_entity_t entity;
+    int32_t depth;
+    const char *id;
+} bake_sort_entry_t;
 
-static void bake_entity_sort_by_project_id(const ecs_world_t *world, ecs_entity_t *entities, int32_t count) {
-    for (int32_t i = 0; i < count - 1; i++) {
-        for (int32_t j = i + 1; j < count; j++) {
-            if (bake_entity_cmp_by_project_id(world, entities[i], entities[j]) > 0) {
-                ecs_entity_t tmp = entities[i];
-                entities[i] = entities[j];
-                entities[j] = tmp;
-            }
-        }
-    }
+static int bake_sort_entry_cmp(const void *a, const void *b) {
+    const bake_sort_entry_t *ea = a, *eb = b;
+    if (ea->depth != eb->depth) return ea->depth - eb->depth;
+    return strcmp(ea->id, eb->id);
 }
 
 static void bake_model_resolved_deps_init(BakeResolvedDeps *resolved) {
@@ -116,20 +112,12 @@ static void bake_model_try_append_include_path(
     ecs_os_free(include);
 }
 
-bool bake_project_is_placeholder(const BakeProject *project) {
-    if (!project || !project->cfg || !project->cfg->id) {
-        return false;
-    }
-
-    return project->cfg->path == NULL && project->cfg->output_name == NULL;
+static bool bake_cfg_is_external_placeholder(const bake_project_cfg_t *cfg) {
+    return cfg && cfg->id && !cfg->path && !cfg->output_name;
 }
 
-static bool bake_cfg_is_external_placeholder(const bake_project_cfg_t *cfg) {
-    if (!cfg || !cfg->id) {
-        return false;
-    }
-
-    return cfg->path == NULL && cfg->output_name == NULL;
+bool bake_project_is_placeholder(const BakeProject *project) {
+    return project && bake_cfg_is_external_placeholder(project->cfg);
 }
 
 int bake_model_init(ecs_world_t *world) {
@@ -219,7 +207,6 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
     }
 
     BakeProject project = {
-        .entity = entity,
         .cfg = cfg,
         .discovered = !external,
         .external = external
@@ -502,10 +489,8 @@ static int bake_model_collect_resolved_deps(
 
             if (!dep_project->external && cfg->path) {
                 char *lib = bake_project_build_root(cfg->path, cfg->id, mode);
-                if (lib && bake_path_exists(lib) &&
-                    !bake_strlist_contains(&resolved->build_libpaths, lib))
-                {
-                    bake_strlist_append(&resolved->build_libpaths, lib);
+                if (lib && bake_path_exists(lib)) {
+                    bake_strlist_append_unique(&resolved->build_libpaths, lib);
                 }
                 ecs_os_free(lib);
             }
@@ -659,51 +644,35 @@ int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities
         return -1;
     }
 
-    ecs_entity_t *entities = ecs_os_malloc_n(ecs_entity_t, count);
-    if (!entities) {
+    bake_sort_entry_t *entries = ecs_os_malloc_n(bake_sort_entry_t, count);
+    if (!entries) {
         ecs_vec_fini_t(NULL, &vec, ecs_entity_t);
-        return -1;
-    }
-    ecs_os_memcpy_n(entities, vec_entities, ecs_entity_t, count);
-    ecs_vec_fini_t(NULL, &vec, ecs_entity_t);
-
-    int32_t *depths = ecs_os_malloc_n(int32_t, count);
-    if (!depths) {
-        ecs_os_free(entities);
         return -1;
     }
 
     bool has_valid_depth = true;
     for (int32_t i = 0; i < count; i++) {
-        depths[i] = ecs_get_depth(world, entities[i], BakeDependsOn);
-        if (depths[i] < 0) {
-            has_valid_depth = false;
-            break;
-        }
+        int32_t d = ecs_get_depth(world, vec_entities[i], BakeDependsOn);
+        if (d < 0) has_valid_depth = false;
+        entries[i].entity = vec_entities[i];
+        entries[i].depth = d;
+        entries[i].id = bake_project_entity_id(world, vec_entities[i]);
     }
+    ecs_vec_fini_t(NULL, &vec, ecs_entity_t);
 
     if (!has_valid_depth) {
-        bake_entity_sort_by_project_id(world, entities, count);
-    } else {
-        for (int32_t i = 0; i < count; i++) {
-            for (int32_t j = i + 1; j < count; j++) {
-                if (depths[j] < depths[i] ||
-                    (depths[j] == depths[i] &&
-                     bake_entity_cmp_by_project_id(world, entities[j], entities[i]) < 0))
-                {
-                    int32_t tmp_depth = depths[i];
-                    depths[i] = depths[j];
-                    depths[j] = tmp_depth;
-
-                    ecs_entity_t tmp_entity = entities[i];
-                    entities[i] = entities[j];
-                    entities[j] = tmp_entity;
-                }
-            }
-        }
+        for (int32_t i = 0; i < count; i++) entries[i].depth = 0;
     }
+    qsort(entries, (size_t)count, sizeof(*entries), bake_sort_entry_cmp);
 
-    ecs_os_free(depths);
+    ecs_entity_t *entities = ecs_os_malloc_n(ecs_entity_t, count);
+    if (!entities) {
+        ecs_os_free(entries);
+        return -1;
+    }
+    for (int32_t i = 0; i < count; i++) entities[i] = entries[i].entity;
+    ecs_os_free(entries);
+
     *out_entities = entities;
     *out_count = count;
     return 0;

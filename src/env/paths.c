@@ -35,12 +35,9 @@ static char* bake_env_artefact_path_impl(
         (out_dir ? bake_path_join(out_dir, file_name) : NULL);
 
 cleanup:
-    ecs_os_free(file_name);
-    ecs_os_free(platform);
-    ecs_os_free(platform_dir);
-    ecs_os_free(cfg_dir);
-    ecs_os_free(out_dir);
-    ecs_os_free(id_dir);
+#define F(p) ecs_os_free(p)
+    F(file_name); F(platform); F(platform_dir); F(cfg_dir); F(out_dir); F(id_dir);
+#undef F
     return out_path;
 }
 

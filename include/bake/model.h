@@ -4,7 +4,6 @@
 #include "bake/context.h"
 
 typedef struct BakeProject {
-    ecs_entity_t entity;
     bake_project_cfg_t *cfg;
     bool discovered;
     bool external;

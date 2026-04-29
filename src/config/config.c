@@ -167,15 +167,10 @@ int bake_rule_list_append(bake_rule_list_t *list, const char *ext, const char *c
 }
 
 static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults) {
-    bake_strlist_init(&cfg->cflags);
-    bake_strlist_init(&cfg->cxxflags);
-    bake_strlist_init(&cfg->defines);
-    bake_strlist_init(&cfg->ldflags);
-    bake_strlist_init(&cfg->libs);
-    bake_strlist_init(&cfg->static_libs);
-    bake_strlist_init(&cfg->libpaths);
-    bake_strlist_init(&cfg->links);
-    bake_strlist_init(&cfg->include_paths);
+#define F(n) bake_strlist_init(&cfg->n)
+    F(cflags); F(cxxflags); F(defines); F(ldflags); F(libs);
+    F(static_libs); F(libpaths); F(links); F(include_paths);
+#undef F
     cfg->c_standard = set_defaults ? ecs_os_strdup("c99") : NULL;
     cfg->cpp_standard = set_defaults ? ecs_os_strdup("c++17") : NULL;
     cfg->static_lib = false;
@@ -188,15 +183,10 @@ void bake_lang_cfg_init(bake_lang_cfg_t *cfg) {
 }
 
 void bake_lang_cfg_fini(bake_lang_cfg_t *cfg) {
-    bake_strlist_fini(&cfg->cflags);
-    bake_strlist_fini(&cfg->cxxflags);
-    bake_strlist_fini(&cfg->defines);
-    bake_strlist_fini(&cfg->ldflags);
-    bake_strlist_fini(&cfg->libs);
-    bake_strlist_fini(&cfg->static_libs);
-    bake_strlist_fini(&cfg->libpaths);
-    bake_strlist_fini(&cfg->links);
-    bake_strlist_fini(&cfg->include_paths);
+#define F(n) bake_strlist_fini(&cfg->n)
+    F(cflags); F(cxxflags); F(defines); F(ldflags); F(libs);
+    F(static_libs); F(libpaths); F(links); F(include_paths);
+#undef F
     ecs_os_free(cfg->c_standard);
     ecs_os_free(cfg->cpp_standard);
     cfg->c_standard = NULL;
@@ -229,12 +219,9 @@ static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_depend
     cfg->amalgamate = false;
     cfg->amalgamate_path = NULL;
 
-    bake_strlist_init(&cfg->use);
-    bake_strlist_init(&cfg->use_private);
-    bake_strlist_init(&cfg->use_build);
-    bake_strlist_init(&cfg->use_runtime);
-    bake_strlist_init(&cfg->drivers);
-    bake_strlist_init(&cfg->plugins);
+#define F(n) bake_strlist_init(&cfg->n)
+    F(use); F(use_private); F(use_build); F(use_runtime); F(drivers); F(plugins);
+#undef F
 
     if (init_dependee) {
         bake_dependee_cfg_init(&cfg->dependee);
@@ -251,18 +238,13 @@ void bake_project_cfg_init(bake_project_cfg_t *cfg) {
 }
 
 static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_dependee) {
-    ecs_os_free(cfg->id);
-    ecs_os_free(cfg->path);
-    ecs_os_free(cfg->language);
-    ecs_os_free(cfg->output_name);
-    ecs_os_free(cfg->amalgamate_path);
+#define F(n) ecs_os_free(cfg->n)
+    F(id); F(path); F(language); F(output_name); F(amalgamate_path);
+#undef F
 
-    bake_strlist_fini(&cfg->use);
-    bake_strlist_fini(&cfg->use_private);
-    bake_strlist_fini(&cfg->use_build);
-    bake_strlist_fini(&cfg->use_runtime);
-    bake_strlist_fini(&cfg->drivers);
-    bake_strlist_fini(&cfg->plugins);
+#define F(n) bake_strlist_fini(&cfg->n)
+    F(use); F(use_private); F(use_build); F(use_runtime); F(drivers); F(plugins);
+#undef F
 
     if (fini_dependee) {
         bake_dependee_cfg_fini(&cfg->dependee);
@@ -302,15 +284,11 @@ static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) 
         return 0;
     }
 
-    if (bake_json_get_array_alias(object, "cflags", NULL, &cfg->cflags) < 0) return -1;
-    if (bake_json_get_array_alias(object, "cxxflags", NULL, &cfg->cxxflags) < 0) return -1;
-    if (bake_json_get_array_alias(object, "defines", NULL, &cfg->defines) < 0) return -1;
-    if (bake_json_get_array_alias(object, "ldflags", NULL, &cfg->ldflags) < 0) return -1;
-    if (bake_json_get_array_alias(object, "lib", "libs", &cfg->libs) < 0) return -1;
-    if (bake_json_get_array_alias(object, "static-lib", "static_lib", &cfg->static_libs) < 0) return -1;
-    if (bake_json_get_array_alias(object, "libpath", "libpaths", &cfg->libpaths) < 0) return -1;
-    if (bake_json_get_array_alias(object, "link", "links", &cfg->links) < 0) return -1;
-    if (bake_json_get_array_alias(object, "include", NULL, &cfg->include_paths) < 0) return -1;
+#define G(key, alias, field) if (bake_json_get_array_alias(object, key, alias, &cfg->field) < 0) return -1
+    G("cflags", NULL, cflags); G("cxxflags", NULL, cxxflags); G("defines", NULL, defines);
+    G("ldflags", NULL, ldflags); G("lib", "libs", libs); G("static-lib", "static_lib", static_libs);
+    G("libpath", "libpaths", libpaths); G("link", "links", links); G("include", NULL, include_paths);
+#undef G
 
     if (bake_json_get_string(object, "c-standard", &cfg->c_standard) < 0) return -1;
     if (bake_json_get_string(object, "cpp-standard", &cfg->cpp_standard) < 0) return -1;
@@ -339,40 +317,6 @@ static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) 
     return 0;
 }
 
-static int bake_parse_project_value_lang_array(
-    const JSON_Object *object,
-    const char *key,
-    const char *alias,
-    bake_strlist_t *c_list,
-    bake_strlist_t *cpp_list)
-{
-    if (bake_json_get_array_alias(object, key, alias, c_list) < 0) {
-        return -1;
-    }
-    if (bake_json_get_array_alias(object, key, alias, cpp_list) < 0) {
-        return -1;
-    }
-    return 0;
-}
-
-static int bake_parse_project_value_lang_bool(
-    const JSON_Object *object,
-    const char *key,
-    bool *c_value,
-    bool *cpp_value)
-{
-    bool value = false;
-    int rc = bake_json_get_bool(object, key, &value);
-    if (rc < 0) {
-        return -1;
-    }
-    if (rc == 0) {
-        *c_value = value;
-        *cpp_value = value;
-    }
-    return 0;
-}
-
 static int bake_parse_project_value_cfg(
     const JSON_Object *object,
     bake_project_cfg_t *cfg)
@@ -389,14 +333,7 @@ static int bake_parse_project_value_cfg(
     if (bake_json_get_bool(object, "public", &cfg->public_project) < 0) return -1;
     if (bake_json_get_bool(object, "standalone", &cfg->standalone) < 0) return -1;
     if (bake_json_get_bool(object, "amalgamate", &cfg->amalgamate) < 0) return -1;
-    if (bake_json_get_string_alias(
-        object,
-        "amalgamate-path",
-        "amalgamate_path",
-        &cfg->amalgamate_path) < 0)
-    {
-        return -1;
-    }
+    if (bake_json_get_string_alias(object, "amalgamate-path", "amalgamate_path", &cfg->amalgamate_path) < 0) return -1;
 
     if (bake_json_get_array_alias(object, "use", NULL, &cfg->use) < 0) return -1;
     if (bake_json_get_array_alias(object, "use-private", "use_private", &cfg->use_private) < 0) return -1;
@@ -404,46 +341,32 @@ static int bake_parse_project_value_cfg(
     if (bake_json_get_array_alias(object, "use-runtime", "use_runtime", &cfg->use_runtime) < 0) return -1;
     if (bake_json_get_array_alias(object, "use-bundle", "use_bundle", &cfg->use_build) < 0) return -1;
 
-    if (bake_parse_project_value_lang_array(
-        object, "cflags", NULL,
-        &cfg->c_lang.cflags, &cfg->cpp_lang.cflags) != 0) return -1;
-    if (bake_parse_project_value_lang_array(
-        object, "cxxflags", NULL,
-        &cfg->c_lang.cxxflags, &cfg->cpp_lang.cxxflags) != 0) return -1;
-    if (bake_parse_project_value_lang_array(
-        object, "defines", NULL,
-        &cfg->c_lang.defines, &cfg->cpp_lang.defines) != 0) return -1;
-    if (bake_parse_project_value_lang_array(
-        object, "ldflags", NULL,
-        &cfg->c_lang.ldflags, &cfg->cpp_lang.ldflags) != 0) return -1;
-    if (bake_parse_project_value_lang_array(
-        object, "lib", "libs",
-        &cfg->c_lang.libs, &cfg->cpp_lang.libs) != 0) return -1;
-    if (bake_parse_project_value_lang_array(
-        object, "static-lib", "static_lib",
-        &cfg->c_lang.static_libs, &cfg->cpp_lang.static_libs) != 0) return -1;
-    if (bake_parse_project_value_lang_array(
-        object, "libpath", "libpaths",
-        &cfg->c_lang.libpaths, &cfg->cpp_lang.libpaths) != 0) return -1;
-    if (bake_parse_project_value_lang_array(
-        object, "link", "links",
-        &cfg->c_lang.links, &cfg->cpp_lang.links) != 0) return -1;
-    if (bake_parse_project_value_lang_array(
-        object, "include", NULL,
-        &cfg->c_lang.include_paths, &cfg->cpp_lang.include_paths) != 0) return -1;
+#define ARR(key, alias, field) \
+    if (bake_json_get_array_alias(object, key, alias, &cfg->c_lang.field) < 0) return -1; \
+    if (bake_json_get_array_alias(object, key, alias, &cfg->cpp_lang.field) < 0) return -1
+    ARR("cflags", NULL, cflags);
+    ARR("cxxflags", NULL, cxxflags);
+    ARR("defines", NULL, defines);
+    ARR("ldflags", NULL, ldflags);
+    ARR("lib", "libs", libs);
+    ARR("static-lib", "static_lib", static_libs);
+    ARR("libpath", "libpaths", libpaths);
+    ARR("link", "links", links);
+    ARR("include", NULL, include_paths);
+#undef ARR
 
     if (bake_json_get_string(object, "c-standard", &cfg->c_lang.c_standard) < 0) return -1;
     if (bake_json_get_string(object, "cpp-standard", &cfg->cpp_lang.cpp_standard) < 0) return -1;
 
-    if (bake_parse_project_value_lang_bool(
-        object, "static",
-        &cfg->c_lang.static_lib, &cfg->cpp_lang.static_lib) != 0) return -1;
-    if (bake_parse_project_value_lang_bool(
-        object, "export-symbols",
-        &cfg->c_lang.export_symbols, &cfg->cpp_lang.export_symbols) != 0) return -1;
-    if (bake_parse_project_value_lang_bool(
-        object, "precompile-header",
-        &cfg->c_lang.precompile_header, &cfg->cpp_lang.precompile_header) != 0) return -1;
+#define LBOOL(key, field) do { \
+    bool _v = false; int _rc = bake_json_get_bool(object, key, &_v); \
+    if (_rc < 0) return -1; \
+    if (_rc == 0) { cfg->c_lang.field = _v; cfg->cpp_lang.field = _v; } \
+} while (0)
+    LBOOL("static", static_lib);
+    LBOOL("export-symbols", export_symbols);
+    LBOOL("precompile-header", precompile_header);
+#undef LBOOL
 
     return 0;
 }

@@ -3,24 +3,15 @@
 #include "bake/os.h"
 
 static int bake_should_skip_dir(const char *name, bool skip_special_dirs) {
-    if (bake_is_dot_dir(name)) {
-        return 1;
-    }
-    if (name[0] == '.') {
-        return 1;
-    }
-    if (!strcmp(name, "tmp") || !strcmp(name, "target") || !strcmp(name, "out")) {
-        return 1;
-    }
-    if (!strcmp(name, "template") || !strcmp(name, "templates")) {
-        return 1;
+    if (bake_is_dot_dir(name) || name[0] == '.') return 1;
+    static const char *always[] = {"tmp", "target", "out", "template", "templates"};
+    for (size_t i = 0; i < sizeof(always) / sizeof(always[0]); i++) {
+        if (!strcmp(name, always[i])) return 1;
     }
     if (skip_special_dirs) {
-        if (!strcmp(name, "test") || !strcmp(name, "tests")) {
-            return 1;
-        }
-        if (!strcmp(name, "example") || !strcmp(name, "examples")) {
-            return 1;
+        static const char *special[] = {"test", "tests", "example", "examples"};
+        for (size_t i = 0; i < sizeof(special) / sizeof(special[0]); i++) {
+            if (!strcmp(name, special[i])) return 1;
         }
     }
     return 0;

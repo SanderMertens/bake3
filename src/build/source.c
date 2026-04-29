@@ -88,11 +88,9 @@ int bake_compile_list_append(
 }
 
 void bake_build_paths_fini(bake_build_paths_t *paths) {
-    ecs_os_free(paths->build_root);
-    ecs_os_free(paths->obj_dir);
-    ecs_os_free(paths->bin_dir);
-    ecs_os_free(paths->lib_dir);
-    ecs_os_free(paths->gen_dir);
+#define F(n) ecs_os_free(paths->n)
+    F(build_root); F(obj_dir); F(bin_dir); F(lib_dir); F(gen_dir);
+#undef F
     memset(paths, 0, sizeof(*paths));
 }
 
@@ -283,35 +281,25 @@ static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return -1;
     }
 
-    char *cmd = bake_text_replace(ctx->command, "{input}", entry->path);
-    if (!cmd) {
-        ecs_os_free(stem);
-        return -1;
+    const struct { const char *needle; const char *value; } subs[] = {
+        {"{input}",   entry->path},
+        {"{project}", ctx->cfg->path},
+        {"{out_dir}", ctx->paths->gen_dir},
+        {"{stem}",    stem},
+    };
+    char *cmd = ecs_os_strdup(ctx->command);
+    for (size_t i = 0; cmd && i < sizeof(subs) / sizeof(subs[0]); i++) {
+        char *next = bake_text_replace(cmd, subs[i].needle, subs[i].value);
+        ecs_os_free(cmd);
+        cmd = next;
     }
-
-    char *tmp = bake_text_replace(cmd, "{project}", ctx->cfg->path);
-    ecs_os_free(cmd);
-    if (!tmp) {
-        ecs_os_free(stem);
-        return -1;
-    }
-
-    cmd = bake_text_replace(tmp, "{out_dir}", ctx->paths->gen_dir);
-    ecs_os_free(tmp);
-    if (!cmd) {
-        ecs_os_free(stem);
-        return -1;
-    }
-
-    tmp = bake_text_replace(cmd, "{stem}", stem);
-    ecs_os_free(cmd);
     ecs_os_free(stem);
-    if (!tmp) {
+    if (!cmd) {
         return -1;
     }
 
-    int rc = bake_run_command(tmp, true);
-    ecs_os_free(tmp);
+    int rc = bake_run_command(cmd, true);
+    ecs_os_free(cmd);
     return rc;
 }
 
@@ -452,9 +440,7 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     public_deps_ready = true;
 
     for (int32_t i = 0; i < cfg->use.count; i++) {
-        if (!bake_strlist_contains(&public_deps, cfg->use.items[i])) {
-            bake_strlist_append(&public_deps, cfg->use.items[i]);
-        }
+        bake_strlist_append_unique(&public_deps, cfg->use.items[i]);
     }
 
     for (int32_t i = 0; i < cfg->use.count; i++) {
@@ -473,9 +459,7 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
             if (bake_strlist_contains(&cfg->use_private, dep_id)) {
                 continue;
             }
-            if (!bake_strlist_contains(&public_deps, dep_id)) {
-                bake_strlist_append(&public_deps, dep_id);
-            }
+            bake_strlist_append_unique(&public_deps, dep_id);
         }
     }
 

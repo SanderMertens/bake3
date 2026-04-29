@@ -16,15 +16,8 @@ static char* bake_env_meta_dir(const bake_context_t *ctx) {
 }
 
 static char* bake_env_meta_project_json_path(const bake_context_t *ctx, const char *id) {
-    if (!ctx || !id || !id[0]) {
-        return NULL;
-    }
-
     char *meta_dir = bake_path_join3(ctx->bake_home, "meta", id);
-    if (!meta_dir) {
-        return NULL;
-    }
-
+    if (!meta_dir) return NULL;
     char *project_json = bake_path_join(meta_dir, "project.json");
     ecs_os_free(meta_dir);
     return project_json;
@@ -108,12 +101,6 @@ static int bake_env_copy_file(const char *src_dir, const char *dst_dir, const ch
 
 static char* bake_env_templates_dir(const bake_project_cfg_t *cfg) {
     char *path = bake_path_join(cfg->path, "templates");
-    if (path && bake_path_exists(path) && bake_path_is_dir(path)) {
-        return path;
-    }
-    ecs_os_free(path);
-
-    path = bake_path_join(cfg->path, "template");
     if (path && bake_path_exists(path) && bake_path_is_dir(path)) {
         return path;
     }
@@ -203,13 +190,6 @@ static int bake_env_queue_project_deps(bake_strlist_t *queue, const bake_project
     return 0;
 }
 
-static bool bake_env_external_placeholder_project(const BakeProject *project) {
-    if (!project || !project->external) {
-        return false;
-    }
-    return bake_project_is_placeholder(project);
-}
-
 int bake_env_import_project_by_id(bake_context_t *ctx, const char *id) {
     int rc = 0;
     char *project_json = NULL;
@@ -224,7 +204,7 @@ int bake_env_import_project_by_id(bake_context_t *ctx, const char *id) {
     }
 
     const BakeProject *existing = bake_model_find_project(ctx->world, id, NULL);
-    if (existing && !bake_env_external_placeholder_project(existing)) {
+    if (existing && !(existing->external && bake_project_is_placeholder(existing))) {
         return 0;
     }
 
@@ -464,20 +444,14 @@ static int bake_env_sync_metadata(
 
     char *source_txt = bake_path_join(meta_dir, "source.txt");
     char *source_text = flecs_asprintf("%s\n", cfg->path);
-    if (!source_txt || !source_text || bake_file_write(source_txt, source_text) != 0) {
-        ecs_os_free(source_txt);
-        ecs_os_free(source_text);
-        return -1;
-    }
-    ecs_os_free(source_txt);
-    ecs_os_free(source_text);
+    int src_rc = (source_txt && source_text) ? bake_file_write(source_txt, source_text) : -1;
+    ecs_os_free(source_txt); ecs_os_free(source_text);
+    if (src_rc != 0) return -1;
 
     char *dependee_json = bake_path_join(meta_dir, "dependee.json");
-    if (!dependee_json || bake_env_write_dependee_json(dependee_json, cfg) != 0) {
-        ecs_os_free(dependee_json);
-        return -1;
-    }
+    int dep_rc = dependee_json ? bake_env_write_dependee_json(dependee_json, cfg) : -1;
     ecs_os_free(dependee_json);
+    if (dep_rc != 0) return -1;
 
     if (bake_env_copy_file(cfg->path, meta_dir, "LICENSE", false) != 0) {
         return -1;
@@ -616,9 +590,7 @@ int bake_env_sync_project(
     rc = 0;
 
 cleanup:
-    ecs_os_free(meta_dir);
-    ecs_os_free(include_dst);
-    ecs_os_free(template_dst);
+    ecs_os_free(meta_dir); ecs_os_free(include_dst); ecs_os_free(template_dst);
     return rc;
 }
 
@@ -764,9 +736,7 @@ static int bake_env_remove_project_entry(const bake_context_t *ctx, const char *
 cleanup_cfg:
     bake_project_cfg_fini(&cfg);
 cleanup:
-    ecs_os_free(meta_dir);
-    ecs_os_free(include_dir);
-    ecs_os_free(template_dir);
+    ecs_os_free(meta_dir); ecs_os_free(include_dir); ecs_os_free(template_dir);
     return rc;
 }
 
@@ -779,13 +749,10 @@ int bake_env_reset(bake_context_t *ctx) {
 
     for (int32_t i = 0; i < count; i++) {
         bake_dir_entry_t *entry = &entries[i];
-        if (bake_is_dot_dir(entry->name)) {
-            continue;
-        }
-        if (!strcmp(entry->name, "test")) {
-            continue;
-        }
-        if (!strcmp(entry->name, "bake3")) {
+        if (bake_is_dot_dir(entry->name) ||
+            !strcmp(entry->name, "test") ||
+            !strcmp(entry->name, "bake3"))
+        {
             continue;
         }
         if (bake_env_remove_if_exists(entry->path) != 0) {

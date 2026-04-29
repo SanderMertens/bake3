@@ -67,55 +67,24 @@ static bool bake_cmd_parse_redirection_token(
     *append_out = false;
     *path_inline_out = NULL;
 
-    if (!strncmp(token, "2>>", 3)) {
-        *target_out = BAKE_CMD_REDIR_STDERR;
-        *append_out = true;
-        *path_inline_out = token + 3;
-        return true;
-    }
-
-    if (!strncmp(token, "2>", 2)) {
-        *target_out = BAKE_CMD_REDIR_STDERR;
-        *path_inline_out = token + 2;
-        return true;
-    }
-
-    if (!strncmp(token, "1>>", 3)) {
-        *target_out = BAKE_CMD_REDIR_STDOUT;
-        *append_out = true;
-        *path_inline_out = token + 3;
-        return true;
-    }
-
-    if (!strncmp(token, "1>", 2)) {
-        *target_out = BAKE_CMD_REDIR_STDOUT;
-        *path_inline_out = token + 2;
-        return true;
-    }
-
-    if (!strncmp(token, ">>", 2)) {
-        *target_out = BAKE_CMD_REDIR_STDOUT;
-        *append_out = true;
-        *path_inline_out = token + 2;
-        return true;
-    }
-
-    if (token[0] == '>') {
-        *target_out = BAKE_CMD_REDIR_STDOUT;
-        *path_inline_out = token + 1;
-        return true;
-    }
-
-    if (!strncmp(token, "0<", 2)) {
-        *target_out = BAKE_CMD_REDIR_STDIN;
-        *path_inline_out = token + 2;
-        return true;
-    }
-
-    if (token[0] == '<') {
-        *target_out = BAKE_CMD_REDIR_STDIN;
-        *path_inline_out = token + 1;
-        return true;
+    static const struct { const char *prefix; bake_cmd_redir_t target; bool append; } table[] = {
+        {"2>>", BAKE_CMD_REDIR_STDERR, true},
+        {"2>",  BAKE_CMD_REDIR_STDERR, false},
+        {"1>>", BAKE_CMD_REDIR_STDOUT, true},
+        {"1>",  BAKE_CMD_REDIR_STDOUT, false},
+        {">>",  BAKE_CMD_REDIR_STDOUT, true},
+        {">",   BAKE_CMD_REDIR_STDOUT, false},
+        {"0<",  BAKE_CMD_REDIR_STDIN,  false},
+        {"<",   BAKE_CMD_REDIR_STDIN,  false},
+    };
+    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
+        size_t n = strlen(table[i].prefix);
+        if (!strncmp(token, table[i].prefix, n)) {
+            *target_out = table[i].target;
+            *append_out = table[i].append;
+            *path_inline_out = token + n;
+            return true;
+        }
     }
 
     return false;

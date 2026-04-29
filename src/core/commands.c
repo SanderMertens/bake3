@@ -75,6 +75,26 @@ static void bake_list_template_fini(bake_list_template_t *template_info) {
     bake_strlist_fini(&template_info->entries);
 }
 
+#define BAKE_VEC_FINALIZE(T, vec, cmp_fn, out_ptr, count_ptr) do { \
+    int32_t _c = ecs_vec_count(&(vec)); \
+    if (_c > 1) qsort(ecs_vec_first(&(vec)), (size_t)_c, sizeof(T), (cmp_fn)); \
+    if (_c > 0) { \
+        T *_p = ecs_os_malloc_n(T, _c); \
+        if (!_p) goto cleanup; \
+        ecs_os_memcpy_n(_p, ecs_vec_first_t(&(vec), T), T, _c); \
+        *(out_ptr) = _p; \
+    } else *(out_ptr) = NULL; \
+    ecs_vec_fini_t(NULL, &(vec), T); \
+    *(count_ptr) = _c; \
+} while (0)
+
+#define BAKE_VEC_DROP_ITEMS(T, vec, fini_fn) do { \
+    T *_v = ecs_vec_first_t(&(vec), T); \
+    int32_t _vc = ecs_vec_count(&(vec)); \
+    for (int32_t _i = 0; _i < _vc; _i++) (fini_fn)(&_v[_i]); \
+    ecs_vec_fini_t(NULL, &(vec), T); \
+} while (0)
+
 static void bake_list_projects_free(bake_list_project_t *projects, int32_t count) {
     for (int32_t i = 0; i < count; i++) {
         bake_list_project_fini(&projects[i]);
@@ -95,64 +115,53 @@ static int bake_list_collect_cfgs(
     bake_strlist_t *cfgs_out)
 {
     bake_strlist_init(cfgs_out);
-
     if (cfg->kind == BAKE_PROJECT_CONFIG) {
         return bake_strlist_append(cfgs_out, "all");
     }
 
+    int rc = -1;
+    bake_dir_entry_t *cfg_dirs = NULL;
+    int32_t cfg_count = 0;
     char *artefact_name = bake_project_cfg_artefact_name(cfg);
     if (!artefact_name) {
         return 0;
     }
 
     if (!bake_path_exists(platform_dir) || !bake_path_is_dir(platform_dir)) {
-        ecs_os_free(artefact_name);
-        return 0;
+        rc = 0;
+        goto cleanup;
     }
 
-    bake_dir_entry_t *cfg_dirs = NULL;
-    int32_t cfg_count = 0;
     if (bake_dir_list(platform_dir, &cfg_dirs, &cfg_count) != 0) {
-        ecs_os_free(artefact_name);
-        return -1;
+        goto cleanup;
     }
 
     const char *subdir = cfg->kind == BAKE_PROJECT_PACKAGE ? "lib" : "bin";
     for (int32_t i = 0; i < cfg_count; i++) {
         const bake_dir_entry_t *cfg_dir = &cfg_dirs[i];
-        if (!cfg_dir->is_dir || !strcmp(cfg_dir->name, ".") || !strcmp(cfg_dir->name, "..")) {
+        if (!cfg_dir->is_dir || bake_is_dot_dir(cfg_dir->name)) {
             continue;
         }
-
         char *base = bake_path_join(cfg_dir->path, subdir);
         char *artefact_path = base ? bake_path_join(base, artefact_name) : NULL;
         ecs_os_free(base);
-        if (!artefact_path) {
-            bake_dir_entries_free(cfg_dirs, cfg_count);
-            ecs_os_free(artefact_name);
-            bake_strlist_fini(cfgs_out);
-            return -1;
-        }
-
-        if (bake_path_exists(artefact_path) && !bake_strlist_contains(cfgs_out, cfg_dir->name)) {
-            if (bake_strlist_append(cfgs_out, cfg_dir->name) != 0) {
-                ecs_os_free(artefact_path);
-                bake_dir_entries_free(cfg_dirs, cfg_count);
-                ecs_os_free(artefact_name);
-                bake_strlist_fini(cfgs_out);
-                return -1;
-            }
-        }
-
+        if (!artefact_path) goto cleanup;
+        int append_rc = bake_path_exists(artefact_path)
+            ? bake_strlist_append_unique(cfgs_out, cfg_dir->name) : 0;
         ecs_os_free(artefact_path);
+        if (append_rc != 0) goto cleanup;
     }
 
-    bake_dir_entries_free(cfg_dirs, cfg_count);
-    ecs_os_free(artefact_name);
     if (cfgs_out->count > 1) {
         qsort(cfgs_out->items, (size_t)cfgs_out->count, sizeof(char*), bake_list_cmp_string_ptr);
     }
-    return 0;
+    rc = 0;
+
+cleanup:
+    bake_dir_entries_free(cfg_dirs, cfg_count);
+    ecs_os_free(artefact_name);
+    if (rc != 0) bake_strlist_fini(cfgs_out);
+    return rc;
 }
 
 static int bake_list_collect_projects(
@@ -234,37 +243,11 @@ static int bake_list_collect_projects(
         bake_project_cfg_fini(&cfg);
     }
 
-    {
-        int32_t count = ecs_vec_count(&vec);
-        if (count > 1) {
-            qsort(ecs_vec_first(&vec), (size_t)count, sizeof(bake_list_project_t), bake_list_cmp_project);
-        }
-
-        if (count > 0) {
-            bake_list_project_t *projects = ecs_os_malloc_n(bake_list_project_t, count);
-            if (!projects) {
-                goto cleanup;
-            }
-            ecs_os_memcpy_n(projects, ecs_vec_first_t(&vec, bake_list_project_t), bake_list_project_t, count);
-            ecs_vec_fini_t(NULL, &vec, bake_list_project_t);
-            *projects_out = projects;
-        } else {
-            ecs_vec_fini_t(NULL, &vec, bake_list_project_t);
-            *projects_out = NULL;
-        }
-        *count_out = count;
-    }
+    BAKE_VEC_FINALIZE(bake_list_project_t, vec, bake_list_cmp_project, projects_out, count_out);
     rc = 0;
 
 cleanup:
-    if (rc != 0) {
-        bake_list_project_t *vec_projects = ecs_vec_first_t(&vec, bake_list_project_t);
-        int32_t vec_count = ecs_vec_count(&vec);
-        for (int32_t i = 0; i < vec_count; i++) {
-            bake_list_project_fini(&vec_projects[i]);
-        }
-        ecs_vec_fini_t(NULL, &vec, bake_list_project_t);
-    }
+    if (rc != 0) BAKE_VEC_DROP_ITEMS(bake_list_project_t, vec, bake_list_project_fini);
     bake_dir_entries_free(entries, entry_count);
     ecs_os_free(meta_dir);
     return rc;
@@ -341,37 +324,11 @@ static int bake_list_collect_templates(
         }
     }
 
-    {
-        int32_t count = ecs_vec_count(&vec);
-        if (count > 1) {
-            qsort(ecs_vec_first(&vec), (size_t)count, sizeof(bake_list_template_t), bake_list_cmp_template);
-        }
-
-        if (count > 0) {
-            bake_list_template_t *templates = ecs_os_malloc_n(bake_list_template_t, count);
-            if (!templates) {
-                goto cleanup;
-            }
-            ecs_os_memcpy_n(templates, ecs_vec_first_t(&vec, bake_list_template_t), bake_list_template_t, count);
-            ecs_vec_fini_t(NULL, &vec, bake_list_template_t);
-            *templates_out = templates;
-        } else {
-            ecs_vec_fini_t(NULL, &vec, bake_list_template_t);
-            *templates_out = NULL;
-        }
-        *count_out = count;
-    }
+    BAKE_VEC_FINALIZE(bake_list_template_t, vec, bake_list_cmp_template, templates_out, count_out);
     rc = 0;
 
 cleanup:
-    if (rc != 0) {
-        bake_list_template_t *vec_templates = ecs_vec_first_t(&vec, bake_list_template_t);
-        int32_t vec_count = ecs_vec_count(&vec);
-        for (int32_t i = 0; i < vec_count; i++) {
-            bake_list_template_fini(&vec_templates[i]);
-        }
-        ecs_vec_fini_t(NULL, &vec, bake_list_template_t);
-    }
+    if (rc != 0) BAKE_VEC_DROP_ITEMS(bake_list_template_t, vec, bake_list_template_fini);
     bake_dir_entries_free(entries, entry_count);
     ecs_os_free(template_root);
     return rc;
@@ -525,35 +482,22 @@ static int bake_info_project(bake_context_t *ctx) {
 }
 
 int bake_execute(bake_context_t *ctx, const char *argv0) {
-    if (!ctx->opts.command || !strcmp(ctx->opts.command, "build")) {
+    const char *cmd = ctx->opts.command;
+    if (!cmd) {
         return bake_build(ctx);
     }
 
-    if (!strcmp(ctx->opts.command, "run")) {
-        return bake_build_run(ctx);
+    static const struct { const char *name; int (*fn)(bake_context_t*); } table[] = {
+        {"build", bake_build}, {"run", bake_build_run},
+        {"clean", bake_build_clean}, {"rebuild", bake_build_rebuild},
+        {"list", bake_list_projects}, {"info", bake_info_project},
+        {"reset", bake_env_reset},
+    };
+    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
+        if (!strcmp(cmd, table[i].name)) return table[i].fn(ctx);
     }
 
-    if (!strcmp(ctx->opts.command, "clean")) {
-        return bake_build_clean(ctx);
-    }
-
-    if (!strcmp(ctx->opts.command, "rebuild")) {
-        return bake_build_rebuild(ctx);
-    }
-
-    if (!strcmp(ctx->opts.command, "list")) {
-        return bake_list_projects(ctx);
-    }
-
-    if (!strcmp(ctx->opts.command, "info")) {
-        return bake_info_project(ctx);
-    }
-
-    if (!strcmp(ctx->opts.command, "reset")) {
-        return bake_env_reset(ctx);
-    }
-
-    if (!strcmp(ctx->opts.command, "cleanup")) {
+    if (!strcmp(cmd, "cleanup")) {
         int32_t removed = 0;
         int rc = bake_env_cleanup(ctx, &removed);
         if (rc == 0) {
@@ -562,16 +506,16 @@ int bake_execute(bake_context_t *ctx, const char *argv0) {
         return rc;
     }
 
-    if (!strcmp(ctx->opts.command, "setup")) {
+    if (!strcmp(cmd, "setup")) {
         return bake_env_setup(ctx, argv0);
     }
 
-    if (!strcmp(ctx->opts.command, "help") || !strcmp(ctx->opts.command, "--help") || !strcmp(ctx->opts.command, "-h")) {
+    if (!strcmp(cmd, "help") || !strcmp(cmd, "--help") || !strcmp(cmd, "-h")) {
         bake_print_help();
         return 0;
     }
 
-    ecs_err("unknown command: %s", ctx->opts.command);
+    ecs_err("unknown command: %s", cmd);
     bake_print_help();
     return -1;
 }

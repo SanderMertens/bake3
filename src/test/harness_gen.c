@@ -240,25 +240,9 @@ static char* bake_harness_project_header(const bake_project_cfg_t *cfg) {
     return header_name;
 }
 
-static char* bake_suite_source_path(const bake_project_cfg_t *cfg, const bake_suite_spec_t *suite) {
-    const char *ext = "c";
-    if (bake_language_is_cpp(cfg)) {
-        ext = "cpp";
-    }
-
-    char *file_name = flecs_asprintf("%s.%s", suite->id, ext);
-    char *source = file_name ? bake_path_join3(cfg->path, "src", file_name) : NULL;
-    ecs_os_free(file_name);
-    return source;
-}
-
-static char* bake_main_source_path(const bake_project_cfg_t *cfg) {
-    const char *ext = "c";
-    if (bake_language_is_cpp(cfg)) {
-        ext = "cpp";
-    }
-
-    char *file_name = flecs_asprintf("main.%s", ext);
+static char* bake_source_path(const bake_project_cfg_t *cfg, const char *base) {
+    const char *ext = bake_language_is_cpp(cfg) ? "cpp" : "c";
+    char *file_name = flecs_asprintf("%s.%s", base, ext);
     char *source = file_name ? bake_path_join3(cfg->path, "src", file_name) : NULL;
     ecs_os_free(file_name);
     return source;
@@ -288,7 +272,7 @@ static void bake_append_empty_function(
 }
 
 int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_suite_spec_t *suite) {
-    char *suite_file = bake_suite_source_path(cfg, suite);
+    char *suite_file = bake_source_path(cfg, suite->id);
     if (!suite_file) {
         return -1;
     }
@@ -418,7 +402,7 @@ static void bake_generate_main_suite_decls(
 }
 
 int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *suites) {
-    char *main_path = bake_main_source_path(cfg);
+    char *main_path = bake_source_path(cfg, "main");
     char *project_header = bake_harness_project_header(cfg);
     const char *header_include = project_header ? project_header : "bake_test.h";
     if (!main_path) {
