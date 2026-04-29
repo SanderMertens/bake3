@@ -24,30 +24,6 @@ typedef struct bake_build_paths_t {
     char *gen_dir;
 } bake_build_paths_t;
 
-typedef struct bake_compile_cmd_ctx_t {
-    bake_context_t *ctx;
-    const bake_project_cfg_t *cfg;
-    const bake_compile_unit_t *unit;
-    const bake_lang_cfg_t *lang;
-    const bake_strlist_t *mode_flags;
-    const bake_strlist_t *dep_includes;
-} bake_compile_cmd_ctx_t;
-
-typedef struct bake_link_cmd_ctx_t {
-    bake_context_t *ctx;
-    const bake_project_cfg_t *cfg;
-    const bake_build_paths_t *paths;
-    const bake_compile_list_t *units;
-    const bake_lang_cfg_t *lang;
-    const bake_strlist_t *mode_ldflags;
-    const bake_strlist_t *dep_artefacts;
-    const bake_strlist_t *dep_libpaths;
-    const bake_strlist_t *dep_libs;
-    const bake_strlist_t *dep_ldflags;
-    const char *artefact;
-    bool use_cpp;
-} bake_link_cmd_ctx_t;
-
 char* bake_project_build_root(const char *project_path, const char *project_id, const char *mode);
 
 void bake_compile_list_init(bake_compile_list_t *list);
@@ -108,26 +84,7 @@ int bake_link_project_binary(
     char **artefact_out,
     bool *linked_out);
 
-int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_strbuf_t *cmd);
-int bake_compose_compile_command_msvc(const bake_compile_cmd_ctx_t *ctx, ecs_strbuf_t *cmd);
-int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t *cmd);
-int bake_compose_link_command_msvc(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t *cmd);
-
 int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, char **out_c, char **out_h);
 int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg);
-
-bool bake_dep_token_outdated(const char *token, int64_t obj_mtime);
-bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime);
-int64_t bake_project_json_mtime(const bake_project_cfg_t *cfg);
-bool bake_compile_unit_outdated(
-    const bake_compile_unit_t *unit,
-    int64_t project_json_mtime);
-bool bake_project_json_outdated(
-    const bake_project_cfg_t *cfg,
-    int64_t artefact_mtime);
-char* bake_library_name_from_artefact(const char *artefact);
-bool bake_has_dep_artefact_for_lib(
-    const bake_strlist_t *artefacts,
-    const char *lib);
 
 #endif

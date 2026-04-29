@@ -1,4 +1,5 @@
 #include "build_internal.h"
+#include "depcheck_internal.h"
 #include "bake/os.h"
 
 #include <ctype.h>

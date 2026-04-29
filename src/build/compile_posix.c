@@ -1,4 +1,5 @@
 #include "build_internal.h"
+#include "compile_internal.h"
 #include "bake/os.h"
 
 int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_strbuf_t *cmd) {
