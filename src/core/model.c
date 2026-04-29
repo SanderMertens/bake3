@@ -646,11 +646,17 @@ int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities
         return -1;
     }
 
-    ecs_entity_t *entities = vec_entities;
+    ecs_entity_t *entities = ecs_os_malloc_n(ecs_entity_t, count);
+    if (!entities) {
+        ecs_vec_fini_t(NULL, &vec, ecs_entity_t);
+        return -1;
+    }
+    ecs_os_memcpy_n(entities, vec_entities, ecs_entity_t, count);
+    ecs_vec_fini_t(NULL, &vec, ecs_entity_t);
 
     int32_t *depths = ecs_os_malloc_n(int32_t, count);
     if (!depths) {
-        ecs_vec_fini_t(NULL, &vec, ecs_entity_t);
+        ecs_os_free(entities);
         return -1;
     }
 

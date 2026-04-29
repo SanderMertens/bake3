@@ -240,14 +240,30 @@ static int bake_list_collect_projects(
             qsort(ecs_vec_first(&vec), (size_t)count, sizeof(bake_list_project_t), bake_list_cmp_project);
         }
 
-        *projects_out = ecs_vec_first_t(&vec, bake_list_project_t);
+        if (count > 0) {
+            bake_list_project_t *projects = ecs_os_malloc_n(bake_list_project_t, count);
+            if (!projects) {
+                goto cleanup;
+            }
+            ecs_os_memcpy_n(projects, ecs_vec_first_t(&vec, bake_list_project_t), bake_list_project_t, count);
+            ecs_vec_fini_t(NULL, &vec, bake_list_project_t);
+            *projects_out = projects;
+        } else {
+            ecs_vec_fini_t(NULL, &vec, bake_list_project_t);
+            *projects_out = NULL;
+        }
         *count_out = count;
     }
     rc = 0;
 
 cleanup:
     if (rc != 0) {
-        bake_list_projects_free(ecs_vec_first_t(&vec, bake_list_project_t), ecs_vec_count(&vec));
+        bake_list_project_t *vec_projects = ecs_vec_first_t(&vec, bake_list_project_t);
+        int32_t vec_count = ecs_vec_count(&vec);
+        for (int32_t i = 0; i < vec_count; i++) {
+            bake_list_project_fini(&vec_projects[i]);
+        }
+        ecs_vec_fini_t(NULL, &vec, bake_list_project_t);
     }
     bake_dir_entries_free(entries, entry_count);
     ecs_os_free(meta_dir);
@@ -331,14 +347,30 @@ static int bake_list_collect_templates(
             qsort(ecs_vec_first(&vec), (size_t)count, sizeof(bake_list_template_t), bake_list_cmp_template);
         }
 
-        *templates_out = ecs_vec_first_t(&vec, bake_list_template_t);
+        if (count > 0) {
+            bake_list_template_t *templates = ecs_os_malloc_n(bake_list_template_t, count);
+            if (!templates) {
+                goto cleanup;
+            }
+            ecs_os_memcpy_n(templates, ecs_vec_first_t(&vec, bake_list_template_t), bake_list_template_t, count);
+            ecs_vec_fini_t(NULL, &vec, bake_list_template_t);
+            *templates_out = templates;
+        } else {
+            ecs_vec_fini_t(NULL, &vec, bake_list_template_t);
+            *templates_out = NULL;
+        }
         *count_out = count;
     }
     rc = 0;
 
 cleanup:
     if (rc != 0) {
-        bake_list_templates_free(ecs_vec_first_t(&vec, bake_list_template_t), ecs_vec_count(&vec));
+        bake_list_template_t *vec_templates = ecs_vec_first_t(&vec, bake_list_template_t);
+        int32_t vec_count = ecs_vec_count(&vec);
+        for (int32_t i = 0; i < vec_count; i++) {
+            bake_list_template_fini(&vec_templates[i]);
+        }
+        ecs_vec_fini_t(NULL, &vec, bake_list_template_t);
     }
     bake_dir_entries_free(entries, entry_count);
     ecs_os_free(template_root);
