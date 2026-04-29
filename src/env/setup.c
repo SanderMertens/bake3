@@ -1,5 +1,6 @@
 #include "bake/environment.h"
 #include "bake/os.h"
+#include "env_internal.h"
 
 static int bake_env_run_argv_checked(const char *const *argv) {
     bake_process_result_t result = {0};
