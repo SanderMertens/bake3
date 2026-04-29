@@ -61,7 +61,8 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
         if (ch == '\\' && (i + 1) < len) {
             char next_ch = content[i + 1];
             bool is_escape = next_ch == ' ' || next_ch == '\t' ||
-                next_ch == '\\' || next_ch == '#' || next_ch == '$';
+                next_ch == '\\' || next_ch == '#' || next_ch == '$' ||
+                next_ch == ':';
             if ((token_len + 2) >= token_cap) {
                 size_t next_cap = token_cap * 2;
                 if (next_cap <= token_cap) {
