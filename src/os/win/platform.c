@@ -3,6 +3,8 @@
 #include "bake/os.h"
 #include <flecs.h>
 
+#include <windows.h>
+
 int bake_os_setenv(const char *name, const char *value) {
     if (!name || !name[0] || !value) {
         return -1;
@@ -30,7 +32,16 @@ const char* bake_host_executable_name(void) {
 }
 
 int32_t bake_host_threads(void) {
-    return 4;
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    DWORD cpu = si.dwNumberOfProcessors;
+    if (cpu < 1) {
+        return 1;
+    }
+    if (cpu > 128) {
+        return 128;
+    }
+    return (int32_t)cpu;
 }
 
 #endif

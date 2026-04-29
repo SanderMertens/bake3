@@ -30,10 +30,13 @@ const char* bake_host_executable_name(void) {
 
 int32_t bake_host_threads(void) {
     long cpu = sysconf(_SC_NPROCESSORS_ONLN);
-    if (cpu > 1 && cpu < 256) {
-        return (int32_t)cpu;
+    if (cpu < 1) {
+        return 1;
     }
-    return 4;
+    if (cpu > 128) {
+        return 128;
+    }
+    return (int32_t)cpu;
 }
 
 #endif
