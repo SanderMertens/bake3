@@ -158,7 +158,9 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     }
 
     for (char *p = rel; *p; p++) {
-        if (*p == '/' || *p == '\\' || *p == '.' || *p == ':') {
+        if (*p == '\\') {
+            *p = '/';
+        } else if (*p == ':') {
             *p = '_';
         }
     }
@@ -179,6 +181,16 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     ecs_os_free(obj_file);
     if (!obj_path) {
         return -1;
+    }
+
+    char *obj_parent = bake_path_dirname(obj_path);
+    if (obj_parent) {
+        if (bake_os_mkdirs(obj_parent) != 0) {
+            ecs_os_free(obj_parent);
+            ecs_os_free(obj_path);
+            return -1;
+        }
+        ecs_os_free(obj_parent);
     }
 
 #if defined(_WIN32)

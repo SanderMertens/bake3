@@ -244,6 +244,11 @@ class BakeTests(unittest.TestCase):
         self.assertIn("examples.c.app_clib", state.application_names)
         self.assertIn("examples.c.pkg_helloworld", state.package_names)
 
+    def test_build_distinguishes_sources_with_colliding_flat_names(self) -> None:
+        self.bake(["build", "test/projects/c/app_obj_collision"])
+        state = self.list_state()
+        self.assertIn("examples.c.app_obj_collision", state.application_names)
+
     def test_strict_build_enables_extended_c_warning_flags(self) -> None:
         output = self.strip_ansi(
             self.bake(["--trace", "--strict", "build", "test/projects/c/app_helloworld"])
