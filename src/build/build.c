@@ -33,10 +33,8 @@ char* bake_project_build_root(const char *project_path, const char *project_id, 
         return NULL;
     }
 
-    const char *local_env = getenv("BAKE_LOCAL_ENV");
-    const char *bake_home = getenv("BAKE_HOME");
-    if (local_env &&
-        !strcmp(local_env, "1") &&
+    const char *bake_home = bake_env_home();
+    if (bake_env_is_local() &&
         bake_home &&
         bake_home[0] &&
         project_id &&

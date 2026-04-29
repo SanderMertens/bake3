@@ -1,5 +1,6 @@
 #include "bake/model.h"
 #include "bake/build_components.h"
+#include "bake/environment.h"
 #include "bake/os.h"
 
 ECS_COMPONENT_DECLARE(BakeProject);
@@ -470,7 +471,7 @@ static int bake_model_collect_resolved_deps(
 
 int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
     const char *resolved_mode = (mode && mode[0]) ? mode : "debug";
-    const char *bake_home = getenv("BAKE_HOME");
+    const char *bake_home = bake_env_home();
 
     ecs_iter_t it = ecs_each_id(world, ecs_id(BakeProject));
     while (ecs_each_next(&it)) {

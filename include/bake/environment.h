@@ -18,6 +18,9 @@ int bake_env_sync_project(
     const BakeBuildRequest *req,
     bool rebuilt);
 
+bool bake_env_is_local(void);
+const char* bake_env_home(void);
+
 bool bake_env_has_required_test_templates(const char *dir, const char **missing_out);
 char* bake_env_find_test_template_source(void);
 int bake_env_copy_tree_recursive(const char *src, const char *dst);

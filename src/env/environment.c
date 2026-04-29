@@ -17,6 +17,14 @@ static bool bake_env_local_mode_enabled(const bake_context_t *ctx) {
     return local_env && !strcmp(local_env, "1");
 }
 
+bool bake_env_is_local(void) {
+    return bake_env_local_mode_enabled(NULL);
+}
+
+const char* bake_env_home(void) {
+    return getenv("BAKE_HOME");
+}
+
 bool bake_env_has_required_test_templates(const char *dir, const char **missing_out) {
     if (missing_out) {
         *missing_out = NULL;
