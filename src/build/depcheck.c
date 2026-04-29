@@ -30,9 +30,9 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
 
     bool seen_colon = false;
     bool outdated = false;
-    int token_cap = 256;
-    int token_len = 0;
-    char *token = ecs_os_malloc((size_t)token_cap);
+    size_t token_cap = 256;
+    size_t token_len = 0;
+    char *token = ecs_os_malloc(token_cap);
     if (!token) {
         ecs_os_free(content);
         return true;
@@ -53,16 +53,27 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
             continue;
         }
 
+        if (ch == '\\' && (i + 2) < len && content[i + 1] == '\r' && content[i + 2] == '\n') {
+            i += 2;
+            continue;
+        }
+
         if (ch == '\\' && (i + 1) < len) {
             if ((token_len + 2) >= token_cap) {
-                token_cap *= 2;
-                char *next = ecs_os_realloc_n(token, char, token_cap);
+                size_t next_cap = token_cap * 2;
+                if (next_cap <= token_cap) {
+                    ecs_os_free(token);
+                    ecs_os_free(content);
+                    return true;
+                }
+                char *next = ecs_os_realloc_n(token, char, next_cap);
                 if (!next) {
                     ecs_os_free(token);
                     ecs_os_free(content);
                     return true;
                 }
                 token = next;
+                token_cap = next_cap;
             }
             token[token_len++] = content[++i];
             continue;
@@ -81,14 +92,20 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
         }
 
         if ((token_len + 2) >= token_cap) {
-            token_cap *= 2;
-            char *next = ecs_os_realloc_n(token, char, token_cap);
+            size_t next_cap = token_cap * 2;
+            if (next_cap <= token_cap) {
+                ecs_os_free(token);
+                ecs_os_free(content);
+                return true;
+            }
+            char *next = ecs_os_realloc_n(token, char, next_cap);
             if (!next) {
                 ecs_os_free(token);
                 ecs_os_free(content);
                 return true;
             }
             token = next;
+            token_cap = next_cap;
         }
         token[token_len++] = ch;
     }
