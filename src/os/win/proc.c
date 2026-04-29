@@ -151,8 +151,6 @@ int bake_proc_run(
         return -1;
     }
 
-    bake_proc_install_signal_handler();
-
     char *cmd_line = bake_proc_join_command_line(argv);
     if (!cmd_line) {
         return -1;
@@ -256,10 +254,6 @@ int bake_proc_run(
             CloseHandle(pi.hProcess);
             return -1;
         }
-
-        if (InterlockedCompareExchange(&bake_proc_interrupted, 0, 0)) {
-            TerminateProcess(pi.hProcess, 130);
-        }
     }
 
     DWORD exit_code = 0;
@@ -272,8 +266,7 @@ int bake_proc_run(
     if (result) {
         result->exit_code = (int)exit_code;
         result->term_signal = 0;
-        result->interrupted = InterlockedCompareExchange(&bake_proc_interrupted, 0, 0) != 0 ||
-            exit_code == 130;
+        result->interrupted = exit_code == 130;
     }
 
     CloseHandle(pi.hThread);
