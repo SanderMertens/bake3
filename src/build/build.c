@@ -1,5 +1,6 @@
 #include "build_internal.h"
 #include "bake/environment.h"
+#include "bake/test_harness.h"
 #include "bake/os.h"
 
 #include <limits.h>
