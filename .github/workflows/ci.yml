@@ -56,6 +56,12 @@ jobs:
       BAKE_CC: gcc
       BAKE_CXX: g++
     steps:
+      - name: Disable git autocrlf
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+        shell: pwsh
+
       - uses: actions/checkout@v4
 
       - name: Set up MSYS2

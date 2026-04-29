@@ -144,7 +144,9 @@ static int bake_cmd_next_token(const char **cursor, char **token_out) {
         if (*p == '"' || *p == '\'') {
             char quote = *p++;
             while (*p && *p != quote) {
-                if (*p == '\\' && p[1] && quote == '"') {
+                if (*p == '\\' && quote == '"' &&
+                    (p[1] == '"' || p[1] == '\\'))
+                {
                     p++;
                 }
                 ecs_strbuf_appendch(&token, *p++);
@@ -155,7 +157,9 @@ static int bake_cmd_next_token(const char **cursor, char **token_out) {
             continue;
         }
 
-        if (*p == '\\' && p[1]) {
+        if (*p == '\\' && (p[1] == '"' || p[1] == '\'' ||
+            p[1] == '\\' || bake_char_is_space(p[1])))
+        {
             p++;
         }
         ecs_strbuf_appendch(&token, *p++);

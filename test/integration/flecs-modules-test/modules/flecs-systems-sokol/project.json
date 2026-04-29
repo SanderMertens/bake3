@@ -22,9 +22,15 @@
         },
         "${os darwin}": {
             "ldflags": [
-                "-framework Cocoa", 
-                "-framework QuartzCore", 
+                "-framework Cocoa",
+                "-framework QuartzCore",
                 "-framework OpenGL"
+            ]
+        },
+        "${os windows}": {
+            "lib": [
+                "kernel32", "user32", "gdi32", "shell32",
+                "ole32", "opengl32"
             ]
         },
         "${target em}": {
