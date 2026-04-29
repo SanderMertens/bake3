@@ -541,6 +541,43 @@ class BakeTests(unittest.TestCase):
             ),
         )
 
+    def test_project_json_testsuites_generate_stub_when_only_commented_definition(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.harness.comment.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_project_comment_{stamp}"
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        project_json = project_dir / "project.json"
+        project_json.write_text(
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"test\",\n"
+            "    \"value\": {\n"
+            "        \"output\": \"harness_project_comment\"\n"
+            "    },\n"
+            "    \"test\": {\n"
+            "        \"testsuites\": [{\n"
+            "            \"id\": \"Math\",\n"
+            "            \"testcases\": [\"add\"]\n"
+            "        }]\n"
+            "    }\n"
+            "}\n"
+        )
+
+        math_c = src_dir / "Math.c"
+        math_c.write_text(
+            "// void Math_add(void) { /* commented out */ }\n"
+            "/* void Math_add(void) {\n"
+            "    return;\n"
+            "} */\n"
+        )
+
+        self.bake(["build", str(project_dir)])
+
+        math_text = math_c.read_text()
+        self.assertIn("void Math_add(void) {\n}\n", math_text)
+
     def test_project_json_testsuites_main_uses_project_header_when_available(self) -> None:
         stamp = int(time.time() * 1_000_000)
         header_name = f"header_{stamp}"

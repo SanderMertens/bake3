@@ -37,20 +37,83 @@ static const char* bake_skip_ws_and_comments(const char *ptr) {
     }
 }
 
+static char* bake_strip_strings_and_comments(const char *text) {
+    if (!text) {
+        return NULL;
+    }
+    size_t len = strlen(text);
+    char *out = ecs_os_malloc(len + 1);
+    if (!out) {
+        return NULL;
+    }
+    size_t o = 0;
+    const char *p = text;
+    while (*p) {
+        if (p[0] == '/' && p[1] == '/') {
+            p += 2;
+            while (*p && *p != '\n') {
+                p++;
+            }
+            continue;
+        }
+        if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p && !(p[0] == '*' && p[1] == '/')) {
+                if (*p == '\n') {
+                    out[o++] = '\n';
+                }
+                p++;
+            }
+            if (*p) {
+                p += 2;
+            }
+            continue;
+        }
+        if (*p == '"' || *p == '\'') {
+            char quote = *p;
+            out[o++] = ' ';
+            p++;
+            while (*p && *p != quote) {
+                if (*p == '\\' && p[1]) {
+                    p += 2;
+                    continue;
+                }
+                if (*p == '\n') {
+                    out[o++] = '\n';
+                }
+                p++;
+            }
+            if (*p) {
+                p++;
+            }
+            continue;
+        }
+        out[o++] = *p++;
+    }
+    out[o] = '\0';
+    return out;
+}
+
 static int bake_text_contains_function_definition(const char *text, const char *function_name) {
     if (!text || !function_name || !function_name[0]) {
         return 0;
     }
 
+    char *clean = bake_strip_strings_and_comments(text);
+    if (!clean) {
+        return 0;
+    }
+
     size_t name_len = strlen(function_name);
-    const char *cursor = text;
+    const char *cursor = clean;
+    int found = 0;
     while (true) {
         const char *hit = strstr(cursor, function_name);
         if (!hit) {
-            return 0;
+            break;
         }
 
-        if (hit != text && bake_char_is_ident(hit[-1])) {
+        if (hit != clean && bake_char_is_ident(hit[-1])) {
             cursor = hit + 1;
             continue;
         }
@@ -79,16 +142,20 @@ static int bake_text_contains_function_definition(const char *text, const char *
         }
 
         if (depth != 0) {
-            return 0;
+            break;
         }
 
         ptr = bake_skip_ws_and_comments(ptr);
         if (*ptr == '{') {
-            return 1;
+            found = 1;
+            break;
         }
 
         cursor = hit + 1;
     }
+
+    ecs_os_free(clean);
+    return found;
 }
 
 static int bake_suite_has_function(const char *text, const char *suite, const char *suffix) {
