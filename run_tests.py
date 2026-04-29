@@ -1151,6 +1151,37 @@ class BakeTests(unittest.TestCase):
             f"expected duplicate-id error, got:\n{output}",
         )
 
+    def test_unknown_conditional_kind_warns(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"unknown_cond_{stamp}"
+        (root / "src").mkdir(parents=True, exist_ok=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"tmp.unknown.cond.{stamp}\",\n"
+            "    \"type\": \"package\",\n"
+            "    \"value\": {\n"
+            "        \"${oss linux}\": {\n"
+            "            \"cflags\": [\"-DSHOULD_NOT_APPLY\"]\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+        )
+        (root / "src" / "x.c").write_text("int x_value(void){return 0;}\n")
+        proc = subprocess.run(
+            [str(self.bake_bin), "build", str(root)],
+            cwd=str(self.repo_root),
+            env=self.env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        output = (proc.stdout or "") + (proc.stderr or "")
+        self.assertIn(
+            "unknown conditional key",
+            output,
+            f"expected unknown-conditional warning in output:\n{output}",
+        )
+
     def test_clean_nonexistent_target_succeeds(self) -> None:
         self.bake(["clean", "test/projects/c/app_helloworld"])
 

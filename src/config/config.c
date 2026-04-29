@@ -72,6 +72,8 @@ static int bake_json_conditional_key_matches(const char *key) {
             match = !strcasecmp(value, mode);
         } else if (!strcmp(kind, "target")) {
             match = bake_cfg_eval_target && !strcasecmp(value, bake_cfg_eval_target);
+        } else {
+            ecs_warn("unknown conditional key kind '%s' in '%s'", kind, key);
         }
     }
 
