@@ -78,17 +78,12 @@ int bake_proc_run(
 
     int status = 0;
     for (;;) {
-        pid_t rc = waitpid(pid, &status, WNOHANG);
+        pid_t rc = waitpid(pid, &status, 0);
         if (rc == pid) {
             break;
         }
 
-        if (rc == 0) {
-            usleep(10000);
-            continue;
-        }
-
-        if (errno == EINTR) {
+        if (rc < 0 && errno == EINTR) {
             continue;
         }
 
