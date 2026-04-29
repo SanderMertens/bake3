@@ -272,11 +272,35 @@ static int bake_amalgamate_file(
 
     char line[BAKE_AMALG_MAX_LINE];
     int32_t line_count = 0;
+    bool in_block_comment = false;
     while (fgets(line, BAKE_AMALG_MAX_LINE, in)) {
         line_count++;
 
+        bool line_in_block_comment_at_start = in_block_comment;
+        const char *scan = line;
+        while (*scan) {
+            if (in_block_comment) {
+                if (scan[0] == '*' && scan[1] == '/') {
+                    in_block_comment = false;
+                    scan += 2;
+                    continue;
+                }
+                scan++;
+                continue;
+            }
+            if (scan[0] == '/' && scan[1] == '*') {
+                in_block_comment = true;
+                scan += 2;
+                continue;
+            }
+            scan++;
+        }
+
         bool include_relative = false;
-        char *include = bake_parse_include_file(line, &include_relative);
+        char *include = NULL;
+        if (!line_in_block_comment_at_start) {
+            include = bake_parse_include_file(line, &include_relative);
+        }
         if (!include) {
             fprintf(out, "%s", line);
             continue;
@@ -368,6 +392,10 @@ static int bake_try_source_name(
     const char *ext,
     char **out)
 {
+    if (*out) {
+        return 0;
+    }
+
     char *path = flecs_asprintf("%s/%s.%s", src_dir, name, ext);
     if (!path) {
         return -1;
@@ -398,14 +426,17 @@ static char* bake_find_main_src_file(
     char *found = NULL;
     for (int i = 0; exts[i] && !found; i++) {
         if (bake_try_source_name(src_dir, "main", exts[i], &found) != 0) {
+            ecs_os_free(found);
             ecs_os_free(id_base);
             return NULL;
         }
         if (!found && bake_try_source_name(src_dir, project_id, exts[i], &found) != 0) {
+            ecs_os_free(found);
             ecs_os_free(id_base);
             return NULL;
         }
         if (!found && bake_try_source_name(src_dir, id_base, exts[i], &found) != 0) {
+            ecs_os_free(found);
             ecs_os_free(id_base);
             return NULL;
         }
