@@ -55,6 +55,33 @@ static void bake_model_resolved_deps_fini(BakeResolvedDeps *resolved) {
     memset(resolved, 0, sizeof(*resolved));
 }
 
+static void bake_resolved_deps_ctor(void *ptr, int32_t count, const ecs_type_info_t *type_info) {
+    (void)type_info;
+    BakeResolvedDeps *items = ptr;
+    for (int32_t i = 0; i < count; i++) {
+        bake_model_resolved_deps_init(&items[i]);
+    }
+}
+
+static void bake_resolved_deps_dtor(void *ptr, int32_t count, const ecs_type_info_t *type_info) {
+    (void)type_info;
+    BakeResolvedDeps *items = ptr;
+    for (int32_t i = 0; i < count; i++) {
+        bake_model_resolved_deps_fini(&items[i]);
+    }
+}
+
+static void bake_resolved_deps_move(void *dst_ptr, void *src_ptr, int32_t count, const ecs_type_info_t *type_info) {
+    (void)type_info;
+    BakeResolvedDeps *dst = dst_ptr;
+    BakeResolvedDeps *src = src_ptr;
+    for (int32_t i = 0; i < count; i++) {
+        bake_model_resolved_deps_fini(&dst[i]);
+        dst[i] = src[i];
+        memset(&src[i], 0, sizeof(src[i]));
+    }
+}
+
 static int bake_model_append_dep_entity(BakeResolvedDeps *resolved, ecs_entity_t dep) {
     int32_t next_count = resolved->dep_count + 1;
     ecs_entity_t *next = ecs_os_realloc_n(resolved->deps, ecs_entity_t, next_count);
@@ -110,6 +137,11 @@ int bake_model_init(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, BakeBuildRequest);
     ECS_COMPONENT_DEFINE(world, BakeBuildResult);
     ECS_COMPONENT_DEFINE(world, BakeResolvedDeps);
+    ecs_set_hooks(world, BakeResolvedDeps, {
+        .ctor = bake_resolved_deps_ctor,
+        .dtor = bake_resolved_deps_dtor,
+        .move = bake_resolved_deps_move
+    });
     ECS_COMPONENT_DEFINE(world, BakeDriver);
     ECS_COMPONENT_DEFINE(world, BakeBuildRule);
     ECS_COMPONENT_DEFINE(world, BakeEnvProject);
@@ -477,11 +509,6 @@ int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
     while (ecs_each_next(&it)) {
         for (int32_t i = 0; i < it.count; i++) {
             ecs_entity_t entity = it.entities[i];
-
-            BakeResolvedDeps *existing = (BakeResolvedDeps*)ecs_get(world, entity, BakeResolvedDeps);
-            if (existing) {
-                bake_model_resolved_deps_fini(existing);
-            }
 
             BakeResolvedDeps resolved;
             bake_model_resolved_deps_init(&resolved);
