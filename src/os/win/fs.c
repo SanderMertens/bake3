@@ -5,6 +5,7 @@
 
 #include <ctype.h>
 #include <direct.h>
+#include <errno.h>
 #include <io.h>
 #include <sys/stat.h>
 #include <windows.h>
@@ -42,11 +43,25 @@ int bake_path_exists(const char *path) {
 }
 
 int64_t bake_os_file_mtime(const char *path) {
-    struct _stat st;
-    if (_stat(path, &st) != 0) {
+    if (!path || !path[0]) {
         return -1;
     }
-    return (int64_t)st.st_mtime;
+
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &data)) {
+        return -1;
+    }
+
+    ULARGE_INTEGER ft;
+    ft.LowPart = data.ftLastWriteTime.dwLowDateTime;
+    ft.HighPart = data.ftLastWriteTime.dwHighDateTime;
+
+    int64_t epoch_100ns = 116444736000000000LL;
+    int64_t since_epoch_100ns = (int64_t)ft.QuadPart - epoch_100ns;
+    if (since_epoch_100ns < 0) {
+        since_epoch_100ns = 0;
+    }
+    return since_epoch_100ns * 100LL;
 }
 
 int bake_file_sync_mode(const char *src, const char *dst) {
@@ -86,12 +101,32 @@ int bake_os_mkdir(const char *path) {
 }
 
 char* bake_os_getcwd(void) {
-    char buf[MAX_PATH];
-    if (!_getcwd(buf, (int)sizeof(buf))) {
-        bake_log_errno_last("get current directory", NULL);
-        return NULL;
+    size_t size = 256;
+
+    for (;;) {
+        char *buf = ecs_os_malloc((int32_t)size);
+        if (!buf) {
+            return NULL;
+        }
+
+        if (_getcwd(buf, (int)size)) {
+            return buf;
+        }
+
+        int err = errno;
+        ecs_os_free(buf);
+        if (err != ERANGE) {
+            bake_log_errno("get current directory", NULL, err);
+            return NULL;
+        }
+
+        if (size > (SIZE_MAX / 2)) {
+            ecs_err("failed to get current directory: path is too long");
+            return NULL;
+        }
+
+        size *= 2;
     }
-    return ecs_os_strdup(buf);
 }
 
 int bake_os_rmdir(const char *path) {
