@@ -3,6 +3,7 @@
 #include "bake/os.h"
 #include <flecs.h>
 
+#include <ctype.h>
 #include <direct.h>
 #include <io.h>
 #include <sys/stat.h>
@@ -32,7 +33,7 @@ bool bake_path_is_abs(const char *path) {
     if (path[0] == '\\' || path[0] == '/') {
         return true;
     }
-    return path[0] && path[1] == ':';
+    return isalpha((unsigned char)path[0]) && path[1] == ':';
 }
 
 int bake_path_exists(const char *path) {
