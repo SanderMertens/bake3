@@ -69,9 +69,19 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
     for (int32_t i = 0; i < ctx->units->count; i++) {
         ecs_strbuf_append(cmd, " \"%s\"", ctx->units->items[i].obj);
     }
+#if !defined(__APPLE__)
+    if (ctx->dep_artefacts->count > 0) {
+        ecs_strbuf_appendstr(cmd, " -Wl,--start-group");
+    }
+#endif
     for (int32_t i = 0; i < ctx->dep_artefacts->count; i++) {
         ecs_strbuf_append(cmd, " \"%s\"", ctx->dep_artefacts->items[i]);
     }
+#if !defined(__APPLE__)
+    if (ctx->dep_artefacts->count > 0) {
+        ecs_strbuf_appendstr(cmd, " -Wl,--end-group");
+    }
+#endif
     bake_list_append_fmt(cmd, ctx->mode_ldflags, "", false);
     bake_list_append_fmt(cmd, &ctx->lang->ldflags, "", false);
     bake_list_append_fmt(cmd, ctx->dep_ldflags, "", false);

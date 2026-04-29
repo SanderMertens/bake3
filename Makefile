@@ -40,6 +40,12 @@ endif
 ifeq ($(UNAME_S),Darwin)
   LDFLAGS += -pthread -lm
 endif
+ifneq (,$(filter MINGW% MSYS% CYGWIN%,$(UNAME_S)))
+  LDFLAGS += -ldbghelp -lws2_32
+endif
+ifeq ($(OS),Windows_NT)
+  LDFLAGS += -ldbghelp -lws2_32
+endif
 
 all: $(BIN)
 
