@@ -39,6 +39,9 @@ int bake_json_parse_strlist(const JSON_Array *array, bake_strlist_t *list) {
         if (type == JSONArray || type == JSONObject) {
             return -1;
         }
+        if (type == JSONNull) {
+            continue;
+        }
 
         char *str = bake_json_strdup_value(value);
         if (!str) {

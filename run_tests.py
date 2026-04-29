@@ -1182,6 +1182,38 @@ class BakeTests(unittest.TestCase):
             f"expected unknown-conditional warning in output:\n{output}",
         )
 
+    def test_json_strlist_skips_nulls(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"json_null_{stamp}"
+        (root / "src").mkdir(parents=True, exist_ok=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"tmp.json.null.{stamp}\",\n"
+            "    \"type\": \"package\",\n"
+            "    \"value\": {\n"
+            "        \"use\": [null]\n"
+            "    }\n"
+            "}\n"
+        )
+        (root / "src" / "x.c").write_text("int x_value(void){return 0;}\n")
+        proc = subprocess.run(
+            [str(self.bake_bin), "info", str(root)],
+            cwd=str(root),
+            env=self.env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        output = (proc.stdout or "") + (proc.stderr or "")
+        text = self.strip_ansi(output)
+        for line in text.splitlines():
+            if line.startswith("use:") or line.lstrip().startswith("- "):
+                self.assertNotIn(
+                    "null",
+                    line,
+                    f"null entry leaked into use list:\n{text}",
+                )
+
     def test_clean_nonexistent_target_succeeds(self) -> None:
         self.bake(["clean", "test/projects/c/app_helloworld"])
 
