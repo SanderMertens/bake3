@@ -235,22 +235,35 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
     }
 
     for (int32_t i = 0; i < cfg->drivers.count; i++) {
+        char *driver_id = ecs_os_strdup(cfg->drivers.items[i]);
+        if (!driver_id) {
+            ecs_err("out of memory while attaching driver '%s'", cfg->drivers.items[i]);
+            return 0;
+        }
         ecs_entity_t drv = ecs_entity(world, {
             .parent = entity
         });
-        ecs_set(world, drv, BakeDriver, { .id = ecs_os_strdup(cfg->drivers.items[i]) });
+        ecs_set(world, drv, BakeDriver, { .id = driver_id });
     }
 
     {
         bake_rule_t *rules = ecs_vec_first_t(&cfg->rules.vec, bake_rule_t);
         int32_t rule_count = ecs_vec_count(&cfg->rules.vec);
         for (int32_t i = 0; i < rule_count; i++) {
+            char *rule_ext = ecs_os_strdup(rules[i].ext);
+            char *rule_cmd = ecs_os_strdup(rules[i].command);
+            if (!rule_ext || !rule_cmd) {
+                ecs_os_free(rule_ext);
+                ecs_os_free(rule_cmd);
+                ecs_err("out of memory while attaching build rule for '%s'", rules[i].ext);
+                return 0;
+            }
             ecs_entity_t rule = ecs_entity(world, {
                 .parent = entity
             });
             ecs_set(world, rule, BakeBuildRule, {
-                .ext = ecs_os_strdup(rules[i].ext),
-                .command = ecs_os_strdup(rules[i].command)
+                .ext = rule_ext,
+                .command = rule_cmd
             });
         }
     }
