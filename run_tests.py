@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Iterable
 
 
+EXE_SUFFIX = ".exe" if platform.system() == "Windows" else ""
+
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 SUMMARY_RE = re.compile(
     r"applications:\s*(?P<applications>\d+),\s*packages:\s*(?P<packages>\d+),\s*templates:\s*(?P<templates>\d+)"
@@ -36,7 +38,7 @@ class BakeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.repo_root = Path(__file__).resolve().parent
-        cls.bake_bin = cls.repo_root / "build" / "bake"
+        cls.bake_bin = cls.repo_root / "build" / f"bake{EXE_SUFFIX}"
         cls.bake_home = cls.repo_root / "test" / "tmp" / "bake_home"
         cls.env = os.environ.copy()
         cls.env["BAKE_HOME"] = str(cls.bake_home)
@@ -56,8 +58,8 @@ class BakeTests(unittest.TestCase):
 
     @classmethod
     def _require_supported_os(cls) -> None:
-        if platform.system() not in {"Linux", "Darwin"}:
-            raise unittest.SkipTest("run_tests.py supports Linux and macOS only")
+        if platform.system() not in {"Linux", "Darwin", "Windows"}:
+            raise unittest.SkipTest("run_tests.py supports Linux, macOS and Windows only")
 
     @classmethod
     def run_cmd(
@@ -249,6 +251,7 @@ class BakeTests(unittest.TestCase):
         state = self.list_state()
         self.assertIn("examples.c.app_obj_collision", state.application_names)
 
+    @unittest.skipIf(platform.system() == "Windows", "checks gcc-style flags; bake defaults to MSVC on Windows")
     def test_strict_build_enables_extended_c_warning_flags(self) -> None:
         output = self.strip_ansi(
             self.bake(["--trace", "--strict", "build", "test/projects/c/app_helloworld"])
@@ -263,6 +266,7 @@ class BakeTests(unittest.TestCase):
         self.assertIn("-Wold-style-definition", output)
         self.assertIn(self.strict_link_warning_flag(), output)
 
+    @unittest.skipIf(platform.system() == "Windows", "checks gcc-style flags; bake defaults to MSVC on Windows")
     def test_strict_build_enables_extended_cpp_warning_flags(self) -> None:
         output = self.strip_ansi(
             self.bake(["--trace", "--strict", "build", "test/projects/cpp/app_helloworld"])
@@ -278,6 +282,7 @@ class BakeTests(unittest.TestCase):
         self.assertIn("-Wzero-as-null-pointer-constant", output)
         self.assertIn(self.strict_link_warning_flag(), output)
 
+    @unittest.skipIf(platform.system() == "Windows", "checks gcc-style -l flags; bake defaults to MSVC on Windows")
     def test_strict_build_avoids_duplicate_dependency_link_inputs(self) -> None:
         self.bake(["build", "test/projects/envpkgs/libmath"])
         output = self.strip_ansi(
@@ -797,8 +802,17 @@ class BakeTests(unittest.TestCase):
         self.assertNotIn("PASS:  1, FAIL:  0, EMPTY:  0", output)
 
     def test_setup_local_reinstalls_executable_bake_binary(self) -> None:
-        installed_bake = self.bake_home / "bake3"
+        installed_bake = self.bake_home / f"bake3{EXE_SUFFIX}"
         self.assertTrue(installed_bake.is_file(), f"Expected installed bake binary at {installed_bake}")
+
+        if platform.system() == "Windows":
+            self.bake(["setup", "--local"])
+            self.assertTrue(
+                installed_bake.is_file(),
+                f"Expected setup to keep installed bake binary at {installed_bake}",
+            )
+            return
+
         self.assertTrue(
             installed_bake.stat().st_mode & stat.S_IXUSR,
             f"Expected installed bake binary to be executable: {installed_bake}",

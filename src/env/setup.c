@@ -80,7 +80,11 @@ int bake_env_setup(bake_context_t *ctx, const char *argv0) {
         return -1;
     }
 
+#if defined(_WIN32)
+    char *dst = bake_path_join(ctx->bake_home, "bake3.exe");
+#else
     char *dst = bake_path_join(ctx->bake_home, "bake3");
+#endif
     if (!dst) {
         return -1;
     }

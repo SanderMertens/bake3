@@ -146,6 +146,19 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    if (!opts.cc) {
+        const char *env_cc = getenv("BAKE_CC");
+        if (env_cc && env_cc[0]) {
+            opts.cc = env_cc;
+        }
+    }
+    if (!opts.cxx) {
+        const char *env_cxx = getenv("BAKE_CXX");
+        if (env_cxx && env_cxx[0]) {
+            opts.cxx = env_cxx;
+        }
+    }
+
     if (opts.local_env) {
         const char *existing_bake_home = getenv("BAKE_HOME");
         if (existing_bake_home && existing_bake_home[0]) {

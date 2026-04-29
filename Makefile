@@ -2,6 +2,14 @@ CC ?= cc
 OPTIMIZE ?= 0
 UNAME_S := $(shell uname -s 2>/dev/null)
 
+EXE :=
+ifneq (,$(filter MINGW% MSYS% CYGWIN%,$(UNAME_S)))
+  EXE := .exe
+endif
+ifeq ($(OS),Windows_NT)
+  EXE := .exe
+endif
+
 ifeq ($(OPTIMIZE),1)
   OPTFLAGS ?= -O3
 else
@@ -25,7 +33,7 @@ OBJ := $(patsubst %.c,build/%.o,$(SRC))
 OBJ += build/flecs.o
 OBJ += build/parson.o
 
-BIN := build/bake
+BIN := build/bake$(EXE)
 ifeq ($(UNAME_S),Linux)
   LDFLAGS += -pthread -lm
 endif
