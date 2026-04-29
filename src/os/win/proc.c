@@ -6,13 +6,13 @@
 #include <windows.h>
 
 static char* bake_proc_quote_arg(const char *arg) {
-    if (!arg) {
+    if (!arg || !arg[0]) {
         return ecs_os_strdup("\"\"");
     }
 
     bool needs_quote = false;
     for (const char *p = arg; *p; p++) {
-        if (*p == ' ' || *p == '\t' || *p == '"') {
+        if (*p == ' ' || *p == '\t' || *p == '"' || *p == '\n' || *p == '\v') {
             needs_quote = true;
             break;
         }
@@ -23,18 +23,37 @@ static char* bake_proc_quote_arg(const char *arg) {
     }
 
     size_t len = strlen(arg);
-    char *out = ecs_os_malloc((len * 2) + 3);
+    char *out = ecs_os_malloc((int32_t)((len * 2) + 3));
     if (!out) {
         return NULL;
     }
 
     size_t w = 0;
     out[w++] = '"';
-    for (size_t i = 0; i < len; i++) {
-        if (arg[i] == '"') {
-            out[w++] = '\\';
+    for (size_t i = 0; i < len; ) {
+        size_t bs = 0;
+        while (i < len && arg[i] == '\\') {
+            bs++;
+            i++;
         }
-        out[w++] = arg[i];
+
+        if (i == len) {
+            for (size_t j = 0; j < bs * 2; j++) {
+                out[w++] = '\\';
+            }
+            break;
+        } else if (arg[i] == '"') {
+            for (size_t j = 0; j < bs * 2 + 1; j++) {
+                out[w++] = '\\';
+            }
+            out[w++] = '"';
+            i++;
+        } else {
+            for (size_t j = 0; j < bs; j++) {
+                out[w++] = '\\';
+            }
+            out[w++] = arg[i++];
+        }
     }
     out[w++] = '"';
     out[w] = '\0';
