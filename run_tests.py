@@ -343,6 +343,95 @@ class BakeTests(unittest.TestCase):
             "Expected build to update artefact after touching project.json",
         )
 
+    def test_build_app_with_json_comments(self) -> None:
+        target = "test/projects/c/app_w_comments"
+        self.bake(["build", target])
+        artefact = self.artefact_path(target)
+        self.assertTrue(artefact.exists(), f"Expected artefact at {artefact}")
+        state = self.list_state()
+        self.assertIn("examples.c.app_w_comments", state.application_names)
+
+    def test_build_app_with_non_c_source_extension_skips_inl(self) -> None:
+        target = "test/projects/c/app_w_non_c_ext"
+        self.bake(["build", target])
+        objects = self.object_paths(target)
+        names = [o.name for o in objects]
+        self.assertTrue(
+            any("main" in name for name in names),
+            f"Expected main object to be compiled, got objects: {names}",
+        )
+        for name in names:
+            self.assertFalse(
+                "foo" in name and "inl" in name,
+                f"Expected foo.inl to be skipped, but found compiled object: {name}",
+            )
+
+    def test_run_app_dependee_resolves_transitive_dependee_use(self) -> None:
+        self.bake(["build", "test/projects/c/pkg_helloworld"])
+        self.bake(["build", "test/projects/c/pkg_w_dependee"])
+        self.bake(["build", "test/projects/c/app_dependee"])
+        output = self.bake(["run", "test/projects/c/app_dependee"])
+        text = self.strip_ansi(output)
+        self.assertIn("pkg_w_dependee", text)
+        self.assertIn("Hello world", text)
+
+    def test_build_pkg_dependency_private_with_use_private(self) -> None:
+        self.bake(["build", "test/projects/c/pkg_helloworld"])
+        target = "test/projects/c/pkg_dependency_private"
+        self.bake(["build", target])
+        artefact = self.artefact_path(target)
+        self.assertTrue(artefact.exists(), f"Expected artefact at {artefact}")
+
+    def test_header_mtime_triggers_rebuild(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_dir = self.repo_root / "test" / "tmp" / f"header_mtime_{stamp}"
+        src_dir = project_dir / "src"
+        include_dir = project_dir / "include"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        include_dir.mkdir(parents=True, exist_ok=True)
+
+        (project_dir / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"tmp.header_mtime.{stamp}\",\n"
+            "    \"type\": \"application\"\n"
+            "}\n"
+        )
+        header = include_dir / "myheader.h"
+        header.write_text(
+            "#ifndef MYHEADER_H\n"
+            "#define MYHEADER_H\n"
+            "static int header_value(void) { return 1; }\n"
+            "#endif\n"
+        )
+        (src_dir / "main.c").write_text(
+            "#include \"myheader.h\"\n"
+            "int main(void) {\n"
+            "    return header_value() - 1;\n"
+            "}\n"
+        )
+
+        self.bake(["build", str(project_dir)])
+        objects_before = {
+            obj: obj.stat().st_mtime_ns for obj in self.object_paths(str(project_dir.relative_to(self.repo_root)))
+        }
+        self.assertGreater(len(objects_before), 0, "Expected at least one object file")
+
+        time.sleep(1.1)
+        os.utime(header, None)
+
+        self.bake(["build", str(project_dir)])
+        objects_after = {
+            obj: obj.stat().st_mtime_ns for obj in self.object_paths(str(project_dir.relative_to(self.repo_root)))
+        }
+        rebuilt = any(
+            objects_after.get(obj, 0) > before
+            for obj, before in objects_before.items()
+        )
+        self.assertTrue(
+            rebuilt,
+            "Expected object file to be rebuilt after touching included header",
+        )
+
     def test_rebuild_from_test_directory(self) -> None:
         self.bake(["build", "test/integration/flecs-modules-test"])
         test_dir = self.repo_root / "test"
@@ -1024,7 +1113,25 @@ class BakeTests(unittest.TestCase):
             "}\n"
         )
 
-        self.bake_expect_failure(["build", str(project_dir)])
+        output = self.strip_ansi(
+            self.bake_expect_failure(["build", str(project_dir)])
+        )
+        lower = output.lower()
+        has_parse_message = (
+            "failed to parse" in lower
+            or "parse error" in lower
+            or "json" in lower
+            or "syntax" in lower
+        )
+        self.assertTrue(
+            has_parse_message,
+            f"Expected JSON parse error message, got:\n{output}",
+        )
+        self.assertIn(
+            "project.json",
+            output,
+            f"Expected project.json reference in error, got:\n{output}",
+        )
 
     def test_build_missing_dependency_fails(self) -> None:
         stamp = int(time.time() * 1_000_000)
@@ -1062,7 +1169,20 @@ class BakeTests(unittest.TestCase):
         )
 
     def test_run_nonexistent_target_fails(self) -> None:
-        self.bake_expect_failure(["run", "test/projects/c/does_not_exist"])
+        output = self.strip_ansi(
+            self.bake_expect_failure(["run", "test/projects/c/does_not_exist"])
+        )
+        lower = output.lower()
+        self.assertIn(
+            "not found",
+            lower,
+            f"Expected 'not found' in error output, got:\n{output}",
+        )
+        self.assertIn(
+            "does_not_exist",
+            output,
+            f"Expected missing target name in error output, got:\n{output}",
+        )
 
     def test_circular_dependency_does_not_crash(self) -> None:
         stamp = int(time.time() * 1_000_000)
@@ -1215,7 +1335,26 @@ class BakeTests(unittest.TestCase):
                 )
 
     def test_clean_nonexistent_target_succeeds(self) -> None:
-        self.bake(["clean", "test/projects/c/app_helloworld"])
+        proc = subprocess.run(
+            [str(self.bake_bin), "clean", "test/projects/c/does_not_exist"],
+            cwd=str(self.repo_root),
+            env=self.env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(
+            proc.returncode,
+            0,
+            f"clean of nonexistent target should succeed silently, "
+            f"rc={proc.returncode}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}",
+        )
+        stderr_clean = self.strip_ansi(proc.stderr or "").strip()
+        self.assertEqual(
+            stderr_clean,
+            "",
+            f"clean of nonexistent target should not produce stderr, got:\n{proc.stderr}",
+        )
 
     def test_worktree_unchanged_after_run(self) -> None:
         current_snapshot = self.git_snapshot()
