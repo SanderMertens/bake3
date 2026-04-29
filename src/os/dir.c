@@ -17,12 +17,20 @@ void bake_dir_entries_free(bake_dir_entry_t *entries, int32_t count) {
     ecs_os_free(entries);
 }
 
+#define BAKE_DIR_WALK_MAX_DEPTH 32
+
 typedef struct bake_walk_ctx_t {
     bake_dir_walk_cb cb;
     void *ctx;
 } bake_walk_ctx_t;
 
-static int bake_dir_walk_recurse(const char *root, bake_walk_ctx_t *walk) {
+static int bake_dir_walk_recurse(const char *root, bake_walk_ctx_t *walk, int32_t depth) {
+    if (depth > BAKE_DIR_WALK_MAX_DEPTH) {
+        ecs_err("directory walk exceeded max depth (%d) at '%s'",
+            BAKE_DIR_WALK_MAX_DEPTH, root);
+        return -1;
+    }
+
     bake_dir_entry_t *entries = NULL;
     int32_t count = 0;
     if (bake_dir_list(root, &entries, &count) != 0) {
@@ -43,7 +51,7 @@ static int bake_dir_walk_recurse(const char *root, bake_walk_ctx_t *walk) {
         }
 
         if (entry->is_dir && cb_rc == 0) {
-            if (bake_dir_walk_recurse(entry->path, walk) != 0) {
+            if (bake_dir_walk_recurse(entry->path, walk, depth + 1) != 0) {
                 bake_dir_entries_free(entries, count);
                 return -1;
             }
@@ -59,7 +67,7 @@ int bake_dir_walk_recursive(const char *root, bake_dir_walk_cb cb, void *ctx) {
         .cb = cb,
         .ctx = ctx
     };
-    return bake_dir_walk_recurse(root, &walk);
+    return bake_dir_walk_recurse(root, &walk, 0);
 }
 
 int bake_os_mkdirs(const char *path) {

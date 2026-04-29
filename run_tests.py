@@ -1113,6 +1113,44 @@ class BakeTests(unittest.TestCase):
             f"bake terminated by signal on circular dependency: rc={proc.returncode}",
         )
 
+    def test_duplicate_project_id_reports_error(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"dup_id_{stamp}"
+        proj_a = root / "a"
+        proj_b = root / "b"
+        for d in (proj_a / "src", proj_b / "src"):
+            d.mkdir(parents=True, exist_ok=True)
+
+        proj_id = f"tmp.dup.id.{stamp}"
+        for proj in (proj_a, proj_b):
+            (proj / "project.json").write_text(
+                "{\n"
+                f"    \"id\": \"{proj_id}\",\n"
+                "    \"type\": \"package\"\n"
+                "}\n"
+            )
+            (proj / "src" / "src.c").write_text("int v(void){return 0;}\n")
+
+        proc = subprocess.run(
+            [str(self.bake_bin), "build", str(root)],
+            cwd=str(self.repo_root),
+            env=self.env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        output = (proc.stdout or "") + (proc.stderr or "")
+        self.assertGreaterEqual(
+            proc.returncode,
+            0,
+            f"bake terminated by signal on duplicate id: rc={proc.returncode}\n{output}",
+        )
+        self.assertIn(
+            "duplicate",
+            output.lower(),
+            f"expected duplicate-id error, got:\n{output}",
+        )
+
     def test_clean_nonexistent_target_succeeds(self) -> None:
         self.bake(["clean", "test/projects/c/app_helloworld"])
 
