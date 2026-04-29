@@ -1,4 +1,5 @@
 #include "bake/os.h"
+#include <flecs.h>
 
 static int bake_file_close(FILE *f, const char *path) {
     if (fclose(f) != 0) {

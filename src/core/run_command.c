@@ -1,5 +1,6 @@
 #include "bake/common.h"
 #include "bake/os.h"
+#include <flecs.h>
 
 typedef enum bake_cmd_redir_t {
     BAKE_CMD_REDIR_NONE = 0,

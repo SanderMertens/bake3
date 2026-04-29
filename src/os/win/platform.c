@@ -1,6 +1,7 @@
 #if defined(_WIN32)
 
 #include "bake/os.h"
+#include <flecs.h>
 
 int bake_setenv(const char *name, const char *value) {
     if (!name || !name[0] || !value) {

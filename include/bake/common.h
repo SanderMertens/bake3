@@ -27,8 +27,6 @@
 #endif
 #include <stdarg.h>
 
-#include <flecs.h>
-
 #define BAKE_UNUSED(x) (void)(x)
 
 int bake_run_command(const char *cmd, bool log_command);

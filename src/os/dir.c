@@ -1,4 +1,5 @@
 #include "bake/os.h"
+#include <flecs.h>
 
 bool bake_is_dot_dir(const char *name) {
     return !strcmp(name, ".") || !strcmp(name, "..");

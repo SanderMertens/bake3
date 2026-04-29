@@ -1,4 +1,5 @@
 #include "bake/os.h"
+#include <flecs.h>
 
 #include <stdlib.h>
 #if defined(_WIN32)

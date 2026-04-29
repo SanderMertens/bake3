@@ -2,6 +2,7 @@
 #define BAKE3_CONFIG_H
 
 #include "bake/strlist.h"
+#include <flecs.h>
 
 typedef enum bake_project_kind_t {
     BAKE_PROJECT_APPLICATION = 0,

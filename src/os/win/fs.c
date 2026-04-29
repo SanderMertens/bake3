@@ -1,6 +1,7 @@
 #if defined(_WIN32)
 
 #include "bake/os.h"
+#include <flecs.h>
 
 #include <direct.h>
 #include <io.h>

@@ -1,5 +1,6 @@
 #include "bake/common.h"
 #include "bake/os.h"
+#include <flecs.h>
 
 #include <ctype.h>
 
