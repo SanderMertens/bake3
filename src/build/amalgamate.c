@@ -496,6 +496,7 @@ static int bake_replace_if_changed(
 {
     int64_t output_mtime = bake_os_file_mtime(out_file);
     if (latest_input_mtime > output_mtime) {
+        remove(out_file);
         if (rename(tmp_file, out_file) != 0) {
             return -1;
         }

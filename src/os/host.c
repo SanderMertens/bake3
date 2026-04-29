@@ -92,6 +92,10 @@ int bake_rename_file(const char *src, const char *dst) {
         return -1;
     }
 
+#if defined(_WIN32)
+    remove(dst);
+#endif
+
     if (rename(src, dst) != 0) {
         int err = errno;
         ecs_err(
