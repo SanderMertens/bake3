@@ -1,6 +1,7 @@
 #include "bake/context.h"
 #include "bake/environment.h"
 #include "bake/model.h"
+#include "bake/build_components.h"
 #include "bake/os.h"
 
 static
@@ -143,6 +144,11 @@ int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
     }
 
     if (bake_model_init(ctx->world) != 0) {
+        bake_context_fini(ctx);
+        return -1;
+    }
+
+    if (bake_build_components_init(ctx->world) != 0) {
         bake_context_fini(ctx);
         return -1;
     }

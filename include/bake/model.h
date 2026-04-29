@@ -10,17 +10,6 @@ typedef struct BakeProject {
     bool external;
 } BakeProject;
 
-typedef struct BakeBuildRequest {
-    const char *mode;
-    bool recursive;
-    bool standalone;
-} BakeBuildRequest;
-
-typedef struct BakeBuildResult {
-    int32_t status;
-    char *artefact;
-} BakeBuildResult;
-
 typedef struct BakeResolvedDeps {
     ecs_entity_t *deps;
     int32_t dep_count;
@@ -46,8 +35,6 @@ typedef struct BakeEnvProject {
 } BakeEnvProject;
 
 extern ECS_COMPONENT_DECLARE(BakeProject);
-extern ECS_COMPONENT_DECLARE(BakeBuildRequest);
-extern ECS_COMPONENT_DECLARE(BakeBuildResult);
 extern ECS_COMPONENT_DECLARE(BakeResolvedDeps);
 extern ECS_COMPONENT_DECLARE(BakeDriver);
 extern ECS_COMPONENT_DECLARE(BakeBuildRule);
@@ -57,9 +44,6 @@ extern ecs_entity_t BakeDependsOn;
 
 extern ECS_TAG_DECLARE(BakeDiscovered);
 extern ECS_TAG_DECLARE(BakeExternal);
-extern ECS_TAG_DECLARE(BakeBuilt);
-extern ECS_TAG_DECLARE(BakeBuildFailed);
-extern ECS_TAG_DECLARE(BakeBuildInProgress);
 
 int bake_model_init(ecs_world_t *world);
 

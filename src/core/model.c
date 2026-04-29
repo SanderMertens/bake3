@@ -1,10 +1,8 @@
 #include "bake/model.h"
+#include "bake/build_components.h"
 #include "bake/os.h"
-#include "bake/build.h"
 
 ECS_COMPONENT_DECLARE(BakeProject);
-ECS_COMPONENT_DECLARE(BakeBuildRequest);
-ECS_COMPONENT_DECLARE(BakeBuildResult);
 ECS_COMPONENT_DECLARE(BakeResolvedDeps);
 ECS_COMPONENT_DECLARE(BakeDriver);
 ECS_COMPONENT_DECLARE(BakeBuildRule);
@@ -12,9 +10,6 @@ ECS_COMPONENT_DECLARE(BakeEnvProject);
 
 ECS_TAG_DECLARE(BakeDiscovered);
 ECS_TAG_DECLARE(BakeExternal);
-ECS_TAG_DECLARE(BakeBuilt);
-ECS_TAG_DECLARE(BakeBuildFailed);
-ECS_TAG_DECLARE(BakeBuildInProgress);
 
 ecs_entity_t BakeDependsOn = 0;
 

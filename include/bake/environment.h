@@ -2,6 +2,7 @@
 #define BAKE3_ENVIRONMENT_H
 
 #include "bake/model.h"
+#include "bake/build_components.h"
 
 int bake_env_init_paths(bake_context_t *ctx);
 int bake_env_setup(bake_context_t *ctx, const char *argv0);

@@ -5,6 +5,24 @@
 #include <limits.h>
 #include <stdlib.h>
 
+ECS_COMPONENT_DECLARE(BakeBuildRequest);
+ECS_COMPONENT_DECLARE(BakeBuildResult);
+
+ECS_TAG_DECLARE(BakeBuilt);
+ECS_TAG_DECLARE(BakeBuildFailed);
+ECS_TAG_DECLARE(BakeBuildInProgress);
+
+int bake_build_components_init(ecs_world_t *world) {
+    ECS_COMPONENT_DEFINE(world, BakeBuildRequest);
+    ECS_COMPONENT_DEFINE(world, BakeBuildResult);
+
+    ECS_TAG_DEFINE(world, BakeBuilt);
+    ECS_TAG_DEFINE(world, BakeBuildFailed);
+    ECS_TAG_DEFINE(world, BakeBuildInProgress);
+
+    return 0;
+}
+
 char* bake_project_build_root(const char *project_path, const char *project_id, const char *mode) {
     if (!project_path || !project_path[0]) {
         return NULL;
