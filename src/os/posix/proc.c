@@ -12,18 +12,18 @@
 static int bake_proc_redirect_file(const char *path, int fd, int flags) {
     int file = open(path, flags, 0644);
     if (file < 0) {
-        bake_log_last_errno("open redirected stdio file", path);
+        bake_log_errno_last("open redirected stdio file", path);
         return -1;
     }
 
     if (dup2(file, fd) < 0) {
-        bake_log_last_errno("redirect stdio", path);
+        bake_log_errno_last("redirect stdio", path);
         close(file);
         return -1;
     }
 
     if (close(file) != 0) {
-        bake_log_last_errno("close redirected stdio file", path);
+        bake_log_errno_last("close redirected stdio file", path);
         return -1;
     }
     return 0;

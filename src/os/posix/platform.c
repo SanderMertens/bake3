@@ -5,21 +5,21 @@
 
 #include <unistd.h>
 
-int bake_setenv(const char *name, const char *value) {
+int bake_os_setenv(const char *name, const char *value) {
     if (!name || !name[0] || !value) {
         return -1;
     }
     return setenv(name, value, 1);
 }
 
-int bake_unsetenv(const char *name) {
+int bake_os_unsetenv(const char *name) {
     if (!name || !name[0]) {
         return -1;
     }
     return unsetenv(name);
 }
 
-char* bake_home_path(void) {
+char* bake_os_home_path(void) {
     const char *home = getenv("HOME");
     return home ? ecs_os_strdup(home) : NULL;
 }

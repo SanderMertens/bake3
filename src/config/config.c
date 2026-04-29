@@ -658,7 +658,7 @@ static int bake_project_cfg_finalize_defaults(const char *project_json_path, bak
     }
 
     if (!cfg->path) {
-        cfg->path = bake_dirname(project_json_path);
+        cfg->path = bake_path_dirname(project_json_path);
     }
 
     if (!cfg->id) {
@@ -679,7 +679,7 @@ static int bake_project_cfg_finalize_defaults(const char *project_json_path, bak
     }
 
     if (!cfg->output_name) {
-        cfg->output_name = bake_stem(cfg->id);
+        cfg->output_name = bake_path_stem(cfg->id);
     }
 
     return cfg->path && cfg->id && cfg->output_name ? 0 : -1;
@@ -705,7 +705,7 @@ int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t
     }
 
     if (!cfg->path) {
-        cfg->path = bake_dirname(project_json_path);
+        cfg->path = bake_path_dirname(project_json_path);
     }
 
     if (bake_project_cfg_finalize_defaults(project_json_path, cfg) != 0) {

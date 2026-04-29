@@ -9,7 +9,7 @@
 int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *count_out) {
     DIR *dir = opendir(path);
     if (!dir) {
-        bake_log_last_errno("open directory", path);
+        bake_log_errno_last("open directory", path);
         return -1;
     }
 
@@ -31,7 +31,7 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
         struct stat st;
         entry->is_dir = false;
         if (stat(entry->path, &st) != 0) {
-            bake_log_last_errno("stat directory entry", entry->path);
+            bake_log_errno_last("stat directory entry", entry->path);
             bake_dir_entries_free(ecs_vec_first_t(&vec, bake_dir_entry_t), ecs_vec_count(&vec));
             closedir(dir);
             return -1;
@@ -40,14 +40,14 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
     }
 
     if (errno != 0) {
-        bake_log_last_errno("read directory", path);
+        bake_log_errno_last("read directory", path);
         bake_dir_entries_free(ecs_vec_first_t(&vec, bake_dir_entry_t), ecs_vec_count(&vec));
         closedir(dir);
         return -1;
     }
 
     if (closedir(dir) != 0) {
-        bake_log_last_errno("close directory", path);
+        bake_log_errno_last("close directory", path);
         bake_dir_entries_free(ecs_vec_first_t(&vec, bake_dir_entry_t), ecs_vec_count(&vec));
         return -1;
     }

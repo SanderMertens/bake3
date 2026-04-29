@@ -212,7 +212,7 @@ static int bake_collect_dependency_link_inputs(
         }
 
         bake_strlist_append(artefacts, result->artefact);
-        char *libdir = bake_dirname(result->artefact);
+        char *libdir = bake_path_dirname(result->artefact);
         if (libdir) {
             if (!bake_strlist_contains(libpaths, libdir)) {
                 bake_strlist_append(libpaths, libdir);
@@ -278,19 +278,19 @@ static char* bake_compile_display_path(const bake_project_cfg_t *cfg, const char
 
     char *path = bake_display_path(src, cfg ? cfg->path : NULL);
     if (!path) {
-        return bake_basename(src);
+        return bake_path_basename(src);
     }
 
     /* Strip leading "src/" from compile display paths */
     if (!strncmp(path, "src/", 4) || !strncmp(path, "src\\", 4)) {
         char *trimmed = ecs_os_strdup(path + 4);
         ecs_os_free(path);
-        return trimmed ? trimmed : bake_basename(src);
+        return trimmed ? trimmed : bake_path_basename(src);
     }
 
     if (!path[0] || !strcmp(path, ".")) {
         ecs_os_free(path);
-        return bake_basename(src);
+        return bake_path_basename(src);
     }
 
     return path;
@@ -312,8 +312,8 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
     const bake_lang_cfg_t *lang = unit->cpp ? ctx->cpp_lang : ctx->c_lang;
     const bake_strlist_t *mode_flags = unit->cpp ? ctx->mode_cxxflags : ctx->mode_cflags;
 
-    char *obj_dir = bake_dirname(unit->obj);
-    if (!obj_dir || bake_mkdirs(obj_dir) != 0) {
+    char *obj_dir = bake_path_dirname(unit->obj);
+    if (!obj_dir || bake_os_mkdirs(obj_dir) != 0) {
         ecs_os_free(obj_dir);
         return -1;
     }
@@ -492,7 +492,7 @@ static bool bake_link_inputs_outdated(
         return true;
     }
 
-    int64_t artefact_mtime = bake_file_mtime(artefact);
+    int64_t artefact_mtime = bake_os_file_mtime(artefact);
     if (artefact_mtime < 0) {
         return true;
     }
@@ -502,14 +502,14 @@ static bool bake_link_inputs_outdated(
     }
 
     for (int32_t i = 0; i < units->count; i++) {
-        int64_t mtime = bake_file_mtime(units->items[i].obj);
+        int64_t mtime = bake_os_file_mtime(units->items[i].obj);
         if (mtime < 0 || mtime > artefact_mtime) {
             return true;
         }
     }
 
     for (int32_t i = 0; i < dep_artefacts->count; i++) {
-        int64_t mtime = bake_file_mtime(dep_artefacts->items[i]);
+        int64_t mtime = bake_os_file_mtime(dep_artefacts->items[i]);
         if (mtime < 0 || mtime > artefact_mtime) {
             return true;
         }

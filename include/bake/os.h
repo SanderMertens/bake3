@@ -43,18 +43,18 @@ bool bake_path_equal_normalized(const char *lhs, const char *rhs);
 bool bake_path_has_prefix_normalized(const char *path, const char *prefix, size_t *prefix_len_out);
 int bake_path_exists(const char *path);
 void bake_log_errno(const char *action, const char *path, int err);
-void bake_log_last_errno(const char *action, const char *path);
+void bake_log_errno_last(const char *action, const char *path);
 int bake_remove_file(const char *path);
 int bake_remove_file_if_exists(const char *path);
 int bake_rename_file(const char *src, const char *dst);
 #if defined(_WIN32)
 void bake_log_win_error(const char *action, const char *path, unsigned long err);
-void bake_log_last_win_error(const char *action, const char *path);
+void bake_log_win_error_last(const char *action, const char *path);
 #endif
 
-int bake_setenv(const char *name, const char *value);
-int bake_unsetenv(const char *name);
-char* bake_home_path(void);
+int bake_os_setenv(const char *name, const char *value);
+int bake_os_unsetenv(const char *name);
+char* bake_os_home_path(void);
 const char* bake_host_executable_name(void);
 int32_t bake_host_threads(void);
 
@@ -71,15 +71,13 @@ int bake_os_rmdir(const char *path);
 char* bake_file_read(const char *path, size_t *len_out);
 char* bake_file_read_trimmed(const char *path);
 int bake_file_write(const char *path, const char *content);
-int bake_mkdirs(const char *path);
-int bake_rmtree(const char *path);
-int64_t bake_file_mtime(const char *path);
-int bake_file_copy(const char *src, const char *dst);
+int bake_os_mkdirs(const char *path);
+int bake_os_rmtree(const char *path);
+int bake_os_file_copy(const char *src, const char *dst);
 int bake_file_sync_mode(const char *src, const char *dst);
-char* bake_dirname(const char *path);
-char* bake_basename(const char *path);
-char* bake_stem(const char *path);
-char* bake_getcwd(void);
+char* bake_path_dirname(const char *path);
+char* bake_path_basename(const char *path);
+char* bake_path_stem(const char *path);
 
 int bake_proc_run(
     const char *const *argv,

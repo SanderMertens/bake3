@@ -17,7 +17,7 @@ void bake_context_init_env(const bake_options_t *opts) {
 
     /* ASan on macOS can spam nano-zone warnings; default this off for sanitize. */
     if (!getenv("MallocNanoZone")) {
-        bake_setenv("MallocNanoZone", "0");
+        bake_os_setenv("MallocNanoZone", "0");
     }
 }
 

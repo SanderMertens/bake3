@@ -303,7 +303,7 @@ static int bake_prepare_standalone_sources(
 
     bake_strlist_init(&expected_outputs);
 
-    if (bake_mkdirs(deps_dir) != 0) {
+    if (bake_os_mkdirs(deps_dir) != 0) {
         ecs_os_free(deps_dir);
         bake_strlist_fini(&expected_outputs);
         return -1;
@@ -664,7 +664,7 @@ static int bake_prepare_discovery(bake_context_t *ctx) {
         if (bake_path_is_dir(target_path)) {
             target_root = ecs_os_strdup(target_path);
         } else {
-            target_root = bake_dirname(target_path);
+            target_root = bake_path_dirname(target_path);
         }
     }
 
@@ -713,7 +713,7 @@ static int bake_clean_project(const bake_context_t *ctx, const bake_project_cfg_
 
     int rc = 0;
     if (bake_path_exists(bake_dir) && bake_path_is_dir(bake_dir)) {
-        rc = bake_rmtree(bake_dir);
+        rc = bake_os_rmtree(bake_dir);
     }
 
     ecs_os_free(bake_dir);
@@ -731,7 +731,7 @@ static int bake_clean_project(const bake_context_t *ctx, const bake_project_cfg_
         }
 
         if (bake_path_exists(marker) && bake_path_exists(deps_dir) && bake_path_is_dir(deps_dir)) {
-            rc = bake_rmtree(deps_dir);
+            rc = bake_os_rmtree(deps_dir);
         }
 
         ecs_os_free(marker);

@@ -34,7 +34,7 @@ int bake_env_remove_if_exists(const char *path) {
     if (!path || !bake_path_exists(path)) {
         return 0;
     }
-    return bake_rmtree(path);
+    return bake_os_rmtree(path);
 }
 
 static int bake_env_write_dependee_json(const char *path, const bake_project_cfg_t *cfg) {
@@ -76,13 +76,13 @@ static int bake_env_copy_artefact_to_path(const char *src_artefact, const char *
         return -1;
     }
 
-    char *dst_dir = bake_dirname(dst_path);
+    char *dst_dir = bake_path_dirname(dst_path);
     if (!dst_dir) {
         return -1;
     }
 
     int rc = 0;
-    if (bake_mkdirs(dst_dir) != 0 || bake_file_copy(src_artefact, dst_path) != 0) {
+    if (bake_os_mkdirs(dst_dir) != 0 || bake_os_file_copy(src_artefact, dst_path) != 0) {
         rc = -1;
     }
 
@@ -96,7 +96,7 @@ static int bake_env_copy_file(const char *src_dir, const char *dst_dir, const ch
     char *dst = bake_path_join(dst_dir, name);
     if (src && dst) {
         if (bake_path_exists(src)) {
-            rc = bake_file_copy(src, dst);
+            rc = bake_os_file_copy(src, dst);
         } else if (!required) {
             rc = bake_env_remove_if_exists(dst);
         }
@@ -454,7 +454,7 @@ static int bake_env_sync_metadata(
     const bake_project_cfg_t *cfg,
     const char *meta_dir)
 {
-    if (bake_mkdirs(meta_dir) != 0) {
+    if (bake_os_mkdirs(meta_dir) != 0) {
         return -1;
     }
 
@@ -655,7 +655,7 @@ static int bake_env_remove_cfg_artefacts(
 
         if (scoped_dir && bake_path_exists(scoped_dir)) {
             if (bake_os_rmdir(scoped_dir) != 0 && errno != ENOENT && errno != ENOTEMPTY) {
-                bake_log_last_errno("remove empty directory", scoped_dir);
+                bake_log_errno_last("remove empty directory", scoped_dir);
             }
         }
 

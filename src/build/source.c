@@ -34,7 +34,7 @@ static char* bake_rel_path(const char *base, const char *path) {
     if (!strncmp(base, path, base_len) && (path[base_len] == bake_path_sep() || path[base_len] == '/')) {
         return ecs_os_strdup(path + base_len + 1);
     }
-    return bake_basename(path);
+    return bake_path_basename(path);
 }
 
 void bake_compile_list_init(bake_compile_list_t *list) {
@@ -116,9 +116,9 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
         return -1;
     }
 
-    if (bake_mkdirs(paths->build_root) != 0 ||
-        bake_mkdirs(paths->obj_dir) != 0 ||
-        bake_mkdirs(paths->gen_dir) != 0)
+    if (bake_os_mkdirs(paths->build_root) != 0 ||
+        bake_os_mkdirs(paths->obj_dir) != 0 ||
+        bake_os_mkdirs(paths->gen_dir) != 0)
     {
         ecs_err("bake_build_paths_init: mkdir failed for %s", paths->build_root);
         bake_build_paths_fini(paths);
@@ -266,7 +266,7 @@ static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return 0;
     }
 
-    char *stem = bake_stem(entry->path);
+    char *stem = bake_path_stem(entry->path);
     if (!stem) {
         return -1;
     }
@@ -419,7 +419,7 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     project_dir = tmp;
     tmp = NULL;
 
-    if (bake_mkdirs(project_dir) != 0) {
+    if (bake_os_mkdirs(project_dir) != 0) {
         goto cleanup;
     }
 

@@ -13,7 +13,7 @@ bool bake_dep_token_outdated(const char *token, int64_t obj_mtime) {
         return false;
     }
 
-    int64_t mtime = bake_file_mtime(token);
+    int64_t mtime = bake_os_file_mtime(token);
     if (mtime < 0) {
         return true;
     }
@@ -115,7 +115,7 @@ int64_t bake_project_json_mtime(const bake_project_cfg_t *cfg) {
         return -1;
     }
 
-    int64_t mtime = bake_file_mtime(project_json);
+    int64_t mtime = bake_os_file_mtime(project_json);
     ecs_os_free(project_json);
     return mtime;
 }
@@ -132,8 +132,8 @@ bool bake_compile_unit_outdated(
         return true;
     }
 
-    int64_t obj_mtime = bake_file_mtime(unit->obj);
-    int64_t src_mtime = bake_file_mtime(unit->src);
+    int64_t obj_mtime = bake_os_file_mtime(unit->obj);
+    int64_t src_mtime = bake_os_file_mtime(unit->src);
     if (obj_mtime < 0 || src_mtime < 0) {
         return true;
     }
@@ -147,7 +147,7 @@ bool bake_compile_unit_outdated(
     }
 
     if (unit->dep) {
-        int64_t dep_mtime = bake_file_mtime(unit->dep);
+        int64_t dep_mtime = bake_os_file_mtime(unit->dep);
         if (dep_mtime < 0 || dep_mtime < src_mtime) {
             return true;
         }
@@ -172,7 +172,7 @@ bool bake_project_json_outdated(
 }
 
 char* bake_library_name_from_artefact(const char *artefact) {
-    char *name = bake_basename(artefact);
+    char *name = bake_path_basename(artefact);
     if (!name) {
         return NULL;
     }

@@ -107,14 +107,14 @@ static HANDLE bake_proc_open_redirect(
         NULL);
 
     if (h == INVALID_HANDLE_VALUE) {
-        bake_log_last_win_error("open redirected stdio file", path);
+        bake_log_win_error_last("open redirected stdio file", path);
         return NULL;
     }
 
     if (write_mode && append_mode) {
         DWORD rc = SetFilePointer(h, 0, NULL, FILE_END);
         if (rc == INVALID_SET_FILE_POINTER && GetLastError() != NO_ERROR) {
-            bake_log_last_win_error("seek redirected stdio file", path);
+            bake_log_win_error_last("seek redirected stdio file", path);
             CloseHandle(h);
             return NULL;
         }

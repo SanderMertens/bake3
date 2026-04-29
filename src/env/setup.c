@@ -24,7 +24,7 @@ static char* bake_env_executable_path(const char *argv0) {
         return ecs_os_strdup(argv0);
     }
 
-    char *cwd = bake_getcwd();
+    char *cwd = bake_os_getcwd();
     char *candidate = cwd ? bake_path_join(cwd, argv0) : NULL;
     ecs_os_free(cwd);
     if (candidate && bake_path_exists(candidate)) {
@@ -76,7 +76,7 @@ static int bake_env_install_bake3_wrapper(const bake_context_t *ctx) {
 }
 
 int bake_env_setup(bake_context_t *ctx, const char *argv0) {
-    if (bake_mkdirs(ctx->bake_home) != 0) {
+    if (bake_os_mkdirs(ctx->bake_home) != 0) {
         return -1;
     }
 
@@ -98,7 +98,7 @@ int bake_env_setup(bake_context_t *ctx, const char *argv0) {
 
     int rc = 0;
     if (!bake_path_equal_normalized(src, dst)) {
-        rc = bake_file_copy(src, dst);
+        rc = bake_os_file_copy(src, dst);
     }
 
     if (rc == 0) {

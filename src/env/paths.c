@@ -88,7 +88,7 @@ char* bake_env_resolve_home_path(const char *env_home) {
         return ecs_os_strdup(env_home);
     }
 
-    char *cwd = bake_getcwd();
+    char *cwd = bake_os_getcwd();
     if (!cwd) {
         return NULL;
     }
@@ -120,7 +120,7 @@ char* bake_env_resolve_home_path(const char *env_home) {
         }
         ecs_os_free(candidate);
 
-        char *parent = bake_dirname(probe);
+        char *parent = bake_path_dirname(probe);
         if (parent && !parent[0] && bake_path_is_abs(probe)) {
             ecs_os_free(parent);
             parent = ecs_os_strdup("/");
@@ -144,7 +144,7 @@ int bake_env_init_paths(bake_context_t *ctx) {
     if (env_home && env_home[0]) {
         ctx->bake_home = bake_env_resolve_home_path(env_home);
     } else {
-        char *home = bake_home_path();
+        char *home = bake_os_home_path();
         if (!home) {
             return -1;
         }
@@ -156,9 +156,9 @@ int bake_env_init_paths(bake_context_t *ctx) {
         return -1;
     }
 
-    bake_setenv("BAKE_HOME", ctx->bake_home);
+    bake_os_setenv("BAKE_HOME", ctx->bake_home);
 
-    if (bake_mkdirs(ctx->bake_home) != 0) {
+    if (bake_os_mkdirs(ctx->bake_home) != 0) {
         return -1;
     }
 

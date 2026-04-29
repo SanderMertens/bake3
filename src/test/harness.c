@@ -8,12 +8,12 @@ static bool bake_should_generate_harness(const char *project_json, const char *e
         return true;
     }
 
-    int64_t project_mtime = bake_file_mtime(project_json);
+    int64_t project_mtime = bake_os_file_mtime(project_json);
     if (project_mtime < 0) {
         return true;
     }
 
-    int64_t exe_mtime = bake_file_mtime(exe_path);
+    int64_t exe_mtime = bake_os_file_mtime(exe_path);
     if (exe_mtime < 0) {
         return true;
     }
@@ -129,9 +129,9 @@ int bake_test_generate_builtin_api(
         return -1;
     }
 
-    int rc = bake_file_copy(tmpl_hdr, hdr_path);
+    int rc = bake_os_file_copy(tmpl_hdr, hdr_path);
     if (rc == 0) {
-        rc = bake_file_copy(tmpl_src, src_path);
+        rc = bake_os_file_copy(tmpl_src, src_path);
     }
 
     if (rc == 0) {
@@ -158,7 +158,7 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
     if (ctx && ctx->opts.jobs > 0) {
         char jobs_str[32];
         ecs_os_snprintf(jobs_str, sizeof(jobs_str), "%d", ctx->opts.jobs);
-        bake_setenv("BAKE_TEST_THREADS", jobs_str);
+        bake_os_setenv("BAKE_TEST_THREADS", jobs_str);
     }
 
     ecs_strbuf_t cmd = ECS_STRBUF_INIT;
@@ -179,9 +179,9 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
 
     if (ctx && ctx->opts.jobs > 0) {
         if (old_threads) {
-            bake_setenv("BAKE_TEST_THREADS", old_threads);
+            bake_os_setenv("BAKE_TEST_THREADS", old_threads);
         } else {
-            bake_unsetenv("BAKE_TEST_THREADS");
+            bake_os_unsetenv("BAKE_TEST_THREADS");
         }
     }
     ecs_os_free(old_threads);

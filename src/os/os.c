@@ -21,7 +21,7 @@ void bake_log_errno(const char *action, const char *path, int err) {
     }
 }
 
-void bake_log_last_errno(const char *action, const char *path) {
+void bake_log_errno_last(const char *action, const char *path) {
     bake_log_errno(action, path, errno);
 }
 
@@ -59,7 +59,7 @@ void bake_log_win_error(const char *action, const char *path, unsigned long err)
     }
 }
 
-void bake_log_last_win_error(const char *action, const char *path) {
+void bake_log_win_error_last(const char *action, const char *path) {
     bake_log_win_error(action, path, GetLastError());
 }
 #endif
@@ -71,7 +71,7 @@ int bake_remove_file(const char *path) {
     }
 
     if (remove(path) != 0) {
-        bake_log_last_errno("remove file", path);
+        bake_log_errno_last("remove file", path);
         return -1;
     }
 

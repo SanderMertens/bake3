@@ -38,7 +38,7 @@ static int bake_concat_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return -1;
     }
 
-    char *rel = bake_basename(entry->path);
+    char *rel = bake_path_basename(entry->path);
     ecs_strbuf_append(ctx->out, "\n/* --- %s --- */\n", rel ? rel : entry->path);
     ecs_strbuf_appendstr(ctx->out, content);
     ecs_strbuf_appendstr(ctx->out, "\n");
@@ -60,7 +60,7 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, 
     ecs_strbuf_t h_buf = ECS_STRBUF_INIT;
     ecs_strbuf_t c_buf = ECS_STRBUF_INIT;
 
-    if (bake_mkdirs(dst_dir) != 0) {
+    if (bake_os_mkdirs(dst_dir) != 0) {
         goto cleanup;
     }
 
@@ -252,7 +252,7 @@ static int bake_amalgamate_file(
         return 0;
     }
 
-    int64_t mtime = bake_file_mtime(file);
+    int64_t mtime = bake_os_file_mtime(file);
     if (mtime > *latest_mtime) {
         *latest_mtime = mtime;
     }
@@ -265,8 +265,8 @@ static int bake_amalgamate_file(
         return -1;
     }
 
-    char *cur_path = bake_dirname(file);
-    char *base_name = bake_basename(file);
+    char *cur_path = bake_path_dirname(file);
+    char *base_name = bake_path_basename(file);
     bool bake_config_h = base_name && !strcmp(base_name, "bake_config.h");
     ecs_os_free(base_name);
 
@@ -471,7 +471,7 @@ static int bake_replace_if_changed(
     const char *out_file,
     int64_t latest_input_mtime)
 {
-    int64_t output_mtime = bake_file_mtime(out_file);
+    int64_t output_mtime = bake_os_file_mtime(out_file);
     if (latest_input_mtime > output_mtime) {
         if (rename(tmp_file, out_file) != 0) {
             return -1;
@@ -534,7 +534,7 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
 
     output_path = (cfg->amalgamate_path && cfg->amalgamate_path[0]) ?
         bake_path_join(cfg->path, cfg->amalgamate_path) : ecs_os_strdup(cfg->path);
-    if (!output_path || bake_mkdirs(output_path) != 0) {
+    if (!output_path || bake_os_mkdirs(output_path) != 0) {
         goto cleanup;
     }
 

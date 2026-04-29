@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
     };
     const char *local_env_name = NULL;
 
-    char *cwd = bake_getcwd();
+    char *cwd = bake_os_getcwd();
     if (!cwd) {
         ecs_err("failed to get current directory");
         return 1;
@@ -81,9 +81,9 @@ int main(int argc, char *argv[]) {
         }
 
         if (exe_path && bake_path_exists(exe_path)) {
-            bake_setenv("BAKE2_EXEC_PATH", exe_path);
+            bake_os_setenv("BAKE2_EXEC_PATH", exe_path);
         } else {
-            bake_unsetenv("BAKE2_EXEC_PATH");
+            bake_os_unsetenv("BAKE2_EXEC_PATH");
         }
         ecs_os_free(exe_path);
     }
@@ -224,9 +224,9 @@ int main(int argc, char *argv[]) {
     if (opts.local_env) {
         const char *existing_bake_home = getenv("BAKE_HOME");
         if (existing_bake_home && existing_bake_home[0]) {
-            bake_setenv("BAKE_GLOBAL_HOME", existing_bake_home);
+            bake_os_setenv("BAKE_GLOBAL_HOME", existing_bake_home);
         } else {
-            bake_unsetenv("BAKE_GLOBAL_HOME");
+            bake_os_unsetenv("BAKE_GLOBAL_HOME");
         }
 
         char *local_env_root = bake_path_join3(cwd, ".bake", "local_env");
@@ -241,11 +241,11 @@ int main(int argc, char *argv[]) {
             ecs_os_free(cwd);
             return 1;
         }
-        bake_setenv("BAKE_HOME", local_bake_home);
-        bake_setenv("BAKE_LOCAL_ENV", "1");
+        bake_os_setenv("BAKE_HOME", local_bake_home);
+        bake_os_setenv("BAKE_LOCAL_ENV", "1");
     } else {
-        bake_setenv("BAKE_LOCAL_ENV", "0");
-        bake_unsetenv("BAKE_GLOBAL_HOME");
+        bake_os_setenv("BAKE_LOCAL_ENV", "0");
+        bake_os_unsetenv("BAKE_GLOBAL_HOME");
     }
 
     if (opts.setup_local && strcmp(opts.command, "setup")) {

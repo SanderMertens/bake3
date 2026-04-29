@@ -47,12 +47,12 @@ int bake_file_sync_mode(const char *src, const char *dst) {
 
     struct stat st;
     if (stat(src, &st) != 0) {
-        bake_log_last_errno("stat file", src);
+        bake_log_errno_last("stat file", src);
         return -1;
     }
 
     if (chmod(dst, st.st_mode & 0777) != 0) {
-        bake_log_last_errno("set file mode", dst);
+        bake_log_errno_last("set file mode", dst);
         return -1;
     }
 

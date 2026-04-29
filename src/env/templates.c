@@ -61,12 +61,12 @@ int bake_env_copy_tree_recursive(const char *src, const char *dst) {
 
         int rc = 0;
         if (entry->is_dir) {
-            rc = bake_mkdirs(dst_path);
+            rc = bake_os_mkdirs(dst_path);
             if (rc == 0) {
                 rc = bake_env_copy_tree_recursive(entry->path, dst_path);
             }
         } else {
-            rc = bake_file_copy(entry->path, dst_path);
+            rc = bake_os_file_copy(entry->path, dst_path);
         }
 
         ecs_os_free(dst_path);
@@ -89,7 +89,7 @@ int bake_env_copy_tree_exact(const char *src, const char *dst) {
         return 0;
     }
 
-    if (bake_mkdirs(dst) != 0) {
+    if (bake_os_mkdirs(dst) != 0) {
         return -1;
     }
 
@@ -111,7 +111,7 @@ static char* bake_env_test_templates_from_home(const char *home) {
 }
 
 char* bake_env_find_test_template_source(void) {
-    char *cwd = bake_getcwd();
+    char *cwd = bake_os_getcwd();
     char *cwd_templates = cwd ? bake_path_join(cwd, "templates/test_harness") : NULL;
     ecs_os_free(cwd);
     if (cwd_templates && bake_env_has_required_test_templates(cwd_templates, NULL)) {
@@ -121,14 +121,14 @@ char* bake_env_find_test_template_source(void) {
 
     const char *exe_path = getenv("BAKE2_EXEC_PATH");
     if (exe_path && exe_path[0]) {
-        char *exe_dir = bake_dirname(exe_path);
+        char *exe_dir = bake_path_dirname(exe_path);
         char *exe_test_templates = bake_env_test_templates_from_home(exe_dir);
         if (exe_test_templates) {
             ecs_os_free(exe_dir);
             return exe_test_templates;
         }
 
-        char *root_dir = exe_dir ? bake_dirname(exe_dir) : NULL;
+        char *root_dir = exe_dir ? bake_path_dirname(exe_dir) : NULL;
         char *root_templates = root_dir ?
             bake_path_join(root_dir, "templates/test_harness") : NULL;
 
@@ -147,7 +147,7 @@ char* bake_env_find_test_template_source(void) {
         return global_templates;
     }
 
-    char *home = bake_home_path();
+    char *home = bake_os_home_path();
     char *default_home = home ? bake_path_join(home, "bake3") : NULL;
     ecs_os_free(home);
 

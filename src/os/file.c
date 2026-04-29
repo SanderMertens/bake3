@@ -3,7 +3,7 @@
 
 static int bake_file_close(FILE *f, const char *path) {
     if (fclose(f) != 0) {
-        bake_log_last_errno("close file", path);
+        bake_log_errno_last("close file", path);
         return -1;
     }
     return 0;
@@ -13,26 +13,26 @@ char* bake_file_read(const char *path, size_t *len_out) {
     FILE *f = fopen(path, "rb");
     if (!f) {
         if (errno != ENOENT) {
-            bake_log_last_errno("open file for reading", path);
+            bake_log_errno_last("open file for reading", path);
         }
         return NULL;
     }
 
     if (fseek(f, 0, SEEK_END) != 0) {
-        bake_log_last_errno("seek file", path);
+        bake_log_errno_last("seek file", path);
         bake_file_close(f, path);
         return NULL;
     }
 
     long len = ftell(f);
     if (len < 0) {
-        bake_log_last_errno("tell file position", path);
+        bake_log_errno_last("tell file position", path);
         bake_file_close(f, path);
         return NULL;
     }
 
     if (fseek(f, 0, SEEK_SET) != 0) {
-        bake_log_last_errno("seek file", path);
+        bake_log_errno_last("seek file", path);
         bake_file_close(f, path);
         return NULL;
     }
@@ -46,7 +46,7 @@ char* bake_file_read(const char *path, size_t *len_out) {
     size_t read_len = fread(buf, 1, (size_t)len, f);
     if (read_len != (size_t)len) {
         if (ferror(f)) {
-            bake_log_last_errno("read file", path);
+            bake_log_errno_last("read file", path);
         } else {
             ecs_err("failed to read file '%s': unexpected end of file", path);
         }
@@ -86,12 +86,12 @@ int bake_file_write(const char *path, const char *content) {
         return -1;
     }
 
-    char *dir = bake_dirname(path);
+    char *dir = bake_path_dirname(path);
     if (!dir) {
         return -1;
     }
 
-    if (bake_mkdirs(dir) != 0) {
+    if (bake_os_mkdirs(dir) != 0) {
         ecs_os_free(dir);
         return -1;
     }
@@ -104,22 +104,18 @@ int bake_file_write(const char *path, const char *content) {
 
     FILE *f = fopen(path, "wb");
     if (!f) {
-        bake_log_last_errno("open file for writing", path);
+        bake_log_errno_last("open file for writing", path);
         return -1;
     }
 
     size_t written = fwrite(content, 1, len, f);
     if (written != len) {
-        bake_log_last_errno("write file", path);
+        bake_log_errno_last("write file", path);
         bake_file_close(f, path);
         return -1;
     }
 
     return bake_file_close(f, path);
-}
-
-int64_t bake_file_mtime(const char *path) {
-    return bake_os_file_mtime(path);
 }
 
 char* bake_file_read_trimmed(const char *path) {
@@ -141,7 +137,7 @@ char* bake_file_read_trimmed(const char *path) {
     return text;
 }
 
-int bake_file_copy(const char *src, const char *dst) {
+int bake_os_file_copy(const char *src, const char *dst) {
     size_t len = 0;
     char *content = bake_file_read(src, &len);
     if (!content) {
@@ -151,8 +147,8 @@ int bake_file_copy(const char *src, const char *dst) {
         return -1;
     }
 
-    char *dir = bake_dirname(dst);
-    if (!dir || bake_mkdirs(dir) != 0) {
+    char *dir = bake_path_dirname(dst);
+    if (!dir || bake_os_mkdirs(dir) != 0) {
         ecs_os_free(content);
         ecs_os_free(dir);
         return -1;
@@ -166,14 +162,14 @@ int bake_file_copy(const char *src, const char *dst) {
 
     FILE *f = fopen(dst, "wb");
     if (!f) {
-        bake_log_last_errno("open file for writing", dst);
+        bake_log_errno_last("open file for writing", dst);
         ecs_os_free(content);
         return -1;
     }
 
     size_t written = fwrite(content, 1, len, f);
     if (written != len) {
-        bake_log_last_errno("write file", dst);
+        bake_log_errno_last("write file", dst);
         bake_file_close(f, dst);
         ecs_os_free(content);
         return -1;

@@ -16,7 +16,7 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
     ecs_os_free(pattern);
 
     if (handle == INVALID_HANDLE_VALUE) {
-        bake_log_last_win_error("open directory", path);
+        bake_log_win_error_last("open directory", path);
         return -1;
     }
 
@@ -44,7 +44,7 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
     }
 
     if (!FindClose(handle)) {
-        bake_log_last_win_error("close directory", path);
+        bake_log_win_error_last("close directory", path);
         bake_dir_entries_free(ecs_vec_first_t(&vec, bake_dir_entry_t), ecs_vec_count(&vec));
         return -1;
     }

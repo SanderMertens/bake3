@@ -55,7 +55,7 @@ int bake_file_sync_mode(const char *src, const char *dst) {
 
     struct _stat st;
     if (_stat(src, &st) != 0) {
-        bake_log_last_errno("stat file", src);
+        bake_log_errno_last("stat file", src);
         return -1;
     }
 
@@ -65,7 +65,7 @@ int bake_file_sync_mode(const char *src, const char *dst) {
 #endif
 
     if (_chmod(dst, mode) != 0) {
-        bake_log_last_errno("set file mode", dst);
+        bake_log_errno_last("set file mode", dst);
         return -1;
     }
 
@@ -87,7 +87,7 @@ int bake_os_mkdir(const char *path) {
 char* bake_os_getcwd(void) {
     char buf[MAX_PATH];
     if (!_getcwd(buf, (int)sizeof(buf))) {
-        bake_log_last_errno("get current directory", NULL);
+        bake_log_errno_last("get current directory", NULL);
         return NULL;
     }
     return ecs_os_strdup(buf);
