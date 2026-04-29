@@ -2,6 +2,20 @@
 #include "compile_internal.h"
 #include "bake/os.h"
 
+static void bake_strbuf_append_quoted_path(
+    ecs_strbuf_t *cmd, const char *prefix, const char *path)
+{
+    ecs_strbuf_append(cmd, "%s\"", prefix);
+#if defined(_WIN32)
+    for (const char *p = path; *p; p++) {
+        ecs_strbuf_appendch(cmd, (*p == '\\') ? '/' : *p);
+    }
+#else
+    ecs_strbuf_appendstr(cmd, path);
+#endif
+    ecs_strbuf_appendstr(cmd, "\"");
+}
+
 int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_strbuf_t *cmd) {
     const char *compiler = ctx->unit->cpp
         ? (ctx->ctx->opts.cxx ? ctx->ctx->opts.cxx : "c++")
@@ -32,31 +46,32 @@ int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_st
 
     char *include = bake_path_join(ctx->cfg->path, "include");
     if (include && bake_path_exists(include)) {
-        ecs_strbuf_append(cmd, " -I\"%s\"", include);
+        bake_strbuf_append_quoted_path(cmd, " -I", include);
     }
     ecs_os_free(include);
 
     for (int32_t i = 0; i < ctx->lang->include_paths.count; i++) {
-        ecs_strbuf_append(cmd, " -I\"%s\"", ctx->lang->include_paths.items[i]);
+        bake_strbuf_append_quoted_path(cmd, " -I", ctx->lang->include_paths.items[i]);
     }
     for (int32_t i = 0; i < ctx->dep_includes->count; i++) {
-        ecs_strbuf_append(cmd, " -I\"%s\"", ctx->dep_includes->items[i]);
+        bake_strbuf_append_quoted_path(cmd, " -I", ctx->dep_includes->items[i]);
     }
 
     if (ctx->unit->dep) {
-        ecs_strbuf_append(cmd, " -MMD -MF \"%s\"", ctx->unit->dep);
+        bake_strbuf_append_quoted_path(cmd, " -MMD -MF ", ctx->unit->dep);
     }
 
-    ecs_strbuf_append(cmd, " -o \"%s\" \"%s\"", ctx->unit->obj, ctx->unit->src);
+    bake_strbuf_append_quoted_path(cmd, " -o ", ctx->unit->obj);
+    bake_strbuf_append_quoted_path(cmd, " ", ctx->unit->src);
     return 0;
 }
 
 int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t *cmd) {
     bool is_lib = ctx->cfg->kind == BAKE_PROJECT_PACKAGE;
     if (is_lib) {
-        ecs_strbuf_append(cmd, "ar rcs \"%s\"", ctx->artefact);
+        bake_strbuf_append_quoted_path(cmd, "ar rcs ", ctx->artefact);
         for (int32_t i = 0; i < ctx->units->count; i++) {
-            ecs_strbuf_append(cmd, " \"%s\"", ctx->units->items[i].obj);
+            bake_strbuf_append_quoted_path(cmd, " ", ctx->units->items[i].obj);
         }
         return 0;
     }
@@ -67,7 +82,7 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
 
     ecs_strbuf_append(cmd, "%s", linker);
     for (int32_t i = 0; i < ctx->units->count; i++) {
-        ecs_strbuf_append(cmd, " \"%s\"", ctx->units->items[i].obj);
+        bake_strbuf_append_quoted_path(cmd, " ", ctx->units->items[i].obj);
     }
 #if !defined(__APPLE__)
     if (ctx->dep_artefacts->count > 0) {
@@ -75,7 +90,7 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
     }
 #endif
     for (int32_t i = 0; i < ctx->dep_artefacts->count; i++) {
-        ecs_strbuf_append(cmd, " \"%s\"", ctx->dep_artefacts->items[i]);
+        bake_strbuf_append_quoted_path(cmd, " ", ctx->dep_artefacts->items[i]);
     }
 #if !defined(__APPLE__)
     if (ctx->dep_artefacts->count > 0) {
@@ -86,10 +101,10 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
     bake_list_append_fmt(cmd, &ctx->lang->ldflags, "", false);
     bake_list_append_fmt(cmd, ctx->dep_ldflags, "", false);
     for (int32_t i = 0; i < ctx->lang->libpaths.count; i++) {
-        ecs_strbuf_append(cmd, " -L\"%s\"", ctx->lang->libpaths.items[i]);
+        bake_strbuf_append_quoted_path(cmd, " -L", ctx->lang->libpaths.items[i]);
     }
     for (int32_t i = 0; i < ctx->dep_libpaths->count; i++) {
-        ecs_strbuf_append(cmd, " -L\"%s\"", ctx->dep_libpaths->items[i]);
+        bake_strbuf_append_quoted_path(cmd, " -L", ctx->dep_libpaths->items[i]);
     }
     for (int32_t i = 0; i < ctx->lang->libs.count; i++) {
         ecs_strbuf_append(cmd, " -l%s", ctx->lang->libs.items[i]);
@@ -97,6 +112,6 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
     for (int32_t i = 0; i < ctx->dep_libs->count; i++) {
         ecs_strbuf_append(cmd, " -l%s", ctx->dep_libs->items[i]);
     }
-    ecs_strbuf_append(cmd, " -o \"%s\"", ctx->artefact);
+    bake_strbuf_append_quoted_path(cmd, " -o ", ctx->artefact);
     return 0;
 }

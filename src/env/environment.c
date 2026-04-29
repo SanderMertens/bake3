@@ -751,7 +751,8 @@ int bake_env_reset(bake_context_t *ctx) {
         bake_dir_entry_t *entry = &entries[i];
         if (bake_is_dot_dir(entry->name) ||
             !strcmp(entry->name, "test") ||
-            !strcmp(entry->name, "bake3"))
+            !strcmp(entry->name, "bake3") ||
+            !strcmp(entry->name, "bake3.exe"))
         {
             continue;
         }
