@@ -354,7 +354,19 @@ void bake_model_link_dependencies(ecs_world_t *world) {
     ecs_defer_end(world);
 }
 
-static void bake_model_mark_build_recursive(ecs_world_t *world, ecs_entity_t entity, const char *mode, bool recursive, bool standalone) {
+static void bake_model_mark_build_recursive_inner(
+    ecs_world_t *world,
+    ecs_entity_t entity,
+    const char *mode,
+    bool recursive,
+    bool standalone,
+    ecs_map_t *visited)
+{
+    if (ecs_map_get(visited, (ecs_map_key_t)entity)) {
+        return;
+    }
+    ecs_map_insert(visited, (ecs_map_key_t)entity, 0);
+
     if (ecs_has(world, entity, BakeBuildRequest)) {
         return;
     }
@@ -374,8 +386,15 @@ static void bake_model_mark_build_recursive(ecs_world_t *world, ecs_entity_t ent
         if (!dep) {
             break;
         }
-        bake_model_mark_build_recursive(world, dep, mode, true, standalone);
+        bake_model_mark_build_recursive_inner(world, dep, mode, true, standalone, visited);
     }
+}
+
+static void bake_model_mark_build_recursive(ecs_world_t *world, ecs_entity_t entity, const char *mode, bool recursive, bool standalone) {
+    ecs_map_t visited = {0};
+    ecs_map_init(&visited, NULL);
+    bake_model_mark_build_recursive_inner(world, entity, mode, recursive, standalone, &visited);
+    ecs_map_fini(&visited);
 }
 
 void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const char *mode, bool recursive, bool standalone) {
@@ -538,6 +557,46 @@ int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
     return 0;
 }
 
+static int bake_model_detect_cycle(
+    const ecs_world_t *world,
+    ecs_entity_t entity,
+    ecs_map_t *visited,
+    ecs_map_t *on_stack,
+    ecs_entity_t *cycle_a,
+    ecs_entity_t *cycle_b)
+{
+    ecs_map_val_t *state = ecs_map_get(visited, (ecs_map_key_t)entity);
+    if (state) {
+        if (ecs_map_get(on_stack, (ecs_map_key_t)entity)) {
+            return -1;
+        }
+        return 0;
+    }
+    ecs_map_insert(visited, (ecs_map_key_t)entity, 1);
+    ecs_map_insert(on_stack, (ecs_map_key_t)entity, 1);
+
+    for (int32_t i = 0;; i++) {
+        ecs_entity_t dep = ecs_get_target(world, entity, BakeDependsOn, i);
+        if (!dep) {
+            break;
+        }
+        if (ecs_map_get(on_stack, (ecs_map_key_t)dep)) {
+            *cycle_a = entity;
+            *cycle_b = dep;
+            return -1;
+        }
+        if (bake_model_detect_cycle(world, dep, visited, on_stack, cycle_a, cycle_b) != 0) {
+            if (!*cycle_a && !*cycle_b) {
+                *cycle_a = entity;
+            }
+            return -1;
+        }
+    }
+
+    ecs_map_remove(on_stack, (ecs_map_key_t)entity);
+    return 0;
+}
+
 int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities, int32_t *out_count) {
     *out_entities = NULL;
     *out_count = 0;
@@ -553,12 +612,41 @@ int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities
     }
 
     int32_t count = ecs_vec_count(&vec);
-    ecs_entity_t *entities = ecs_vec_first_t(&vec, ecs_entity_t);
 
     if (!count) {
         ecs_vec_fini_t(NULL, &vec, ecs_entity_t);
         return 0;
     }
+
+    ecs_entity_t *vec_entities = ecs_vec_first_t(&vec, ecs_entity_t);
+
+    ecs_map_t visited = {0};
+    ecs_map_t on_stack = {0};
+    ecs_map_init(&visited, NULL);
+    ecs_map_init(&on_stack, NULL);
+
+    ecs_entity_t cycle_a = 0;
+    ecs_entity_t cycle_b = 0;
+    bool has_cycle = false;
+    for (int32_t i = 0; i < count; i++) {
+        if (bake_model_detect_cycle(world, vec_entities[i], &visited, &on_stack, &cycle_a, &cycle_b) != 0) {
+            has_cycle = true;
+            break;
+        }
+    }
+
+    ecs_map_fini(&visited);
+    ecs_map_fini(&on_stack);
+
+    if (has_cycle) {
+        const char *id_a = cycle_a ? bake_project_entity_id(world, cycle_a) : "?";
+        const char *id_b = cycle_b ? bake_project_entity_id(world, cycle_b) : "?";
+        ecs_err("circular dependency detected involving '%s' and '%s'", id_a, id_b);
+        ecs_vec_fini_t(NULL, &vec, ecs_entity_t);
+        return -1;
+    }
+
+    ecs_entity_t *entities = vec_entities;
 
     int32_t *depths = ecs_os_malloc_n(int32_t, count);
     if (!depths) {

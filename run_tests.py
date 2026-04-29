@@ -1064,6 +1064,55 @@ class BakeTests(unittest.TestCase):
     def test_run_nonexistent_target_fails(self) -> None:
         self.bake_expect_failure(["run", "test/projects/c/does_not_exist"])
 
+    def test_circular_dependency_does_not_crash(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"circular_dep_{stamp}"
+        proj_a = root / "a"
+        proj_b = root / "b"
+        for d in (proj_a / "src", proj_b / "src"):
+            d.mkdir(parents=True, exist_ok=True)
+
+        (proj_a / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"tmp.cycle.a.{stamp}\",\n"
+            "    \"type\": \"package\",\n"
+            "    \"value\": {\n"
+            f"        \"use\": [\"tmp.cycle.b.{stamp}\"]\n"
+            "    }\n"
+            "}\n"
+        )
+        (proj_a / "src" / "a.c").write_text("int a_value(void){return 1;}\n")
+
+        (proj_b / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"tmp.cycle.b.{stamp}\",\n"
+            "    \"type\": \"package\",\n"
+            "    \"value\": {\n"
+            f"        \"use\": [\"tmp.cycle.a.{stamp}\"]\n"
+            "    }\n"
+            "}\n"
+        )
+        (proj_b / "src" / "b.c").write_text("int b_value(void){return 2;}\n")
+
+        proc = subprocess.run(
+            [str(self.bake_bin), "build", str(root)],
+            cwd=str(self.repo_root),
+            env=self.env,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertNotEqual(
+            proc.returncode,
+            -11,
+            "bake crashed (segfault) on circular dependency",
+        )
+        self.assertGreaterEqual(
+            proc.returncode,
+            0,
+            f"bake terminated by signal on circular dependency: rc={proc.returncode}",
+        )
+
     def test_clean_nonexistent_target_succeeds(self) -> None:
         self.bake(["clean", "test/projects/c/app_helloworld"])
 
