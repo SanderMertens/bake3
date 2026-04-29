@@ -43,6 +43,7 @@ int bake_collect_compile_units(
     const bake_build_paths_t *paths,
     bool include_tests,
     bool include_deps,
+    bake_compiler_kind_t compiler_kind,
     bake_compile_list_t *units);
 int bake_execute_rules(
     ecs_world_t *world,

@@ -462,6 +462,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         &paths,
         cfg->kind == BAKE_PROJECT_TEST,
         include_deps,
+        ctx->compiler_kind,
         &units) != 0)
     {
         ecs_err("failed to collect source files for %s", cfg->id);

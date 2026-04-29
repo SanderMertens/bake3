@@ -130,6 +130,7 @@ typedef struct bake_collect_ctx_t {
     const bake_project_cfg_t *cfg;
     const bake_build_paths_t *paths;
     bake_compile_list_t *units;
+    bake_compiler_kind_t compiler_kind;
 } bake_collect_ctx_t;
 
 static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
@@ -191,20 +192,17 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         ecs_os_free(obj_parent);
     }
 
-#if defined(_WIN32)
-    const char *dep_path = NULL;
-#else
-    char *dep_path = flecs_asprintf("%s.d", obj_path);
-    if (!dep_path) {
-        ecs_os_free(obj_path);
-        return -1;
+    char *dep_path = NULL;
+    if (ctx->compiler_kind != BAKE_COMPILER_MSVC) {
+        dep_path = flecs_asprintf("%s.d", obj_path);
+        if (!dep_path) {
+            ecs_os_free(obj_path);
+            return -1;
+        }
     }
-#endif
 
     int rc = bake_compile_list_append(ctx->units, entry->path, obj_path, dep_path, cpp);
-#if !defined(_WIN32)
     ecs_os_free(dep_path);
-#endif
     ecs_os_free(obj_path);
     return rc;
 }
@@ -214,12 +212,14 @@ int bake_collect_compile_units(
     const bake_build_paths_t *paths,
     bool include_tests,
     bool include_deps,
+    bake_compiler_kind_t compiler_kind,
     bake_compile_list_t *units)
 {
     bake_collect_ctx_t ctx = {
         .cfg = cfg,
         .paths = paths,
-        .units = units
+        .units = units,
+        .compiler_kind = compiler_kind
     };
 
     char *src = bake_path_join(cfg->path, "src");
