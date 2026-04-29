@@ -160,7 +160,7 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
         if (existing && existing->cfg) {
             const bake_project_cfg_t *existing_cfg = existing->cfg;
             bool paths_conflict = existing_cfg->path && cfg->path &&
-                strcmp(existing_cfg->path, cfg->path);
+                !bake_path_equal_normalized(existing_cfg->path, cfg->path);
 
             if (paths_conflict) {
                 if (existing_cfg->public_project && cfg->public_project) {
@@ -284,7 +284,7 @@ const BakeProject* bake_model_find_project_by_path(const ecs_world_t *world, con
             if (!cfg || !cfg->path) {
                 continue;
             }
-            if (!strcmp(cfg->path, path)) {
+            if (bake_path_equal_normalized(cfg->path, path)) {
                 if (entity_out) {
                     *entity_out = it.entities[i];
                 }
