@@ -2,6 +2,7 @@
 #include "bake/os.h"
 
 #include "parson.h"
+#include "common/json_helpers.h"
 
 typedef struct bake_param_spec_t {
     char *name;
@@ -23,9 +24,6 @@ typedef struct bake_suite_list_t {
     int32_t count;
     int32_t capacity;
 } bake_suite_list_t;
-
-/* Defined in config.c */
-extern char* bake_json_strdup_value(const JSON_Value *value);
 
 static void bake_param_spec_fini(bake_param_spec_t *param) {
     if (!param) {

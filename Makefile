@@ -45,7 +45,7 @@ build/parson.o: deps/parson.c
 
 build/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -I include -I deps -c $< -o $@
+	$(CC) $(CFLAGS) -I include -I deps -I src -c $< -o $@
 
 $(BIN): $(OBJ)
 	@mkdir -p $(dir $@)
