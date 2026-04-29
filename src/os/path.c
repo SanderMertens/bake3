@@ -56,6 +56,18 @@ char* bake_path_join3(const char *a, const char *b, const char *c) {
     return abc;
 }
 
+static char bake_path_norm_char(char ch) {
+    if (ch == '\\') {
+        ch = '/';
+    }
+#if defined(_WIN32)
+    if (ch >= 'A' && ch <= 'Z') {
+        ch = (char)(ch - 'A' + 'a');
+    }
+#endif
+    return ch;
+}
+
 bool bake_path_equal_normalized(const char *lhs, const char *rhs) {
     if (!lhs || !rhs) {
         return false;
@@ -67,7 +79,12 @@ bool bake_path_equal_normalized(const char *lhs, const char *rhs) {
         return false;
     }
 
-    return strncmp(lhs, rhs, lhs_len) == 0;
+    for (size_t i = 0; i < lhs_len; i++) {
+        if (bake_path_norm_char(lhs[i]) != bake_path_norm_char(rhs[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool bake_path_has_prefix_normalized(const char *path, const char *prefix, size_t *prefix_len_out) {
@@ -80,8 +97,10 @@ bool bake_path_has_prefix_normalized(const char *path, const char *prefix, size_
         return false;
     }
 
-    if (strncmp(path, prefix, prefix_len)) {
-        return false;
+    for (size_t i = 0; i < prefix_len; i++) {
+        if (bake_path_norm_char(path[i]) != bake_path_norm_char(prefix[i])) {
+            return false;
+        }
     }
 
     if (path[prefix_len] && !bake_path_is_sep(path[prefix_len])) {
