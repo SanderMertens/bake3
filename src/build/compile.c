@@ -336,6 +336,7 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
         rc = bake_compose_compile_command_posix(&cmd_ctx, &cmd);
     }
     if (rc != 0) {
+        ecs_strbuf_reset(&cmd);
         return -1;
     }
 
@@ -615,6 +616,7 @@ int bake_link_project_binary(
         compose_rc = bake_compose_link_command_posix(&cmd_ctx, &cmd);
     }
     if (compose_rc != 0) {
+        ecs_strbuf_reset(&cmd);
         goto cleanup;
     }
 
