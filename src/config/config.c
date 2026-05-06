@@ -19,6 +19,9 @@ static int bake_parse_project_cfg_object(
 static int bake_parse_rules(
     const JSON_Array *rules,
     bake_rule_list_t *rules_out);
+static int bake_parse_bundles_object(
+    const JSON_Object *bundles_obj,
+    bake_bundle_list_t *bundles);
 
 static const char *bake_cfg_eval_mode = "debug";
 static const char *bake_cfg_eval_target = NULL;
@@ -166,6 +169,70 @@ int bake_rule_list_append(bake_rule_list_t *list, const char *ext, const char *c
     return (rule->ext && rule->command) ? 0 : -1;
 }
 
+void bake_bundle_list_init(bake_bundle_list_t *list) {
+    memset(&list->vec, 0, sizeof(list->vec));
+}
+
+void bake_bundle_list_fini(bake_bundle_list_t *list) {
+    bake_bundle_t *items = ecs_vec_first_t(&list->vec, bake_bundle_t);
+    int32_t count = ecs_vec_count(&list->vec);
+    for (int32_t i = 0; i < count; i++) {
+        ecs_os_free(items[i].id);
+        ecs_os_free(items[i].repository);
+        ecs_os_free(items[i].branch);
+        ecs_os_free(items[i].tag);
+        ecs_os_free(items[i].commit);
+        ecs_os_free(items[i].subdir);
+        ecs_os_free(items[i].library);
+        ecs_os_free(items[i].build_system);
+        bake_strlist_fini(&items[i].includes);
+        bake_strlist_fini(&items[i].sources);
+        bake_strlist_fini(&items[i].cmake_args);
+        bake_strlist_fini(&items[i].libs);
+        bake_strlist_fini(&items[i].ldflags);
+    }
+    ecs_vec_fini_t(NULL, &list->vec, bake_bundle_t);
+}
+
+bake_bundle_t* bake_bundle_list_append(bake_bundle_list_t *list) {
+    bake_bundle_t *item = ecs_vec_append_t(NULL, &list->vec, bake_bundle_t);
+    if (!item) {
+        return NULL;
+    }
+    memset(item, 0, sizeof(*item));
+    bake_strlist_init(&item->includes);
+    bake_strlist_init(&item->sources);
+    bake_strlist_init(&item->cmake_args);
+    bake_strlist_init(&item->libs);
+    bake_strlist_init(&item->ldflags);
+    return item;
+}
+
+int32_t bake_bundle_list_count(const bake_bundle_list_t *list) {
+    return ecs_vec_count(&list->vec);
+}
+
+bake_bundle_t* bake_bundle_list_get(const bake_bundle_list_t *list, int32_t index) {
+    if (index < 0 || index >= ecs_vec_count(&list->vec)) {
+        return NULL;
+    }
+    return &ecs_vec_first_t(&list->vec, bake_bundle_t)[index];
+}
+
+const bake_bundle_t* bake_bundle_list_find(const bake_bundle_list_t *list, const char *id) {
+    if (!id) {
+        return NULL;
+    }
+    int32_t count = ecs_vec_count(&list->vec);
+    bake_bundle_t *items = ecs_vec_first_t(&list->vec, bake_bundle_t);
+    for (int32_t i = 0; i < count; i++) {
+        if (items[i].id && !strcmp(items[i].id, id)) {
+            return &items[i];
+        }
+    }
+    return NULL;
+}
+
 static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults) {
 #define F(n) bake_strlist_init(&cfg->n)
     F(cflags); F(cxxflags); F(defines); F(ldflags); F(libs);
@@ -221,6 +288,8 @@ static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_depend
 
 #define F(n) bake_strlist_init(&cfg->n)
     F(use); F(use_private); F(use_build); F(use_runtime); F(drivers); F(plugins);
+    F(bundle_includes); F(bundle_libpaths); F(bundle_libs); F(bundle_ldflags);
+    F(bundle_sources);
 #undef F
 
     if (init_dependee) {
@@ -231,6 +300,7 @@ static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_depend
     bake_lang_cfg_init_impl(&cfg->c_lang, set_defaults);
     bake_lang_cfg_init_impl(&cfg->cpp_lang, set_defaults);
     bake_rule_list_init(&cfg->rules);
+    bake_bundle_list_init(&cfg->bundles);
 }
 
 void bake_project_cfg_init(bake_project_cfg_t *cfg) {
@@ -244,6 +314,8 @@ static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_depend
 
 #define F(n) bake_strlist_fini(&cfg->n)
     F(use); F(use_private); F(use_build); F(use_runtime); F(drivers); F(plugins);
+    F(bundle_includes); F(bundle_libpaths); F(bundle_libs); F(bundle_ldflags);
+    F(bundle_sources);
 #undef F
 
     if (fini_dependee) {
@@ -258,6 +330,7 @@ static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_depend
     bake_lang_cfg_fini(&cfg->c_lang);
     bake_lang_cfg_fini(&cfg->cpp_lang);
     bake_rule_list_fini(&cfg->rules);
+    bake_bundle_list_fini(&cfg->bundles);
 
     memset(cfg, 0, sizeof(*cfg));
 }
@@ -444,6 +517,16 @@ static int bake_parse_project_cfg_object(
         return 0;
     }
 
+    {
+        const JSON_Object *bundles_obj = NULL;
+        if (bake_json_get_object_optional(object, "bundle", &bundles_obj) != 0) return -1;
+        if (bake_parse_bundles_object(bundles_obj, &cfg->bundles) != 0) return -1;
+
+        const JSON_Object *bundles_alias = NULL;
+        if (bake_json_get_object_optional(object, "bundles", &bundles_alias) != 0) return -1;
+        if (bake_parse_bundles_object(bundles_alias, &cfg->bundles) != 0) return -1;
+    }
+
     if (parse_meta) {
         if (bake_json_get_string(object, "id", &cfg->id) < 0) return -1;
 
@@ -548,6 +631,68 @@ static int bake_parse_dependee_cfg(
 
     ecs_os_free(cfg->json);
     cfg->json = dependee_json;
+    return 0;
+}
+
+static int bake_parse_bundle_entry(
+    const char *id,
+    const JSON_Object *object,
+    bake_bundle_list_t *bundles)
+{
+    if (!id || !id[0] || !object) {
+        return -1;
+    }
+
+    bake_bundle_t *bundle = bake_bundle_list_append(bundles);
+    if (!bundle) {
+        return -1;
+    }
+
+    bundle->id = ecs_os_strdup(id);
+    if (!bundle->id) {
+        return -1;
+    }
+
+    if (bake_json_get_string_alias(object, "repository", "repo", &bundle->repository) < 0) return -1;
+    if (bake_json_get_string(object, "branch", &bundle->branch) < 0) return -1;
+    if (bake_json_get_string(object, "tag", &bundle->tag) < 0) return -1;
+    if (bake_json_get_string(object, "commit", &bundle->commit) < 0) return -1;
+    if (bake_json_get_string_alias(object, "subdir", "path", &bundle->subdir) < 0) return -1;
+    if (bake_json_get_string(object, "library", &bundle->library) < 0) return -1;
+    if (bake_json_get_string_alias(object, "build-system", "build_system", &bundle->build_system) < 0) return -1;
+
+    if (bake_json_get_bool(object, "header-only", &bundle->header_only) < 0) {
+        if (bake_json_get_bool(object, "header_only", &bundle->header_only) < 0) return -1;
+    }
+    if (bake_json_get_array_alias(object, "include", "includes", &bundle->includes) < 0) return -1;
+    if (bake_json_get_array(object, "sources", &bundle->sources) < 0) return -1;
+    if (bake_json_get_array_alias(object, "cmake-args", "cmake_args", &bundle->cmake_args) < 0) return -1;
+    if (bake_json_get_array_alias(object, "lib", "libs", &bundle->libs) < 0) return -1;
+    if (bake_json_get_array(object, "ldflags", &bundle->ldflags) < 0) return -1;
+
+    return 0;
+}
+
+static int bake_parse_bundles_object(
+    const JSON_Object *bundles_obj,
+    bake_bundle_list_t *bundles)
+{
+    if (!bundles_obj) {
+        return 0;
+    }
+
+    size_t key_count = json_object_get_count(bundles_obj);
+    for (size_t i = 0; i < key_count; i++) {
+        const char *key = json_object_get_name(bundles_obj, i);
+        JSON_Value *val = json_object_get_value_at(bundles_obj, i);
+        if (!val || json_value_get_type(val) != JSONObject) {
+            return -1;
+        }
+        if (bake_parse_bundle_entry(key, json_value_get_object(val), bundles) != 0) {
+            return -1;
+        }
+    }
+
     return 0;
 }
 

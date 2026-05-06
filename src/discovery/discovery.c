@@ -1,4 +1,5 @@
 #include "bake/discovery.h"
+#include "bake/bundle.h"
 #include "bake/environment.h"
 #include "bake/os.h"
 
@@ -30,6 +31,12 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         if (bake_should_skip_dir(entry->name, ctx->skip_special_dirs)) {
             return 1;
         }
+        char *marker = bake_path_join(entry->path, ".bake-skip");
+        bool skip = marker && bake_path_exists(marker);
+        ecs_os_free(marker);
+        if (skip) {
+            return 1;
+        }
         return 0;
     }
 
@@ -48,6 +55,12 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         ecs_os_free(cfg);
         ecs_err("failed to parse %s", entry->path);
         return 0;
+    }
+
+    if (bake_bundle_prepare_for_project(ctx->ctx, cfg) != 0) {
+        bake_project_cfg_fini(cfg);
+        ecs_os_free(cfg);
+        return -1;
     }
 
     if (!bake_model_add_project(ctx->ctx->world, cfg, false)) {

@@ -1,0 +1,8 @@
+This file marks the directory as opt-in: bake's recursive discovery skips it,
+so broad targets like `bake build test` and `bake build test/integration` will
+not try to fetch and build flecs-engine's bundles. Build it explicitly with:
+
+    bake build test/integration/flecs-engine
+
+Building this project requires cmake and cargo on PATH, plus a macOS host (the
+upstream sources only ship a Cocoa native surface).

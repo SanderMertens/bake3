@@ -1371,6 +1371,91 @@ class BakeTests(unittest.TestCase):
             f"clean of nonexistent target should not produce stderr, got:\n{proc.stderr}",
         )
 
+    def test_build_bundle_via_cmake(self) -> None:
+        if shutil.which("cmake") is None:
+            self.skipTest("cmake not available on PATH")
+        if shutil.which("git") is None:
+            self.skipTest("git not available on PATH")
+
+        project_dir = self.repo_root / "test" / "tests" / "app_bundle"
+        bundle_repo = project_dir / "bundle_repo"
+        bake_dir = project_dir / ".bake"
+
+        def _force_writable(path: Path) -> None:
+            try:
+                path.chmod(stat.S_IWUSR | stat.S_IRUSR | stat.S_IXUSR)
+            except OSError:
+                pass
+
+        def _rmtree(path: Path) -> None:
+            def onerror(func, target, _exc):
+                _force_writable(Path(target))
+                func(target)
+            if path.exists():
+                shutil.rmtree(path, onerror=onerror)
+
+        _rmtree(bundle_repo)
+        _rmtree(bake_dir)
+
+        try:
+            (bundle_repo / "src").mkdir(parents=True)
+            (bundle_repo / "include").mkdir()
+            (bundle_repo / "CMakeLists.txt").write_text(
+                "cmake_minimum_required(VERSION 3.10)\n"
+                "project(bundle_test_lib C)\n"
+                "add_library(bundle_test_lib STATIC src/bundle_test_lib.c)\n"
+                "target_include_directories(bundle_test_lib PUBLIC\n"
+                "    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>\n"
+                "    $<INSTALL_INTERFACE:include>)\n"
+                "include(GNUInstallDirs)\n"
+                "install(TARGETS bundle_test_lib\n"
+                "    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}\n"
+                "    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})\n"
+                "install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})\n"
+            )
+            (bundle_repo / "include" / "bundle_test_lib.h").write_text(
+                "#ifndef BUNDLE_TEST_LIB_H\n"
+                "#define BUNDLE_TEST_LIB_H\n"
+                "int bundle_test_lib_answer(void);\n"
+                "#endif\n"
+            )
+            (bundle_repo / "src" / "bundle_test_lib.c").write_text(
+                "#include \"bundle_test_lib.h\"\n"
+                "int bundle_test_lib_answer(void) { return 42; }\n"
+            )
+
+            git_args = [
+                "git",
+                "-c", "commit.gpgsign=false",
+                "-c", "user.email=bundle@test",
+                "-c", "user.name=bundle test",
+            ]
+            self.run_cmd(["git", "init", "-q"], cwd=bundle_repo)
+            self.run_cmd([*git_args, "add", "-A"], cwd=bundle_repo)
+            self.run_cmd([*git_args, "commit", "-q", "-m", "init"], cwd=bundle_repo)
+
+            output = self.bake(["--local-env", "run", "."], cwd=project_dir)
+            text = self.strip_ansi(output)
+            self.assertIn("bundle_answer=42", text)
+            self.assertIn("bundle_test_lib", text)
+
+            install_root = (
+                bake_dir / "bundles" / "bundle_test_lib" / "default" / "install"
+            )
+            self.assertTrue(
+                install_root.exists() and any(install_root.iterdir()),
+                f"Expected bundle install tree under {install_root}",
+            )
+
+            second_output = self.bake(["--local-env", "run", "."], cwd=project_dir)
+            second_text = self.strip_ansi(second_output)
+            self.assertIn("bundle_answer=42", second_text)
+            self.assertNotIn("Cloning into", second_text)
+            self.assertNotIn("Build files have been written to", second_text)
+        finally:
+            _rmtree(bundle_repo)
+            _rmtree(bake_dir)
+
     def test_worktree_unchanged_after_run(self) -> None:
         current_snapshot = self.git_snapshot()
         self.assertEqual(

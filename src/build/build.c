@@ -655,7 +655,38 @@ static int bake_clean_project(const bake_context_t *ctx, const bake_project_cfg_
 
     int rc = 0;
     if (bake_path_exists(bake_dir) && bake_path_is_dir(bake_dir)) {
-        rc = bake_os_rmtree(bake_dir);
+        bake_dir_entry_t *entries = NULL;
+        int32_t entry_count = 0;
+        if (bake_dir_list(bake_dir, &entries, &entry_count) != 0) {
+            ecs_os_free(bake_dir);
+            return -1;
+        }
+
+        bool kept_bundles = false;
+        for (int32_t i = 0; i < entry_count && rc == 0; i++) {
+            const bake_dir_entry_t *entry = &entries[i];
+            if (bake_is_dot_dir(entry->name)) {
+                continue;
+            }
+            /* Preserve fetched/built bundle artefacts so a clean does not
+             * trigger expensive re-clones and re-builds. */
+            if (!strcmp(entry->name, "bundles")) {
+                kept_bundles = true;
+                continue;
+            }
+            if (entry->is_dir) {
+                rc = bake_os_rmtree(entry->path);
+            } else {
+                rc = bake_remove_file_if_exists(entry->path);
+            }
+        }
+        bake_dir_entries_free(entries, entry_count);
+
+        if (rc == 0 && !kept_bundles) {
+            /* Match the historical clean behaviour: leave nothing behind when
+             * the project has no bundle artefacts to preserve. */
+            bake_os_rmdir(bake_dir);
+        }
     }
 
     ecs_os_free(bake_dir);

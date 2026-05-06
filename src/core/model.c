@@ -1,5 +1,6 @@
 #include "bake/model.h"
 #include "bake/build_components.h"
+#include "bake/bundle.h"
 #include "bake/environment.h"
 #include "bake/os.h"
 
@@ -98,6 +99,10 @@ static void bake_model_try_append_include_path(
     char *include = NULL;
     if (external && bake_home && cfg && cfg->id) {
         include = bake_path_join3(bake_home, "include", cfg->id);
+        if (include && !bake_path_exists(include)) {
+            ecs_os_free(include);
+            include = NULL;
+        }
     }
 
     if (!include && cfg && cfg->path) {
@@ -316,9 +321,18 @@ static ecs_entity_t bake_model_ensure_dependency(ecs_world_t *world, const char 
     return bake_model_add_project(world, cfg, true);
 }
 
-static void bake_model_link_project_list(ecs_world_t *world, ecs_entity_t entity, const bake_strlist_t *deps) {
+static void bake_model_link_project_list(
+    ecs_world_t *world,
+    ecs_entity_t entity,
+    const bake_project_cfg_t *cfg,
+    const bake_strlist_t *deps)
+{
     for (int32_t i = 0; i < deps->count; i++) {
-        ecs_entity_t dep = bake_model_ensure_dependency(world, deps->items[i]);
+        const char *id = deps->items[i];
+        if (bake_bundle_is_declared(cfg, id)) {
+            continue;
+        }
+        ecs_entity_t dep = bake_model_ensure_dependency(world, id);
         if (dep && dep != entity) {
             ecs_add_pair(world, entity, BakeDependsOn, dep);
         }
@@ -338,15 +352,15 @@ void bake_model_link_dependencies(ecs_world_t *world) {
             }
 
             ecs_entity_t entity = it.entities[i];
-            bake_model_link_project_list(world, entity, &cfg->use);
-            bake_model_link_project_list(world, entity, &cfg->use_private);
-            bake_model_link_project_list(world, entity, &cfg->use_build);
-            bake_model_link_project_list(world, entity, &cfg->use_runtime);
+            bake_model_link_project_list(world, entity, cfg, &cfg->use);
+            bake_model_link_project_list(world, entity, cfg, &cfg->use_private);
+            bake_model_link_project_list(world, entity, cfg, &cfg->use_build);
+            bake_model_link_project_list(world, entity, cfg, &cfg->use_runtime);
             if (cfg->dependee.cfg) {
-                bake_model_link_project_list(world, entity, &cfg->dependee.cfg->use);
-                bake_model_link_project_list(world, entity, &cfg->dependee.cfg->use_private);
-                bake_model_link_project_list(world, entity, &cfg->dependee.cfg->use_build);
-                bake_model_link_project_list(world, entity, &cfg->dependee.cfg->use_runtime);
+                bake_model_link_project_list(world, entity, cfg, &cfg->dependee.cfg->use);
+                bake_model_link_project_list(world, entity, cfg, &cfg->dependee.cfg->use_private);
+                bake_model_link_project_list(world, entity, cfg, &cfg->dependee.cfg->use_build);
+                bake_model_link_project_list(world, entity, cfg, &cfg->dependee.cfg->use_runtime);
             }
         }
     }
@@ -548,6 +562,16 @@ int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
             }
 
             ecs_map_fini(&visited);
+
+            const BakeProject *self_project = ecs_get(world, entity, BakeProject);
+            if (self_project && self_project->cfg && !self_project->external) {
+                const bake_project_cfg_t *self_cfg = self_project->cfg;
+                bake_strlist_merge_unique(&resolved.include_paths, &self_cfg->bundle_includes);
+                bake_strlist_merge_unique(&resolved.build_libpaths, &self_cfg->bundle_libpaths);
+                bake_strlist_merge_unique(&resolved.libs, &self_cfg->bundle_libs);
+                bake_strlist_merge_unique(&resolved.ldflags, &self_cfg->bundle_ldflags);
+            }
+
             ecs_set_ptr(world, entity, BakeResolvedDeps, &resolved);
         }
     }

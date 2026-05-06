@@ -228,6 +228,43 @@ When a dependee configuration specifies a property that accepts a list, the list
 
 This project will have `my_library`, `cglm` and `flecs` as dependencies (in addition to linking with `libm`).
 
+## Bundles
+A project can declare external dependencies that bake fetches and builds automatically. These are useful for pulling in third-party libraries that are not bake projects themselves. Each entry under `bundle` maps a logical name (which can be referenced from `use`) to a git repository. Bake clones the repository, runs CMake to configure, build and install it, and registers the result as a dependency.
+
+```json
+{
+    "id": "my_app",
+    "type": "application",
+    "value": {
+        "use": ["glfw"]
+    },
+    "bundle": {
+        "glfw": {
+            "repository": "https://github.com/glfw/glfw.git",
+            "tag": "3.4",
+            "library": "glfw3",
+            "cmake-args": ["-DGLFW_BUILD_DOCS=OFF", "-DGLFW_BUILD_TESTS=OFF"]
+        }
+    }
+}
+```
+
+The following options are supported per bundle entry:
+- `repository`: Git URL or local path to clone (required).
+- `branch` / `tag`: Optional ref to check out at clone time.
+- `commit`: Optional specific commit hash to check out (will fetch full history if needed).
+- `subdir`: Optional path inside the cloned repository where the build manifest lives.
+- `library`: Name of the library produced (without `lib` prefix or extension). Defaults to the bundle id.
+- `build-system`: `"cmake"` (default) or `"cargo"`. With `cargo`, bake runs `cargo build --release --target-dir <build>` instead of cmake; the artefact is looked up under `release/`.
+- `header-only`: When `true`, skip the build step entirely and only expose the cloned source tree as include paths (useful for header-only libraries).
+- `include`: List of subdirectories of the bundle source to add to the consuming project's include path (in addition to the default `<install>/include` for built bundles or the bundle root for header-only bundles).
+- `sources`: List of source files (relative to the bundle source) to compile alongside the consuming project's own sources. Useful for "drop-in" `.c` files like miniz.
+- `cmake-args`: List of extra arguments passed to `cmake` during configuration.
+- `lib`: System libraries the bundle depends on at link time.
+- `ldflags`: Extra link flags to apply when linking the consuming project.
+
+Bundles are project-scoped: each project's bundles are fetched and built under that project's own `.bake/bundles/<id>/<ref>/{src,build/<triplet>,install/<triplet>}` tree, where `<ref>` is `commits/<hash>`, `tags/<tag>`, `branches/<branch>`, or `default` (when no ref is pinned). The most specific ref wins (`commit` > `tag` > `branch`). Two projects in the same workspace pinning different versions of the same bundle do not interfere with each other; bundles do not propagate transitively, so dependees that need the same library declare their own bundle. Bundles are only fetched and built once per ref-scoped path; subsequent builds reuse them.
+
 ## Conditional configuration
 Sometimes a project may want to apply a configuration only on a specific operation system or for a specific compiler. This can be accomplished by surrounding the conditional configuration like so:
 

@@ -31,12 +31,18 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
         struct stat st;
         entry->is_dir = false;
         if (stat(entry->path, &st) != 0) {
-            bake_log_errno_last("stat directory entry", entry->path);
-            bake_dir_entries_free(ecs_vec_first_t(&vec, bake_dir_entry_t), ecs_vec_count(&vec));
-            closedir(dir);
-            return -1;
+            if (errno == ENOENT || errno == ELOOP || errno == EACCES) {
+                /* Broken/unreadable symlink or missing target; keep entry as a non-directory. */
+                errno = 0;
+            } else {
+                bake_log_errno_last("stat directory entry", entry->path);
+                bake_dir_entries_free(ecs_vec_first_t(&vec, bake_dir_entry_t), ecs_vec_count(&vec));
+                closedir(dir);
+                return -1;
+            }
+        } else {
+            entry->is_dir = S_ISDIR(st.st_mode);
         }
-        entry->is_dir = S_ISDIR(st.st_mode);
     }
 
     if (errno != 0) {

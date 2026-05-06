@@ -28,6 +28,27 @@ typedef struct bake_rule_list_t {
     ecs_vec_t vec;
 } bake_rule_list_t;
 
+typedef struct bake_bundle_t {
+    char *id;
+    char *repository;
+    char *branch;
+    char *tag;
+    char *commit;
+    char *subdir;
+    char *library;
+    char *build_system;
+    bool header_only;
+    bake_strlist_t includes;
+    bake_strlist_t sources;
+    bake_strlist_t cmake_args;
+    bake_strlist_t libs;
+    bake_strlist_t ldflags;
+} bake_bundle_t;
+
+typedef struct bake_bundle_list_t {
+    ecs_vec_t vec;
+} bake_bundle_list_t;
+
 typedef struct bake_project_cfg_t bake_project_cfg_t;
 
 typedef struct bake_dependee_cfg_t {
@@ -79,6 +100,13 @@ struct bake_project_cfg_t {
     bake_lang_cfg_t cpp_lang;
 
     bake_rule_list_t rules;
+    bake_bundle_list_t bundles;
+
+    bake_strlist_t bundle_includes;
+    bake_strlist_t bundle_libpaths;
+    bake_strlist_t bundle_libs;
+    bake_strlist_t bundle_ldflags;
+    bake_strlist_t bundle_sources;
 };
 
 typedef struct bake_build_mode_t {
@@ -95,6 +123,13 @@ char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg);
 void bake_rule_list_init(bake_rule_list_t *list);
 void bake_rule_list_fini(bake_rule_list_t *list);
 int bake_rule_list_append(bake_rule_list_t *list, const char *ext, const char *command);
+
+void bake_bundle_list_init(bake_bundle_list_t *list);
+void bake_bundle_list_fini(bake_bundle_list_t *list);
+bake_bundle_t* bake_bundle_list_append(bake_bundle_list_t *list);
+int32_t bake_bundle_list_count(const bake_bundle_list_t *list);
+bake_bundle_t* bake_bundle_list_get(const bake_bundle_list_t *list, int32_t index);
+const bake_bundle_t* bake_bundle_list_find(const bake_bundle_list_t *list, const char *id);
 
 void bake_lang_cfg_init(bake_lang_cfg_t *cfg);
 void bake_lang_cfg_fini(bake_lang_cfg_t *cfg);

@@ -253,6 +253,21 @@ int bake_collect_compile_units(
         ecs_os_free(test);
     }
 
+    for (int32_t i = 0; i < cfg->bundle_sources.count; i++) {
+        const char *path = cfg->bundle_sources.items[i];
+        char *base = bake_path_basename(path);
+        bake_dir_entry_t entry = {
+            .name = base ? base : (char*)path,
+            .path = (char*)path,
+            .is_dir = false
+        };
+        int rc = bake_collect_visit(&entry, &ctx);
+        ecs_os_free(base);
+        if (rc != 0) {
+            return -1;
+        }
+    }
+
     return 0;
 }
 

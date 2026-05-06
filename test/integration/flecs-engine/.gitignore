@@ -1,0 +1,10 @@
+.DS_Store
+build
+build-asan
+build-release
+build-wasm
+build-tracy
+.vscode
+.claude
+_deps
+test/out
