@@ -67,6 +67,14 @@ int bake_path_is_dir(const char *path) {
     return S_ISDIR(st.st_mode);
 }
 
+int bake_path_is_symlink(const char *path) {
+    struct stat st;
+    if (lstat(path, &st) != 0) {
+        return 0;
+    }
+    return S_ISLNK(st.st_mode);
+}
+
 int bake_os_mkdir(const char *path) {
     return mkdir(path, 0755);
 }

@@ -80,7 +80,32 @@ int bake_env_copy_tree_recursive(const char *src, const char *dst) {
     return 0;
 }
 
+static bool bake_env_paths_overlap(const char *src, const char *dst) {
+    if (!src || !dst || !src[0] || !dst[0]) {
+        return false;
+    }
+
+    /* Compare raw paths, not realpath-resolved paths: a destination that is
+     * a symlink resolves through the symlink and would falsely overlap with
+     * the source. bake_os_rmtree handles symlinks safely by unlinking them
+     * rather than recursing into the target. The check here is for the case
+     * where dst literally lives inside src (or vice versa) on disk, e.g.
+     * when bake_home is misconfigured to the project root and dst becomes
+     * <project>/include/<id>. */
+    return bake_path_equal_normalized(src, dst) ||
+        bake_path_has_prefix_normalized(src, dst, NULL) ||
+        bake_path_has_prefix_normalized(dst, src, NULL);
+}
+
 int bake_env_copy_tree_exact(const char *src, const char *dst) {
+    if (bake_env_paths_overlap(src, dst)) {
+        ecs_err(
+            "refusing to sync tree: src and dst overlap "
+            "(src='%s', dst='%s'); aborting to avoid deleting source files",
+            src ? src : "(null)", dst ? dst : "(null)");
+        return -1;
+    }
+
     if (bake_env_remove_if_exists(dst) != 0) {
         return -1;
     }

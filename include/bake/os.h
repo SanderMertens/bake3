@@ -39,6 +39,7 @@ bool bake_path_is_sep(char ch);
 void bake_path_normalize(char *path);
 char* bake_path_resolve(const char *path);
 int bake_path_is_dir(const char *path);
+int bake_path_is_symlink(const char *path);
 bool bake_path_equal_normalized(const char *lhs, const char *rhs);
 bool bake_path_has_prefix_normalized(const char *path, const char *prefix, size_t *prefix_len_out);
 int bake_path_exists(const char *path);

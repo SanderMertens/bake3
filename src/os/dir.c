@@ -139,6 +139,15 @@ int bake_os_rmtree(const char *path) {
         return 0;
     }
 
+    /* Symlinks (including symlinks to directories) must be unlinked rather
+     * than traversed. Treating a directory symlink as a directory and
+     * recursing into it would delete the contents of the symlink target,
+     * which is almost never what bake wants and has caused source trees
+     * (e.g. legacy bake2 symlinks under ~/bake/include/<id>) to be wiped. */
+    if (bake_path_is_symlink(path)) {
+        return bake_remove_file(path);
+    }
+
     if (!bake_path_is_dir(path)) {
         return bake_remove_file(path);
     }

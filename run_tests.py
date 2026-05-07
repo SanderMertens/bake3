@@ -1466,6 +1466,97 @@ class BakeTests(unittest.TestCase):
             _rmtree(bundle_repo)
             _rmtree(bake_dir)
 
+    @unittest.skipIf(platform.system() == "Windows", "POSIX symlinks not supported on this Windows test setup")
+    def test_bake_home_with_symlinked_include_does_not_delete_source(self) -> None:
+        """When bake_home contains a symlink that points back into the project's
+        source include tree (e.g. legacy bake2 ~/bake/include/<id> symlinks),
+        bake's sync step must unlink the symlink rather than recurse through it
+        and delete the source headers it points to."""
+        stamp = int(time.time() * 1_000_000)
+        project_id = "myproj_sym"
+        tmp_root = self.repo_root / "test" / "tmp" / f"sync_symlink_{stamp}"
+        project_dir = tmp_root / "project"
+        bake_home = tmp_root / "fake_bake_home"
+        include_dir = project_dir / "include"
+        nested_include_dir = include_dir / project_id
+        src_dir = project_dir / "src"
+
+        nested_include_dir.mkdir(parents=True, exist_ok=True)
+        src_dir.mkdir(parents=True, exist_ok=True)
+        (bake_home / "include").mkdir(parents=True, exist_ok=True)
+
+        (project_dir / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"package\"\n"
+            "}\n"
+        )
+        (include_dir / f"{project_id}.h").write_text("extern int x;\n")
+        (nested_include_dir / "important.h").write_text("/* important */\n")
+        (nested_include_dir / "other.h").write_text("/* other */\n")
+        (src_dir / f"{project_id}.c").write_text(f"#include <{project_id}.h>\nint x = 1;\n")
+
+        symlink_path = bake_home / "include" / project_id
+        os.symlink(str(nested_include_dir), str(symlink_path))
+
+        before = sorted(p.relative_to(project_dir).as_posix() for p in nested_include_dir.rglob("*") if p.is_file())
+        self.assertIn(f"include/{project_id}/important.h", before)
+
+        env = self.env.copy()
+        env["BAKE_HOME"] = str(bake_home)
+        try:
+            self.bake([], cwd=project_dir, env=env)
+            after_source = sorted(p.relative_to(project_dir).as_posix() for p in nested_include_dir.rglob("*") if p.is_file())
+        finally:
+            shutil.rmtree(tmp_root, ignore_errors=True)
+
+        missing = [path for path in before if path not in after_source]
+        self.assertEqual(
+            missing,
+            [],
+            "Source include files were deleted via a symlink in bake_home",
+        )
+
+    def test_bake_home_inside_project_does_not_delete_source_includes(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = "myproj"
+        project_dir = self.repo_root / "test" / "tmp" / f"sync_overlap_{stamp}"
+        include_dir = project_dir / "include"
+        nested_include_dir = include_dir / project_id
+        src_dir = project_dir / "src"
+
+        nested_include_dir.mkdir(parents=True, exist_ok=True)
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        (project_dir / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"package\"\n"
+            "}\n"
+        )
+        (include_dir / f"{project_id}.h").write_text("extern int x;\n")
+        (nested_include_dir / "important.h").write_text("/* important header */\n")
+        (nested_include_dir / "other.h").write_text("/* another header */\n")
+        (src_dir / f"{project_id}.c").write_text(f"#include <{project_id}.h>\nint x = 1;\n")
+
+        before = sorted(p.relative_to(project_dir).as_posix() for p in include_dir.rglob("*") if p.is_file())
+
+        env = self.env.copy()
+        env["BAKE_HOME"] = str(project_dir)
+        try:
+            output = self.bake_expect_failure([], cwd=project_dir, env=env)
+            after = sorted(p.relative_to(project_dir).as_posix() for p in include_dir.rglob("*") if p.is_file())
+        finally:
+            shutil.rmtree(project_dir, ignore_errors=True)
+
+        self.assertIn("refusing to sync tree", self.strip_ansi(output))
+        missing = [path for path in before if path not in after]
+        self.assertEqual(
+            missing,
+            [],
+            "Source include files were deleted by bake when bake_home overlaps the project path",
+        )
+
     def test_worktree_unchanged_after_run(self) -> None:
         current_snapshot = self.git_snapshot()
         self.assertEqual(

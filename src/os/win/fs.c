@@ -96,6 +96,17 @@ int bake_path_is_dir(const char *path) {
     return (st.st_mode & _S_IFDIR) != 0;
 }
 
+int bake_path_is_symlink(const char *path) {
+    if (!path || !path[0]) {
+        return 0;
+    }
+    DWORD attrs = GetFileAttributesA(path);
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        return 0;
+    }
+    return (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+}
+
 int bake_os_mkdir(const char *path) {
     return _mkdir(path);
 }
