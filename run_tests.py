@@ -292,12 +292,28 @@ class BakeTests(unittest.TestCase):
         self.assertIn(self.strict_link_warning_flag(), output)
         self.assertNotIn(" -lenvmath -lenvmath", output)
 
+    @unittest.skipIf(platform.system() != "Darwin", "flecs-engine ships a Cocoa-only native surface")
     def test_build_integration_target(self) -> None:
+        if shutil.which("cmake") is None:
+            self.skipTest("cmake not available on PATH")
+        if shutil.which("cargo") is None:
+            self.skipTest("cargo not available on PATH")
         self.bake(["build", "test/integration"])
         state = self.list_state()
         self.assertIn("flecs", state.package_names)
         self.assertIn("city", state.application_names)
         self.assertIn("flecs.components.graphics", state.package_names)
+        self.assertIn("flecs_engine", state.application_names)
+
+    @unittest.skipIf(platform.system() != "Darwin", "flecs-engine ships a Cocoa-only native surface")
+    def test_build_flecs_engine_target(self) -> None:
+        if shutil.which("cmake") is None:
+            self.skipTest("cmake not available on PATH")
+        if shutil.which("cargo") is None:
+            self.skipTest("cargo not available on PATH")
+        self.bake(["build", "test/integration/flecs-engine"])
+        state = self.list_state()
+        self.assertIn("flecs_engine", state.application_names)
 
     def test_build_flecs_modules_target(self) -> None:
         self.bake(["build", "test/integration/flecs-modules-test"])
