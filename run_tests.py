@@ -1466,6 +1466,321 @@ class BakeTests(unittest.TestCase):
             _rmtree(bundle_repo)
             _rmtree(bake_dir)
 
+    @staticmethod
+    def _rm_tree(path: Path) -> None:
+        def _force_writable(target: Path) -> None:
+            try:
+                target.chmod(stat.S_IWUSR | stat.S_IRUSR | stat.S_IXUSR)
+            except OSError:
+                pass
+
+        def onerror(func, target, _exc):
+            _force_writable(Path(target))
+            func(target)
+
+        if path.exists():
+            shutil.rmtree(path, onerror=onerror)
+
+    @classmethod
+    def _git_init_repo(cls, path: Path) -> None:
+        git_args = [
+            "git",
+            "-c", "commit.gpgsign=false",
+            "-c", "user.email=bundle@test",
+            "-c", "user.name=bundle test",
+        ]
+        cls.run_cmd(["git", "init", "-q"], cwd=path)
+        cls.run_cmd([*git_args, "add", "-A"], cwd=path)
+        cls.run_cmd([*git_args, "commit", "-q", "-m", "init"], cwd=path)
+
+    def test_cpp_project_uses_per_language_config_for_each_source(self) -> None:
+        # A package/app whose language is c++ must still compile .c sources with
+        # the lang.c configuration (and .cc sources with lang.cpp), rather than
+        # forcing every unit through lang.cpp.
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"mixed_lang_{stamp}"
+        (root / "src").mkdir(parents=True, exist_ok=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"tmp.mixed.lang.{stamp}\",\n"
+            "    \"type\": \"application\",\n"
+            "    \"value\": { \"language\": \"c++\" },\n"
+            "    \"lang.c\": { \"defines\": [\"FROM_LANG_C\"] },\n"
+            "    \"lang.cpp\": { \"defines\": [\"FROM_LANG_CPP\"], \"cpp-standard\": \"c++11\" }\n"
+            "}\n"
+        )
+        (root / "src" / "main.c").write_text(
+            "#ifndef FROM_LANG_C\n"
+            "#error \"lang.c define not applied to .c source in a c++ project\"\n"
+            "#endif\n"
+            "#ifdef FROM_LANG_CPP\n"
+            "#error \"lang.cpp define leaked into .c source\"\n"
+            "#endif\n"
+            "int cpp_helper(void);\n"
+            "int main(void) { return cpp_helper(); }\n"
+        )
+        (root / "src" / "helper.cc").write_text(
+            "#ifndef FROM_LANG_CPP\n"
+            "#error \"lang.cpp define not applied to .cc source\"\n"
+            "#endif\n"
+            "extern \"C\" int cpp_helper(void) { return 0; }\n"
+        )
+        try:
+            self.bake(["--local-env", "build", "."], cwd=root)
+        finally:
+            self._rm_tree(root)
+
+    def test_c_app_links_cpp_package_dependency(self) -> None:
+        # A C application that uses a C++ package must be linked with the C++
+        # driver so the C++ runtime (libc++/libstdc++) is resolved.
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"c_links_cpp_{stamp}"
+        pkg = root / "cpplib"
+        app = root / "capp"
+        pkg_id = f"tmp.cpplib.{stamp}"
+        app_id = f"tmp.capp.{stamp}"
+
+        (pkg / "src").mkdir(parents=True, exist_ok=True)
+        (pkg / "include").mkdir(parents=True, exist_ok=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{pkg_id}\",\n"
+            "    \"type\": \"package\",\n"
+            "    \"value\": { \"language\": \"c++\" }\n"
+            "}\n"
+        )
+        (pkg / "include" / "cpplib.h").write_text(
+            "#ifndef CPPLIB_H\n"
+            "#define CPPLIB_H\n"
+            "#ifdef __cplusplus\n"
+            "extern \"C\" {\n"
+            "#endif\n"
+            "int cpplib_answer(void);\n"
+            "#ifdef __cplusplus\n"
+            "}\n"
+            "#endif\n"
+            "#endif\n"
+        )
+        (pkg / "src" / "lib.cc").write_text(
+            "#include \"cpplib.h\"\n"
+            "#include <stdexcept>\n"
+            "extern \"C\" int cpplib_answer(void) {\n"
+            "    try { throw std::runtime_error(\"boom\"); }\n"
+            "    catch (const std::exception &) { return 42; }\n"
+            "}\n"
+        )
+
+        (app / "src").mkdir(parents=True, exist_ok=True)
+        (app / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{app_id}\",\n"
+            "    \"type\": \"application\",\n"
+            f"    \"value\": {{ \"use\": [\"{pkg_id}\"] }}\n"
+            "}\n"
+        )
+        (app / "src" / "main.c").write_text(
+            "#include \"cpplib.h\"\n"
+            "#include <stdio.h>\n"
+            "int main(void) { printf(\"answer=%d\\n\", cpplib_answer()); return 0; }\n"
+        )
+        try:
+            output = self.bake(["--local-env", "run", "capp"], cwd=root)
+            self.assertIn("answer=42", self.strip_ansi(output))
+        finally:
+            self._rm_tree(root)
+
+    def test_header_only_bundle_exposes_root_and_propagates_includes(self) -> None:
+        # A header-only bundle that lists extra include subdirs must still expose
+        # its source root, and those include paths must propagate to dependents
+        # of the package that declares the bundle.
+        if shutil.which("git") is None:
+            self.skipTest("git not available on PATH")
+
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"hdr_bundle_{stamp}"
+        bundle_repo = root / "hdrbundle_repo"
+        pkg = root / "midpkg"
+        app = root / "topapp"
+        pkg_id = f"tmp.midpkg.{stamp}"
+        app_id = f"tmp.topapp.{stamp}"
+
+        (bundle_repo / "extra").mkdir(parents=True, exist_ok=True)
+        (bundle_repo / "hdrbundle.h").write_text(
+            "#ifndef HDRBUNDLE_H\n#define HDRBUNDLE_H\n#define HDRBUNDLE_ROOT 1\n#endif\n"
+        )
+        (bundle_repo / "extra" / "hdrbundle_extra.h").write_text(
+            "#ifndef HDRBUNDLE_EXTRA_H\n#define HDRBUNDLE_EXTRA_H\n#define HDRBUNDLE_EXTRA 2\n#endif\n"
+        )
+        self._git_init_repo(bundle_repo)
+
+        (pkg / "src").mkdir(parents=True, exist_ok=True)
+        (pkg / "include").mkdir(parents=True, exist_ok=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{pkg_id}\",\n"
+            "    \"type\": \"package\",\n"
+            "    \"bundle\": {\n"
+            "        \"hdrbundle\": {\n"
+            f"            \"repository\": \"{bundle_repo.as_posix()}\",\n"
+            "            \"header-only\": true,\n"
+            "            \"include\": [\"extra\"]\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+        )
+        (pkg / "include" / "midpkg.h").write_text(
+            "#ifndef MIDPKG_H\n#define MIDPKG_H\nint midpkg_sum(void);\n#endif\n"
+        )
+        (pkg / "src" / "midpkg.c").write_text(
+            "#include \"midpkg.h\"\n"
+            "#include <hdrbundle.h>\n"
+            "#include <hdrbundle_extra.h>\n"
+            "int midpkg_sum(void) { return HDRBUNDLE_ROOT + HDRBUNDLE_EXTRA; }\n"
+        )
+
+        (app / "src").mkdir(parents=True, exist_ok=True)
+        (app / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{app_id}\",\n"
+            "    \"type\": \"application\",\n"
+            f"    \"value\": {{ \"use\": [\"{pkg_id}\"] }}\n"
+            "}\n"
+        )
+        # main.c relies on the bundle include paths reaching it via midpkg.
+        (app / "src" / "main.c").write_text(
+            "#include \"midpkg.h\"\n"
+            "#include <hdrbundle.h>\n"
+            "#include <hdrbundle_extra.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            "    printf(\"sum=%d direct=%d\\n\", midpkg_sum(), HDRBUNDLE_ROOT + HDRBUNDLE_EXTRA);\n"
+            "    return 0;\n"
+            "}\n"
+        )
+        try:
+            output = self.bake(["--local-env", "run", "topapp"], cwd=root)
+            text = self.strip_ansi(output)
+            self.assertIn("sum=3", text)
+            self.assertIn("direct=3", text)
+        finally:
+            self._rm_tree(root)
+
+    def test_cmake_bundle_link_inputs_propagate_to_dependents(self) -> None:
+        # The library produced by a cmake bundle must be linkable from dependents
+        # of the package that declares it (the bundle's libpath/lib propagate).
+        if shutil.which("cmake") is None:
+            self.skipTest("cmake not available on PATH")
+        if shutil.which("git") is None:
+            self.skipTest("git not available on PATH")
+
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"cmake_bundle_prop_{stamp}"
+        bundle_repo = root / "calc_repo"
+        pkg = root / "mathpkg"
+        app = root / "mathapp"
+        pkg_id = f"tmp.mathpkg.{stamp}"
+        app_id = f"tmp.mathapp.{stamp}"
+
+        (bundle_repo / "src").mkdir(parents=True, exist_ok=True)
+        (bundle_repo / "include").mkdir(parents=True, exist_ok=True)
+        (bundle_repo / "CMakeLists.txt").write_text(
+            "cmake_minimum_required(VERSION 3.10)\n"
+            "project(calc C)\n"
+            "add_library(calc STATIC src/calc.c)\n"
+            "target_include_directories(calc PUBLIC\n"
+            "    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>\n"
+            "    $<INSTALL_INTERFACE:include>)\n"
+            "include(GNUInstallDirs)\n"
+            "install(TARGETS calc\n"
+            "    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}\n"
+            "    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})\n"
+            "install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})\n"
+        )
+        (bundle_repo / "include" / "calc.h").write_text(
+            "#ifndef CALC_H\n#define CALC_H\nint calc_add(int a, int b);\n#endif\n"
+        )
+        (bundle_repo / "src" / "calc.c").write_text(
+            "#include \"calc.h\"\nint calc_add(int a, int b) { return a + b; }\n"
+        )
+        self._git_init_repo(bundle_repo)
+
+        (pkg / "src").mkdir(parents=True, exist_ok=True)
+        (pkg / "include").mkdir(parents=True, exist_ok=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{pkg_id}\",\n"
+            "    \"type\": \"package\",\n"
+            "    \"bundle\": {\n"
+            "        \"calc\": {\n"
+            f"            \"repository\": \"{bundle_repo.as_posix()}\",\n"
+            "            \"library\": \"calc\"\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+        )
+        (pkg / "include" / "mathpkg.h").write_text(
+            "#ifndef MATHPKG_H\n#define MATHPKG_H\nint mathpkg_compute(void);\n#endif\n"
+        )
+        # mathpkg.c references calc_add; the symbol must be resolved at the
+        # final link of any dependent application.
+        (pkg / "src" / "mathpkg.c").write_text(
+            "#include \"mathpkg.h\"\n"
+            "#include \"calc.h\"\n"
+            "int mathpkg_compute(void) { return calc_add(40, 2); }\n"
+        )
+
+        (app / "src").mkdir(parents=True, exist_ok=True)
+        (app / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{app_id}\",\n"
+            "    \"type\": \"application\",\n"
+            f"    \"value\": {{ \"use\": [\"{pkg_id}\"] }}\n"
+            "}\n"
+        )
+        (app / "src" / "main.c").write_text(
+            "#include \"mathpkg.h\"\n"
+            "#include <stdio.h>\n"
+            "int main(void) { printf(\"compute=%d\\n\", mathpkg_compute()); return 0; }\n"
+        )
+        try:
+            output = self.bake(["--local-env", "run", "mathapp"], cwd=root)
+            self.assertIn("compute=42", self.strip_ansi(output))
+        finally:
+            self._rm_tree(root)
+
+    def test_discovery_skips_build_directories(self) -> None:
+        # project.json files inside a build/ directory (e.g. nested CMake
+        # build/_deps trees) must not be discovered as bake projects.
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"disc_skip_{stamp}"
+        shared_id = f"tmp.disc.main.{stamp}"
+
+        (root / "src").mkdir(parents=True, exist_ok=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{shared_id}\",\n"
+            "    \"type\": \"package\"\n"
+            "}\n"
+        )
+        (root / "src" / "x.c").write_text("int x_value(void) { return 0; }\n")
+
+        # Stray project nested under build/ that shares the main project's id.
+        # If discovery descended into build/, this would raise a duplicate-id
+        # error and fail the build.
+        stray = root / "build" / "_deps" / "nested-src"
+        (stray / "src").mkdir(parents=True, exist_ok=True)
+        (stray / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{shared_id}\",\n"
+            "    \"type\": \"package\"\n"
+            "}\n"
+        )
+        (stray / "src" / "y.c").write_text("int y_value(void) { return 0; }\n")
+        try:
+            self.bake(["--local-env", "build", "."], cwd=root)
+        finally:
+            self._rm_tree(root)
+
     @unittest.skipIf(platform.system() == "Windows", "POSIX symlinks not supported on this Windows test setup")
     def test_bake_home_with_symlinked_include_does_not_delete_source(self) -> None:
         """When bake_home contains a symlink that points back into the project's
