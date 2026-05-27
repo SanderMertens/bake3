@@ -490,11 +490,6 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     const bake_lang_cfg_t *base_lang = &c_lang;
     const bake_lang_cfg_t *base_cpp = &cpp_lang;
 
-    if (bake_language_is_cpp(cfg)) {
-        base_lang = &cpp_lang;
-        base_cpp = &cpp_lang;
-    }
-
     int32_t compiled_count = 0;
     if (bake_compile_units_parallel(
         ctx, cfg, &paths, &units, base_lang, base_cpp,

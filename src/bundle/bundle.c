@@ -307,9 +307,7 @@ static int bake_bundle_apply_to_project(
 {
     /* Default include dir: install/include for cmake builds, src for header-only */
     if (bundle->header_only) {
-        if (bundle->includes.count == 0) {
-            if (bake_bundle_add_include(cfg, src_root) != 0) return -1;
-        }
+        if (bake_bundle_add_include(cfg, src_root) != 0) return -1;
     } else {
         char *include_dir = bake_path_join(install_dir, "include");
         int rc = include_dir ? bake_bundle_add_include(cfg, include_dir) : -1;

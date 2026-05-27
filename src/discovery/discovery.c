@@ -5,7 +5,7 @@
 
 static int bake_should_skip_dir(const char *name, bool skip_special_dirs) {
     if (bake_is_dot_dir(name) || name[0] == '.') return 1;
-    static const char *always[] = {"tmp", "target", "out", "template", "templates"};
+    static const char *always[] = {"tmp", "target", "out", "build", "template", "templates"};
     for (size_t i = 0; i < sizeof(always) / sizeof(always[0]); i++) {
         if (!strcmp(name, always[i])) return 1;
     }

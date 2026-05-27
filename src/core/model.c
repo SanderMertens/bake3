@@ -514,6 +514,11 @@ static int bake_model_collect_resolved_deps(
             bake_strlist_merge_unique(&resolved->ldflags, &cfg->c_lang.ldflags);
             bake_strlist_merge_unique(&resolved->ldflags, &cfg->cpp_lang.ldflags);
 
+            bake_strlist_merge_unique(&resolved->include_paths, &cfg->bundle_includes);
+            bake_strlist_merge_unique(&resolved->build_libpaths, &cfg->bundle_libpaths);
+            bake_strlist_merge_unique(&resolved->libs, &cfg->bundle_libs);
+            bake_strlist_merge_unique(&resolved->ldflags, &cfg->bundle_ldflags);
+
             if (cfg->dependee.cfg) {
                 bake_strlist_merge_unique(&resolved->libs, &cfg->dependee.cfg->c_lang.libs);
                 bake_strlist_merge_unique(&resolved->libs, &cfg->dependee.cfg->cpp_lang.libs);

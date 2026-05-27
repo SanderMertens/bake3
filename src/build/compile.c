@@ -577,11 +577,20 @@ int bake_link_project_binary(
         goto cleanup;
     }
 
-    bool use_cpp = false;
+    bool use_cpp = bake_language_is_cpp(cfg);
     for (int32_t i = 0; i < units->count; i++) {
         if (units->items[i].cpp) {
             use_cpp = true;
             break;
+        }
+    }
+    if (!use_cpp && resolved) {
+        for (int32_t i = 0; i < resolved->dep_count; i++) {
+            const BakeProject *dep = ecs_get(ctx->world, resolved->deps[i], BakeProject);
+            if (dep && dep->cfg && bake_language_is_cpp(dep->cfg)) {
+                use_cpp = true;
+                break;
+            }
         }
     }
 
