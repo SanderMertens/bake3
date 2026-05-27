@@ -69,7 +69,9 @@ static int bake_json_conditional_key_matches(const char *key) {
     int match = 0;
     if (value[0]) {
         if (!strcmp(kind, "os")) {
-            match = !strcasecmp(value, bake_host_os());
+            match = !strcasecmp(value, bake_target_os());
+        } else if (!strcmp(kind, "arch")) {
+            match = !strcasecmp(value, bake_target_arch());
         } else if (!strcmp(kind, "cfg")) {
             const char *mode = bake_cfg_eval_mode ? bake_cfg_eval_mode : "debug";
             match = !strcasecmp(value, mode);
@@ -140,6 +142,11 @@ char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg) {
     const char *lib_ext = ".a";
     const char *lib_prefix = "lib";
 #endif
+
+    const char *target_exe_ext = bake_target_exe_ext();
+    if (target_exe_ext && target_exe_ext[0]) {
+        exe_ext = target_exe_ext;
+    }
 
     if (cfg->kind == BAKE_PROJECT_PACKAGE) {
         return flecs_asprintf("%s%s%s", lib_prefix, cfg->output_name, lib_ext);
@@ -236,7 +243,7 @@ const bake_bundle_t* bake_bundle_list_find(const bake_bundle_list_t *list, const
 static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults) {
 #define F(n) bake_strlist_init(&cfg->n)
     F(cflags); F(cxxflags); F(defines); F(ldflags); F(libs);
-    F(static_libs); F(libpaths); F(links); F(include_paths);
+    F(static_libs); F(libpaths); F(links); F(include_paths); F(embed);
 #undef F
     cfg->c_standard = set_defaults ? ecs_os_strdup("c99") : NULL;
     cfg->cpp_standard = set_defaults ? ecs_os_strdup("c++17") : NULL;
@@ -252,7 +259,7 @@ void bake_lang_cfg_init(bake_lang_cfg_t *cfg) {
 void bake_lang_cfg_fini(bake_lang_cfg_t *cfg) {
 #define F(n) bake_strlist_fini(&cfg->n)
     F(cflags); F(cxxflags); F(defines); F(ldflags); F(libs);
-    F(static_libs); F(libpaths); F(links); F(include_paths);
+    F(static_libs); F(libpaths); F(links); F(include_paths); F(embed);
 #undef F
     ecs_os_free(cfg->c_standard);
     ecs_os_free(cfg->cpp_standard);
@@ -361,6 +368,7 @@ static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) 
     G("cflags", NULL, cflags); G("cxxflags", NULL, cxxflags); G("defines", NULL, defines);
     G("ldflags", NULL, ldflags); G("lib", "libs", libs); G("static-lib", "static_lib", static_libs);
     G("libpath", "libpaths", libpaths); G("link", "links", links); G("include", NULL, include_paths);
+    G("embed", NULL, embed);
 #undef G
 
     if (bake_json_get_string(object, "c-standard", &cfg->c_standard) < 0) return -1;
@@ -426,6 +434,7 @@ static int bake_parse_project_value_cfg(
     ARR("libpath", "libpaths", libpaths);
     ARR("link", "links", links);
     ARR("include", NULL, include_paths);
+    ARR("embed", NULL, embed);
 #undef ARR
 
     if (bake_json_get_string(object, "c-standard", &cfg->c_lang.c_standard) < 0) return -1;

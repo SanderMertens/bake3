@@ -87,7 +87,7 @@ static int bake_lang_cfg_copy(bake_lang_cfg_t *dst, const bake_lang_cfg_t *src) 
 
 #define CP(f) if (bake_strlist_copy(&dst->f, &src->f) != 0) return -1
     CP(cflags); CP(cxxflags); CP(defines); CP(ldflags); CP(libs);
-    CP(static_libs); CP(libpaths); CP(links); CP(include_paths);
+    CP(static_libs); CP(libpaths); CP(links); CP(include_paths); CP(embed);
 #undef CP
 
     return 0;

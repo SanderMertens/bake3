@@ -64,6 +64,16 @@ const char* bake_host_arch(void);
 char* bake_host_platform(void);
 char* bake_host_triplet(const char *mode);
 
+/* Cross-compilation target ("em" for emscripten). The effective build os/arch
+ * default to the host but are overridden when a target is set. */
+void bake_set_build_target(const char *target);
+bool bake_target_name_is_em(const char *name);
+bool bake_target_is_emscripten(void);
+const char* bake_target_arch(void);
+const char* bake_target_os(void);
+const char* bake_target_exe_ext(void);
+int bake_emsdk_ensure_env(void);
+
 int64_t bake_os_file_mtime(const char *path); /* nanoseconds since unix epoch, -1 on error */
 int bake_os_mkdir(const char *path);
 char* bake_os_getcwd(void);

@@ -15,14 +15,18 @@ static int bake_is_compile_source(const char *path, bool *cpp_out) {
     }
 
 #if defined(__APPLE__)
-    if (bake_has_suffix(path, ".m")) {
-        *cpp_out = false;
-        return 1;
-    }
+    /* Objective-C sources only compile for Apple targets; skip them when
+       cross-compiling (e.g. to emscripten). */
+    if (!strcmp(bake_target_os(), "Darwin")) {
+        if (bake_has_suffix(path, ".m")) {
+            *cpp_out = false;
+            return 1;
+        }
 
-    if (bake_has_suffix(path, ".mm")) {
-        *cpp_out = true;
-        return 1;
+        if (bake_has_suffix(path, ".mm")) {
+            *cpp_out = true;
+            return 1;
+        }
     }
 #endif
 

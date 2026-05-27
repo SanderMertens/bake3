@@ -132,6 +132,7 @@ int main(int argc, char *argv[]) {
         VARG("--cfg", mode)
         VARG("--cc", cc)
         VARG("--cxx", cxx)
+        VARG("--target", toolchain)
         VARG("--run-prefix", run_prefix)
 #undef VARG
 
@@ -157,6 +158,11 @@ int main(int argc, char *argv[]) {
         if (env_cxx && env_cxx[0]) {
             opts.cxx = env_cxx;
         }
+    }
+
+    if (bake_target_name_is_em(opts.toolchain)) {
+        if (!opts.cc) opts.cc = "emcc";
+        if (!opts.cxx) opts.cxx = "em++";
     }
 
     if (opts.local_env) {

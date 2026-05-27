@@ -65,6 +65,9 @@ bake_compiler_kind_t bake_detect_compiler_kind(const char *cc, const char *cxx) 
 #endif
     }
 
+    if (strstr(probe, "emcc") || strstr(probe, "em++")) {
+        return BAKE_COMPILER_CLANG;
+    }
     if (strstr(probe, "cl") || strstr(probe, "cl.exe")) {
         return BAKE_COMPILER_MSVC;
     }

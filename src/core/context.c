@@ -114,7 +114,8 @@ int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
     memset(ctx, 0, sizeof(*ctx));
     ctx->opts = *opts;
 
-    bake_project_cfg_set_eval_context(opts->mode, NULL);
+    bake_set_build_target(opts->toolchain);
+    bake_project_cfg_set_eval_context(opts->mode, opts->toolchain);
     bake_context_init_env(opts);
 
     if (opts->jobs > 0) {
@@ -158,6 +159,17 @@ int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
     if (bake_env_init_paths(ctx) != 0) {
         bake_context_fini(ctx);
         return -1;
+    }
+
+    if (bake_target_is_emscripten()) {
+        const char *cmd = opts->command;
+        bool needs_toolchain = !cmd || !strcmp(cmd, "build") ||
+            !strcmp(cmd, "run") || !strcmp(cmd, "test") ||
+            !strcmp(cmd, "rebuild");
+        if (needs_toolchain && bake_emsdk_ensure_env() != 0) {
+            bake_context_fini(ctx);
+            return -1;
+        }
     }
 
     return 0;

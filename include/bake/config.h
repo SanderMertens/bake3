@@ -66,6 +66,7 @@ typedef struct bake_lang_cfg_t {
     bake_strlist_t libpaths;
     bake_strlist_t links;
     bake_strlist_t include_paths;
+    bake_strlist_t embed;
     char *c_standard;
     char *cpp_standard;
     bool static_lib;

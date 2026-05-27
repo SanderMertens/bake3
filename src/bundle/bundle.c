@@ -171,11 +171,12 @@ static int bake_bundle_run_cmake(
     }
 
     const char *build_type = bake_bundle_cmake_build_type(mode);
+    const char *cmake_launcher = bake_target_is_emscripten() ? "emcmake cmake" : "cmake";
 
     ecs_strbuf_t configure = ECS_STRBUF_INIT;
     ecs_strbuf_append(&configure,
-        "cmake -S %s -B %s -DCMAKE_INSTALL_PREFIX=%s -DCMAKE_BUILD_TYPE=%s -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON",
-        quoted_src, quoted_build, quoted_install, build_type);
+        "%s -S %s -B %s -DCMAKE_INSTALL_PREFIX=%s -DCMAKE_BUILD_TYPE=%s -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON",
+        cmake_launcher, quoted_src, quoted_build, quoted_install, build_type);
     for (int32_t i = 0; i < bundle->cmake_args.count; i++) {
         char *q = bake_bundle_quote_arg(bundle->cmake_args.items[i]);
         if (!q) {

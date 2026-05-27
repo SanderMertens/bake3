@@ -92,6 +92,7 @@ Options:
   --cfg <mode>        Build mode: sanitize|debug|profile|release
   --cc <compiler>     Override C compiler
   --cxx <compiler>    Override C++ compiler
+  --target <name>     Cross-compile target (em = emscripten/wasm)
   --run-prefix <cmd>  Prefix command when running binaries
   --local-env[=<name>] Use ./.bake/local_env (or ./.bake/local_env/<name>) as isolated BAKE_HOME and build root
   --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)
@@ -266,7 +267,7 @@ The following options are supported per bundle entry:
 Bundles are project-scoped: each project's bundles are fetched and built under that project's own `.bake/bundles/<id>/<ref>/{src,build/<triplet>,install/<triplet>}` tree, where `<ref>` is `commits/<hash>`, `tags/<tag>`, `branches/<branch>`, or `default` (when no ref is pinned). The most specific ref wins (`commit` > `tag` > `branch`). Two projects in the same workspace pinning different versions of the same bundle do not interfere with each other; bundles do not propagate transitively, so dependees that need the same library declare their own bundle. Bundles are only fetched and built once per ref-scoped path; subsequent builds reuse them.
 
 ## Conditional configuration
-Sometimes a project may want to apply a configuration only on a specific operation system or for a specific compiler. This can be accomplished by surrounding the conditional configuration like so:
+Sometimes a project may want to apply a configuration only on a specific operating system or for a specific build target. This can be accomplished by surrounding the conditional configuration like so:
 
 ```json
 {
@@ -282,6 +283,31 @@ Sometimes a project may want to apply a configuration only on a specific operati
     }
 }
 ```
+
+The following conditional kinds are supported:
+- `${os <name>}`: matches the build target OS (`Darwin`, `Linux`, `Windows`, `Emscripten`, ...). This equals the host OS unless cross-compiling with `--target`.
+- `${arch <name>}`: matches the build target architecture (`arm64`, `x64`, `wasm32`, ...).
+- `${cfg <mode>}`: matches the build mode (`debug`, `release`, ...).
+- `${target <name>}`: matches the `--target` value (e.g. `em`).
+
+Conditional blocks may appear at the top level (where they can introduce e.g. `bundle` entries) as well as inside `lang.c`, `lang.cpp` and `dependee` sections.
+
+## Cross-compilation
+Bake can cross-compile a project to a non-host target with `--target <name>`. The only target currently supported is `em` (Emscripten / WebAssembly):
+
+```sh
+bake build --target em
+bake build my_app --target em
+```
+
+When `--target em` is used, bake:
+- defaults the compiler to `emcc` / `em++` (still overridable with `--cc` / `--cxx`),
+- archives static libraries with `emar`,
+- configures `bundle` dependencies with `emcmake cmake`,
+- emits a `wasm32-Emscripten-<cfg>` triplet so wasm artefacts never clash with native ones,
+- gives application targets a `.html` artefact (emscripten also emits the sibling `.js`/`.wasm` files next to it).
+
+Bake locates the Emscripten SDK automatically: if `emcc` is not already on `PATH`, it sources `emsdk_env.sh` from `$EMSDK`, `$EMSDK_DIR`, or `~/GitHub/emsdk` and imports the resulting `PATH` and `EM*` variables for the build. Use `${os Emscripten}` / `${target em}` conditionals in `project.json` to select target-specific dependencies and flags (for example, replacing native GLFW/WebGPU dependencies with `-sUSE_GLFW=3 -sUSE_WEBGPU=1`).
 
 ## Project discovery
 When bake is called on a directory, it will recursively discover all other bake projects in that directory. A bake project is identified as a project with a `project.json`. The command specified on the bake command line will then be executed for all discovered projects.
