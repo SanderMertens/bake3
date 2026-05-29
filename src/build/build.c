@@ -432,6 +432,14 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     bake_apply_dependee_cfg(ctx->world, project_entity, &c_lang, false);
     bake_apply_dependee_cfg(ctx->world, project_entity, &cpp_lang, true);
 
+    /* Link uses a single language config: fold the C++ link inputs into the C
+     * config so that link flags declared under either lang.c or lang.cpp are
+     * applied to the project's own binary. */
+    bake_strlist_merge_unique(&c_lang.ldflags, &cpp_lang.ldflags);
+    bake_strlist_merge_unique(&c_lang.libs, &cpp_lang.libs);
+    bake_strlist_merge_unique(&c_lang.libpaths, &cpp_lang.libpaths);
+    bake_strlist_merge_unique(&c_lang.embed, &cpp_lang.embed);
+
     if (cfg->kind == BAKE_PROJECT_TEST) {
         bake_strlist_append_unique(&c_lang.include_paths, paths.gen_dir);
         bake_strlist_append_unique(&cpp_lang.include_paths, paths.gen_dir);
@@ -502,7 +510,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     char *artefact = NULL;
     bool linked = false;
     if (bake_link_project_binary(
-        ctx, project_entity, cfg, &paths, &units, base_cpp, &mode_ldflags,
+        ctx, project_entity, cfg, &paths, &units, base_lang, &mode_ldflags,
         &artefact, &linked) != 0)
     {
         ecs_err("link failed for %s", cfg->id);

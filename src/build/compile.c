@@ -83,10 +83,13 @@ bake_compiler_kind_t bake_detect_compiler_kind(const char *cc, const char *cxx) 
 
 void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strlist_t *cflags, bake_strlist_t *cxxflags, bake_strlist_t *ldflags) {
     static const char *msvc_debug[] = {"/Zi", "/Od", NULL};
-    static const char *msvc_release[] = {"/O2", NULL};
+    static const char *msvc_release[] = {"/O2", "/GL", NULL};
+    static const char *msvc_release_ld[] = {"/LTCG", NULL};
+    static const char *msvc_profile[] = {"/O2", NULL};
     static const char *msvc_sanitize[] = {"/fsanitize=address", NULL};
     static const char *gnu_debug[] = {"-g", "-O0", NULL};
-    static const char *gnu_release[] = {"-O3", "-DNDEBUG", NULL};
+    static const char *gnu_release[] = {"-O3", "-DNDEBUG", "-flto", NULL};
+    static const char *gnu_release_ld[] = {"-flto", NULL};
     static const char *gnu_profile[] = {"-O2", "-pg", NULL};
     static const char *gnu_sanitize[] = {
         "-O0", "-g", "-fsanitize=address", "-fsanitize=undefined", NULL
@@ -105,15 +108,17 @@ void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strli
     if (!strcmp(mode, "release")) {
         if (kind == BAKE_COMPILER_MSVC) {
             bake_append_lang_flags(cflags, cxxflags, msvc_release);
+            bake_append_flags(ldflags, msvc_release_ld);
         } else {
             bake_append_lang_flags(cflags, cxxflags, gnu_release);
+            bake_append_flags(ldflags, gnu_release_ld);
         }
         return;
     }
 
     if (!strcmp(mode, "profile")) {
         if (kind == BAKE_COMPILER_MSVC) {
-            bake_append_lang_flags(cflags, cxxflags, msvc_release);
+            bake_append_lang_flags(cflags, cxxflags, msvc_profile);
         } else {
             bake_append_lang_flags(cflags, cxxflags, gnu_profile);
             bake_strlist_append(ldflags, "-pg");
