@@ -246,6 +246,125 @@ class BakeTests(unittest.TestCase):
         self.assertIn("examples.c.app_clib", state.application_names)
         self.assertIn("examples.c.pkg_helloworld", state.package_names)
 
+    def test_amalgamate_list_format_supports_prefix_and_disable_flags(self) -> None:
+        target = "test/projects/c/pkg_amalgamate_disable"
+        distr = self.repo_root / target / "distr"
+        if distr.exists():
+            shutil.rmtree(distr)
+
+        self.bake(["build", target])
+
+        # First config: default name, no disable-flags -> full output preserved
+        full_header = (distr / "examples_c_pkg_amalgamate_disable.h").read_text()
+        self.assertIn("#ifdef EXAMPLES_FEATURE_REMOVED", full_header)
+        self.assertIn("#if defined(EXAMPLES_FLAG_OFF)", full_header)
+        self.assertIn("EXAMPLES_C_PKG_AMALGAMATE_DISABLE_EXTRA", full_header)
+        self.assertIn("EXAMPLES_C_PKG_AMALGAMATE_DISABLE_MODE (1)", full_header)
+
+        # Second config: prefix "mini" + disable-flags -> separate, stripped files
+        mini_header = (distr / "mini.h").read_text()
+        mini_source = (distr / "mini.c").read_text()
+
+        # Simple #ifdef / #if defined guards on disabled flags are stripped,
+        # including the addon-style "#define FLAG" enable line (so the flag is
+        # genuinely undefined for the compiler).
+        self.assertNotIn("EXAMPLES_FEATURE_REMOVED", mini_header)
+        self.assertNotIn("removed_decl", mini_header)
+        self.assertNotIn("flag_only", mini_header)
+        self.assertNotIn("EXAMPLES_FLAG_OFF", mini_header)
+        self.assertNotIn("#define EXAMPLES_FLAG_OFF", mini_header)
+        self.assertNotIn("EXAMPLES_C_PKG_AMALGAMATE_DISABLE_EXTRA", mini_header)
+        self.assertNotIn("EXAMPLES_C_PKG_AMALGAMATE_DISABLE_NESTED", mini_header)
+        self.assertNotIn("EXAMPLES_C_PKG_AMALGAMATE_DISABLE_MODE (1)", mini_header)
+        self.assertNotIn("EXAMPLES_FEATURE_REMOVED", mini_source)
+        self.assertNotIn("removed_decl", mini_source)
+
+        # #else branch kept, #ifndef body kept, non-disabled flags preserved
+        self.assertIn("EXAMPLES_C_PKG_AMALGAMATE_DISABLE_MODE (2)", mini_header)
+        self.assertIn("examples_c_pkg_amalgamate_disable_kept_decl", mini_header)
+        self.assertIn("#ifdef EXAMPLES_KEEP_THIS", mini_header)
+        self.assertIn("examples_c_pkg_amalgamate_disable_other_decl", mini_header)
+        self.assertIn("examples_c_pkg_amalgamate_disable_value", mini_header)
+        self.assertIn("EXAMPLES_C_PKG_AMALGAMATE_DISABLE_BIAS (10)", mini_header)
+        self.assertIn("#define EXAMPLES_DEBUG_INFO", mini_header)
+
+        # The prefixed source includes its own prefixed header
+        self.assertIn('#include "mini.h"', mini_source)
+
+    def test_amalgamate_disabled_flags_produce_compilable_output(self) -> None:
+        # Regression: a disabled flag's enable "#define FLAG" used to be left in
+        # the output, so the compiler saw the flag as defined and activated
+        # compound guards (e.g. "#if defined(X) && defined(FLAG)") whose
+        # declarations had been stripped -> dangling references that fail to
+        # compile. The enable #define must be stripped so the flag is undefined.
+        compiler = os.environ.get("CC") or shutil.which("cc") or shutil.which("gcc")
+        if not compiler:
+            self.skipTest("no C compiler available")
+
+        target = "test/projects/c/pkg_amalgamate_disable"
+        distr = self.repo_root / target / "distr"
+        if distr.exists():
+            shutil.rmtree(distr)
+        self.bake(["build", target])
+
+        for name in ("mini.c", "examples_c_pkg_amalgamate_disable.c"):
+            obj = distr / (name + ".o")
+            self.run_cmd([compiler, "-c", str(distr / name), "-o", str(obj)])
+            self.assertTrue(obj.exists(), f"expected {name} to compile")
+            obj.unlink()
+
+    def test_amalgamate_output_is_cleaned(self) -> None:
+        # The amalgamated output drops comment blocks containing an @file
+        # directive and collapses runs of blank lines down to a single blank
+        # line. A blank line that terminates a backslash-continued macro is
+        # significant; capping at one blank line preserves it (collapsing it
+        # away would splice the next line into the macro).
+        target = "test/projects/c/pkg_amalgamate_disable"
+        distr = self.repo_root / target / "distr"
+        if distr.exists():
+            shutil.rmtree(distr)
+        self.bake(["build", target])
+
+        for name in (
+            "examples_c_pkg_amalgamate_disable.h",
+            "examples_c_pkg_amalgamate_disable.c",
+            "mini.h",
+            "mini.c",
+        ):
+            text = (distr / name).read_text()
+            self.assertNotIn("@file", text)
+            self.assertNotIn("\n\n\n", text)
+
+    def test_amalgamate_regenerates_when_output_is_stale(self) -> None:
+        # Regression: amalgamation used to skip regeneration when the existing
+        # output was newer than the source files (mtime heuristic). A stale or
+        # incorrect output (e.g. from an older binary, or after a config change
+        # that left source mtimes untouched) would never be rewritten. The
+        # replacement must be content-based instead.
+        target = "test/projects/c/pkg_amalgamate_disable"
+        distr = self.repo_root / target / "distr"
+        if distr.exists():
+            shutil.rmtree(distr)
+        self.bake(["build", target])
+
+        mini = distr / "mini.h"
+        stripped = mini.read_text()
+        self.assertNotIn("EXAMPLES_FLAG_OFF", stripped)
+
+        # Overwrite the stripped output with the full (unstripped) header and
+        # make it newer than every source file.
+        full = (distr / "examples_c_pkg_amalgamate_disable.h").read_text()
+        mini.write_text(full)
+        os.utime(mini, None)
+        self.assertIn("EXAMPLES_FLAG_OFF", mini.read_text())
+
+        # Rebuilding without deleting must restore the stripped output.
+        self.bake(["build", target])
+        regenerated = mini.read_text()
+        self.assertNotIn("EXAMPLES_FLAG_OFF", regenerated)
+        self.assertNotIn("EXAMPLES_FEATURE_REMOVED", regenerated)
+        self.assertEqual(regenerated, stripped)
+
     def test_build_distinguishes_sources_with_colliding_flat_names(self) -> None:
         self.bake(["build", "test/projects/c/app_obj_collision"])
         state = self.list_state()

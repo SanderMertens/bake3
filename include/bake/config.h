@@ -49,6 +49,16 @@ typedef struct bake_bundle_list_t {
     ecs_vec_t vec;
 } bake_bundle_list_t;
 
+typedef struct bake_amalgamate_cfg_t {
+    char *path;
+    char *prefix;
+    bake_strlist_t disable_flags;
+} bake_amalgamate_cfg_t;
+
+typedef struct bake_amalgamate_list_t {
+    ecs_vec_t vec;
+} bake_amalgamate_list_t;
+
 typedef struct bake_project_cfg_t bake_project_cfg_t;
 
 typedef struct bake_dependee_cfg_t {
@@ -85,8 +95,7 @@ struct bake_project_cfg_t {
 
     bool private_project;
     bool standalone;
-    bool amalgamate;
-    char *amalgamate_path;
+    bake_amalgamate_list_t amalgamate;
 
     bake_strlist_t use;
     bake_strlist_t use_private;
@@ -131,6 +140,12 @@ bake_bundle_t* bake_bundle_list_append(bake_bundle_list_t *list);
 int32_t bake_bundle_list_count(const bake_bundle_list_t *list);
 bake_bundle_t* bake_bundle_list_get(const bake_bundle_list_t *list, int32_t index);
 const bake_bundle_t* bake_bundle_list_find(const bake_bundle_list_t *list, const char *id);
+
+void bake_amalgamate_list_init(bake_amalgamate_list_t *list);
+void bake_amalgamate_list_fini(bake_amalgamate_list_t *list);
+bake_amalgamate_cfg_t* bake_amalgamate_list_append(bake_amalgamate_list_t *list);
+int32_t bake_amalgamate_list_count(const bake_amalgamate_list_t *list);
+bake_amalgamate_cfg_t* bake_amalgamate_list_get(const bake_amalgamate_list_t *list, int32_t index);
 
 void bake_lang_cfg_init(bake_lang_cfg_t *cfg);
 void bake_lang_cfg_fini(bake_lang_cfg_t *cfg);

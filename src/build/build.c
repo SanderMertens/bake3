@@ -401,7 +401,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         goto cleanup;
     }
 
-    if (cfg->amalgamate) {
+    if (bake_amalgamate_list_count(&cfg->amalgamate) > 0) {
         if (bake_generate_project_amalgamation(cfg) != 0) {
             ecs_err("amalgamation failed for %s", cfg->id);
             goto cleanup;

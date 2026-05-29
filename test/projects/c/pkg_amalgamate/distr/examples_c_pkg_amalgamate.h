@@ -10,7 +10,6 @@
 
 #endif
 
-
 int examples_c_pkg_amalgamate_add(int lhs, int rhs);
 
 #endif

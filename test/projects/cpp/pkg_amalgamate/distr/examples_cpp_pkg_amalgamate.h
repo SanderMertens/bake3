@@ -12,7 +12,6 @@ static const int kOffset = 3;
 
 #endif
 
-
 int examples_cpp_pkg_amalgamate_mul(int lhs, int rhs);
 
 #endif

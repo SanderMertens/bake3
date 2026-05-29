@@ -240,6 +240,42 @@ const bake_bundle_t* bake_bundle_list_find(const bake_bundle_list_t *list, const
     return NULL;
 }
 
+void bake_amalgamate_list_init(bake_amalgamate_list_t *list) {
+    memset(&list->vec, 0, sizeof(list->vec));
+}
+
+void bake_amalgamate_list_fini(bake_amalgamate_list_t *list) {
+    bake_amalgamate_cfg_t *items = ecs_vec_first_t(&list->vec, bake_amalgamate_cfg_t);
+    int32_t count = ecs_vec_count(&list->vec);
+    for (int32_t i = 0; i < count; i++) {
+        ecs_os_free(items[i].path);
+        ecs_os_free(items[i].prefix);
+        bake_strlist_fini(&items[i].disable_flags);
+    }
+    ecs_vec_fini_t(NULL, &list->vec, bake_amalgamate_cfg_t);
+}
+
+bake_amalgamate_cfg_t* bake_amalgamate_list_append(bake_amalgamate_list_t *list) {
+    bake_amalgamate_cfg_t *item = ecs_vec_append_t(NULL, &list->vec, bake_amalgamate_cfg_t);
+    if (!item) {
+        return NULL;
+    }
+    memset(item, 0, sizeof(*item));
+    bake_strlist_init(&item->disable_flags);
+    return item;
+}
+
+int32_t bake_amalgamate_list_count(const bake_amalgamate_list_t *list) {
+    return ecs_vec_count(&list->vec);
+}
+
+bake_amalgamate_cfg_t* bake_amalgamate_list_get(const bake_amalgamate_list_t *list, int32_t index) {
+    if (index < 0 || index >= ecs_vec_count(&list->vec)) {
+        return NULL;
+    }
+    return &ecs_vec_first_t(&list->vec, bake_amalgamate_cfg_t)[index];
+}
+
 static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults) {
 #define F(n) bake_strlist_init(&cfg->n)
     F(cflags); F(cxxflags); F(defines); F(ldflags); F(libs);
@@ -290,8 +326,6 @@ static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_depend
     cfg->has_test_spec = false;
     cfg->public_project = set_defaults;
     cfg->language = set_defaults ? ecs_os_strdup("c") : NULL;
-    cfg->amalgamate = false;
-    cfg->amalgamate_path = NULL;
 
 #define F(n) bake_strlist_init(&cfg->n)
     F(use); F(use_private); F(use_build); F(use_runtime); F(drivers); F(plugins);
@@ -308,6 +342,7 @@ static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_depend
     bake_lang_cfg_init_impl(&cfg->cpp_lang, set_defaults);
     bake_rule_list_init(&cfg->rules);
     bake_bundle_list_init(&cfg->bundles);
+    bake_amalgamate_list_init(&cfg->amalgamate);
 }
 
 void bake_project_cfg_init(bake_project_cfg_t *cfg) {
@@ -316,7 +351,7 @@ void bake_project_cfg_init(bake_project_cfg_t *cfg) {
 
 static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_dependee) {
 #define F(n) ecs_os_free(cfg->n)
-    F(id); F(path); F(language); F(output_name); F(amalgamate_path);
+    F(id); F(path); F(language); F(output_name);
 #undef F
 
 #define F(n) bake_strlist_fini(&cfg->n)
@@ -324,6 +359,7 @@ static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_depend
     F(bundle_includes); F(bundle_libpaths); F(bundle_libs); F(bundle_ldflags);
     F(bundle_sources);
 #undef F
+    bake_amalgamate_list_fini(&cfg->amalgamate);
 
     if (fini_dependee) {
         bake_dependee_cfg_fini(&cfg->dependee);
@@ -398,6 +434,62 @@ static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) 
     return 0;
 }
 
+static int bake_parse_amalgamate_item(
+    const JSON_Object *item,
+    bake_amalgamate_cfg_t *amalg)
+{
+    if (bake_json_get_string(item, "path", &amalg->path) < 0) return -1;
+    if (bake_json_get_string(item, "prefix", &amalg->prefix) < 0) return -1;
+    if (bake_json_get_array_alias(item, "disable-flags", "disable_flags", &amalg->disable_flags) < 0) return -1;
+    return 0;
+}
+
+static int bake_parse_amalgamate(
+    const JSON_Object *object,
+    bake_project_cfg_t *cfg)
+{
+    JSON_Value *value = json_object_get_value(object, "amalgamate");
+    if (!value) {
+        return 0;
+    }
+
+    JSON_Value_Type type = json_value_get_type(value);
+
+    if (type == JSONBoolean) {
+        if (json_value_get_boolean(value)) {
+            bake_amalgamate_cfg_t *amalg = bake_amalgamate_list_append(&cfg->amalgamate);
+            if (!amalg) return -1;
+            if (bake_json_get_string_alias(object, "amalgamate-path", "amalgamate_path", &amalg->path) < 0) return -1;
+        }
+        return 0;
+    }
+
+    if (type == JSONObject) {
+        bake_amalgamate_cfg_t *amalg = bake_amalgamate_list_append(&cfg->amalgamate);
+        if (!amalg) return -1;
+        return bake_parse_amalgamate_item(json_value_get_object(value), amalg);
+    }
+
+    if (type == JSONArray) {
+        JSON_Array *array = json_value_get_array(value);
+        size_t count = json_array_get_count(array);
+        for (size_t i = 0; i < count; i++) {
+            const JSON_Object *item = json_array_get_object(array, i);
+            if (!item) {
+                ecs_err("each 'amalgamate' entry must be an object");
+                return -1;
+            }
+            bake_amalgamate_cfg_t *amalg = bake_amalgamate_list_append(&cfg->amalgamate);
+            if (!amalg) return -1;
+            if (bake_parse_amalgamate_item(item, amalg) != 0) return -1;
+        }
+        return 0;
+    }
+
+    ecs_err("'amalgamate' must be a boolean, object or array");
+    return -1;
+}
+
 static int bake_parse_project_value_cfg(
     const JSON_Object *object,
     bake_project_cfg_t *cfg)
@@ -413,8 +505,7 @@ static int bake_parse_project_value_cfg(
     if (bake_json_get_bool(object, "private", &cfg->private_project) < 0) return -1;
     if (bake_json_get_bool(object, "public", &cfg->public_project) < 0) return -1;
     if (bake_json_get_bool(object, "standalone", &cfg->standalone) < 0) return -1;
-    if (bake_json_get_bool(object, "amalgamate", &cfg->amalgamate) < 0) return -1;
-    if (bake_json_get_string_alias(object, "amalgamate-path", "amalgamate_path", &cfg->amalgamate_path) < 0) return -1;
+    if (bake_parse_amalgamate(object, cfg) < 0) return -1;
 
     if (bake_json_get_array_alias(object, "use", NULL, &cfg->use) < 0) return -1;
     if (bake_json_get_array_alias(object, "use-private", "use_private", &cfg->use_private) < 0) return -1;

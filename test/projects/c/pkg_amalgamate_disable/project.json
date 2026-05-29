@@ -1,0 +1,13 @@
+{
+    "id":"examples.c.pkg_amalgamate_disable",
+    "type":"package",
+    "value": {
+        "amalgamate": [{
+            "path": "distr"
+        }, {
+            "path": "distr",
+            "prefix": "mini",
+            "disable-flags": ["EXAMPLES_FEATURE_REMOVED", "EXAMPLES_FLAG_OFF"]
+        }]
+    }
+}
