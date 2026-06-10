@@ -748,9 +748,7 @@ static int bake_parse_bundle_entry(
     if (bake_json_get_string(object, "library", &bundle->library) < 0) return -1;
     if (bake_json_get_string_alias(object, "build-system", "build_system", &bundle->build_system) < 0) return -1;
 
-    if (bake_json_get_bool(object, "header-only", &bundle->header_only) < 0) {
-        if (bake_json_get_bool(object, "header_only", &bundle->header_only) < 0) return -1;
-    }
+    if (bake_json_get_bool_alias(object, "header-only", "header_only", &bundle->header_only) < 0) return -1;
     if (bake_json_get_array_alias(object, "include", "includes", &bundle->includes) < 0) return -1;
     if (bake_json_get_array(object, "sources", &bundle->sources) < 0) return -1;
     if (bake_json_get_array_alias(object, "cmake-args", "cmake_args", &bundle->cmake_args) < 0) return -1;

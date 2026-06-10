@@ -91,6 +91,19 @@ int bake_json_get_bool(const JSON_Object *object, const char *key, bool *out) {
     return 0;
 }
 
+int bake_json_get_bool_alias(
+    const JSON_Object *object,
+    const char *key,
+    const char *alias,
+    bool *out)
+{
+    int rc = bake_json_get_bool(object, key, out);
+    if (rc == 1 && alias) {
+        rc = bake_json_get_bool(object, alias, out);
+    }
+    return rc;
+}
+
 int bake_json_get_array(const JSON_Object *object, const char *key, bake_strlist_t *out) {
     JSON_Value *value = json_object_get_value(object, key);
     if (!value) {
