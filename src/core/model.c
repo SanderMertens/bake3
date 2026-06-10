@@ -546,47 +546,63 @@ int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
     const char *resolved_mode = (mode && mode[0]) ? mode : "debug";
     const char *bake_home = bake_env_home();
 
+    /* Collect entities first: adding BakeResolvedDeps moves entities between
+     * tables, which is not allowed while iterating. */
+    ecs_vec_t entities;
+    ecs_vec_init_t(NULL, &entities, ecs_entity_t, 0);
     ecs_iter_t it = ecs_each_id(world, ecs_id(BakeProject));
     while (ecs_each_next(&it)) {
         for (int32_t i = 0; i < it.count; i++) {
-            ecs_entity_t entity = it.entities[i];
-
-            BakeResolvedDeps resolved;
-            bake_model_resolved_deps_init(&resolved);
-
-            ecs_map_t visited = {0};
-            ecs_map_init(&visited, NULL);
-            ecs_map_insert(&visited, (ecs_map_key_t)entity, 0);
-
-            if (bake_model_collect_resolved_deps(
-                world,
-                entity,
-                resolved_mode,
-                bake_home,
-                &resolved,
-                &visited) != 0)
-            {
-                ecs_map_fini(&visited);
-                bake_model_resolved_deps_fini(&resolved);
-                return -1;
-            }
-
-            ecs_map_fini(&visited);
-
-            const BakeProject *self_project = ecs_get(world, entity, BakeProject);
-            if (self_project && self_project->cfg && !self_project->external) {
-                const bake_project_cfg_t *self_cfg = self_project->cfg;
-                bake_strlist_merge_unique(&resolved.include_paths, &self_cfg->bundle_includes);
-                bake_strlist_merge_unique(&resolved.build_libpaths, &self_cfg->bundle_libpaths);
-                bake_strlist_merge_unique(&resolved.libs, &self_cfg->bundle_libs);
-                bake_strlist_merge_unique(&resolved.ldflags, &self_cfg->bundle_ldflags);
-            }
-
-            ecs_set_ptr(world, entity, BakeResolvedDeps, &resolved);
+            *ecs_vec_append_t(NULL, &entities, ecs_entity_t) = it.entities[i];
         }
     }
 
-    return 0;
+    int rc = 0;
+    for (int32_t e = 0; e < ecs_vec_count(&entities); e++) {
+        ecs_entity_t entity = *ecs_vec_get_t(&entities, ecs_entity_t, e);
+
+        BakeResolvedDeps resolved;
+        bake_model_resolved_deps_init(&resolved);
+
+        ecs_map_t visited = {0};
+        ecs_map_init(&visited, NULL);
+        ecs_map_insert(&visited, (ecs_map_key_t)entity, 0);
+
+        if (bake_model_collect_resolved_deps(
+            world,
+            entity,
+            resolved_mode,
+            bake_home,
+            &resolved,
+            &visited) != 0)
+        {
+            ecs_map_fini(&visited);
+            bake_model_resolved_deps_fini(&resolved);
+            rc = -1;
+            break;
+        }
+
+        ecs_map_fini(&visited);
+
+        const BakeProject *self_project = ecs_get(world, entity, BakeProject);
+        if (self_project && self_project->cfg && !self_project->external) {
+            const bake_project_cfg_t *self_cfg = self_project->cfg;
+            bake_strlist_merge_unique(&resolved.include_paths, &self_cfg->bundle_includes);
+            bake_strlist_merge_unique(&resolved.build_libpaths, &self_cfg->bundle_libpaths);
+            bake_strlist_merge_unique(&resolved.libs, &self_cfg->bundle_libs);
+            bake_strlist_merge_unique(&resolved.ldflags, &self_cfg->bundle_ldflags);
+        }
+
+        /* Replace the previous value by hand: ecs_set_ptr without a copy hook
+         * would memcpy over the old lists and leak them. */
+        BakeResolvedDeps *dst = ecs_ensure(world, entity, BakeResolvedDeps);
+        bake_model_resolved_deps_fini(dst);
+        *dst = resolved;
+        ecs_modified(world, entity, BakeResolvedDeps);
+    }
+
+    ecs_vec_fini_t(NULL, &entities, ecs_entity_t);
+    return rc;
 }
 
 static int bake_model_detect_cycle(
