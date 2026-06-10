@@ -159,9 +159,24 @@ static int bake_text_contains_function_definition(const char *text, const char *
 }
 
 static int bake_suite_has_function(const char *text, const char *suite, const char *suffix) {
-    char name[768];
-    ecs_os_snprintf(name, sizeof(name), "%s_%s", suite, suffix);
-    return bake_text_contains_function_definition(text, name);
+    char *name = flecs_asprintf("%s_%s", suite, suffix);
+    if (!name) {
+        return 0;
+    }
+    int found = bake_text_contains_function_definition(text, name);
+    ecs_os_free(name);
+    return found;
+}
+
+static void bake_append_c_literal(ecs_strbuf_t *out, const char *value) {
+    ecs_strbuf_appendch(out, '"');
+    for (const char *p = value; *p; p++) {
+        if (*p == '"' || *p == '\\') {
+            ecs_strbuf_appendch(out, '\\');
+        }
+        ecs_strbuf_appendch(out, *p);
+    }
+    ecs_strbuf_appendch(out, '"');
 }
 
 static char* bake_symbol_sanitize(const char *name) {
@@ -307,7 +322,7 @@ int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_suite_spe
     }
 
     int rc = 0;
-    if (existing || appended) {
+    if (appended) {
         char *content = ecs_strbuf_get(&out);
         rc = content ? bake_file_write(suite_file, content) : -1;
         ecs_os_free(content);
@@ -320,65 +335,61 @@ int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_suite_spe
     return rc;
 }
 
-static void bake_generate_main_suite_params(
+static int bake_generate_main_suite_params(
     ecs_strbuf_t *out,
-    const bake_suite_spec_t *suite,
-    const char *suite_symbol)
+    const bake_suite_spec_t *suite)
 {
     if (!suite->param_count) {
-        return;
+        return 0;
     }
 
+    char **value_names = ecs_os_calloc_n(char*, suite->param_count);
+    if (!value_names) {
+        return -1;
+    }
+
+    int rc = -1;
     for (int32_t p = 0; p < suite->param_count; p++) {
         const bake_param_spec_t *param = &suite->params[p];
         char *param_symbol = bake_symbol_sanitize(param->name);
-        char *values_name = NULL;
         if (param_symbol) {
-            values_name = flecs_asprintf("%s_%s_param", suite_symbol, param_symbol);
+            value_names[p] = flecs_asprintf("%s_%s_param", suite->id, param_symbol);
+        }
+        ecs_os_free(param_symbol);
+        if (!value_names[p]) {
+            goto cleanup;
         }
 
-        if (!param_symbol || !values_name) {
-            ecs_os_free(param_symbol);
-            ecs_os_free(values_name);
-            continue;
-        }
-
-        ecs_strbuf_append(out, "const char* %s[] = {", values_name);
+        ecs_strbuf_append(out, "const char* %s[] = {", value_names[p]);
         for (int32_t v = 0; v < param->values.count; v++) {
-            ecs_strbuf_append(out, "%s\"%s\"", v ? ", " : "", param->values.items[v]);
+            if (v) {
+                ecs_strbuf_appendstr(out, ", ");
+            }
+            bake_append_c_literal(out, param->values.items[v]);
         }
         ecs_strbuf_appendstr(out, "};\n");
-
-        ecs_os_free(param_symbol);
-        ecs_os_free(values_name);
     }
 
-    ecs_strbuf_append(out, "bake_test_param %s_params[] = {\n", suite_symbol);
+    ecs_strbuf_append(out, "bake_test_param %s_params[] = {\n", suite->id);
     for (int32_t p = 0; p < suite->param_count; p++) {
         const bake_param_spec_t *param = &suite->params[p];
-        char *param_symbol = bake_symbol_sanitize(param->name);
-        char *values_name = NULL;
-        if (param_symbol) {
-            values_name = flecs_asprintf("%s_%s_param", suite_symbol, param_symbol);
-        }
-
-        if (!param_symbol || !values_name) {
-            ecs_os_free(param_symbol);
-            ecs_os_free(values_name);
-            continue;
-        }
-
+        ecs_strbuf_appendstr(out, "    {");
+        bake_append_c_literal(out, param->name);
         ecs_strbuf_append(out,
-            "    {\"%s\", (char**)%s, %d}%s\n",
-            param->name,
-            values_name,
+            ", (char**)%s, %d}%s\n",
+            value_names[p],
             param->values.count,
             (p + 1) < suite->param_count ? "," : "");
-
-        ecs_os_free(param_symbol);
-        ecs_os_free(values_name);
     }
     ecs_strbuf_appendstr(out, "};\n\n");
+    rc = 0;
+
+cleanup:
+    for (int32_t p = 0; p < suite->param_count; p++) {
+        ecs_os_free(value_names[p]);
+    }
+    ecs_os_free(value_names);
+    return rc;
 }
 
 static void bake_generate_main_suite_decls(
@@ -428,12 +439,8 @@ int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *s
 
     for (int32_t i = 0; i < suites->count; i++) {
         const bake_suite_spec_t *suite = &suites->items[i];
-        char *suite_symbol = bake_symbol_sanitize(suite->id);
-        if (!suite_symbol) {
-            continue;
-        }
 
-        ecs_strbuf_append(&out, "bake_test_case %s_testcases[] = {\n", suite_symbol);
+        ecs_strbuf_append(&out, "bake_test_case %s_testcases[] = {\n", suite->id);
         for (int32_t t = 0; t < suite->testcases.count; t++) {
             const char *testcase = suite->testcases.items[t];
             ecs_strbuf_append(&out,
@@ -447,27 +454,20 @@ int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *s
                 (t + 1) < suite->testcases.count ? "," : "");
         }
         ecs_strbuf_appendstr(&out, "};\n\n");
-        ecs_os_free(suite_symbol);
     }
 
     for (int32_t i = 0; i < suites->count; i++) {
-        const bake_suite_spec_t *suite = &suites->items[i];
-        char *suite_symbol = bake_symbol_sanitize(suite->id);
-        if (!suite_symbol) {
-            continue;
+        if (bake_generate_main_suite_params(&out, &suites->items[i]) != 0) {
+            ecs_strbuf_reset(&out);
+            ecs_os_free(project_header);
+            ecs_os_free(main_path);
+            return -1;
         }
-
-        bake_generate_main_suite_params(&out, suite, suite_symbol);
-        ecs_os_free(suite_symbol);
     }
 
     ecs_strbuf_appendstr(&out, "static bake_test_suite suites[] = {\n");
     for (int32_t i = 0; i < suites->count; i++) {
         const bake_suite_spec_t *suite = &suites->items[i];
-        char *suite_symbol = bake_symbol_sanitize(suite->id);
-        if (!suite_symbol) {
-            continue;
-        }
 
         char *setup_name = suite->setup ? flecs_asprintf("%s_setup", suite->id) : NULL;
         char *teardown_name = suite->teardown ? flecs_asprintf("%s_teardown", suite->id) : NULL;
@@ -487,9 +487,9 @@ int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *s
                 setup_name ? setup_name : "NULL",
                 teardown_name ? teardown_name : "NULL",
                 suite->testcases.count,
-                suite_symbol,
+                suite->id,
                 suite->param_count,
-                suite_symbol,
+                suite->id,
                 (i + 1) < suites->count ? "," : "");
         } else {
             ecs_strbuf_append(&out,
@@ -504,13 +504,12 @@ int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *s
                 setup_name ? setup_name : "NULL",
                 teardown_name ? teardown_name : "NULL",
                 suite->testcases.count,
-                suite_symbol,
+                suite->id,
                 (i + 1) < suites->count ? "," : "");
         }
 
         ecs_os_free(setup_name);
         ecs_os_free(teardown_name);
-        ecs_os_free(suite_symbol);
     }
     ecs_strbuf_appendstr(&out, "};\n\n");
 

@@ -65,12 +65,42 @@ static int bake_suite_param_append(bake_suite_spec_t *suite, bake_param_spec_t *
     return 0;
 }
 
+static bool bake_test_symbol_valid(const char *name) {
+    if (!name || !name[0]) {
+        return false;
+    }
+    if (!((name[0] >= 'a' && name[0] <= 'z') ||
+          (name[0] >= 'A' && name[0] <= 'Z') ||
+          name[0] == '_'))
+    {
+        return false;
+    }
+    for (const char *p = name + 1; *p; p++) {
+        if (!((*p >= 'a' && *p <= 'z') ||
+              (*p >= 'A' && *p <= 'Z') ||
+              (*p >= '0' && *p <= '9') ||
+              *p == '_'))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 static int bake_parse_test_cases(JSON_Array *tests, bake_suite_spec_t *suite) {
     size_t testcase_count = json_array_get_count(tests);
     for (size_t t = 0; t < testcase_count; t++) {
         JSON_Value *test_value = json_array_get_value(tests, t);
         char *name = bake_json_strdup_value(test_value);
         if (!name) {
+            ecs_err("testsuite '%s': invalid testcase at index %d",
+                suite->id, (int)t);
+            return -1;
+        }
+        if (!bake_test_symbol_valid(name)) {
+            ecs_err("testsuite '%s': testcase name '%s' is not a valid C identifier",
+                suite->id, name);
+            ecs_os_free(name);
             return -1;
         }
         if (bake_strlist_append_owned(&suite->testcases, name) != 0) {
@@ -86,6 +116,8 @@ static int bake_parse_test_parameters(const JSON_Object *params_obj, bake_suite_
         const char *param_name = json_object_get_name(params_obj, p);
         JSON_Value *param_value = json_object_get_value_at(params_obj, p);
         if (!param_name || !param_value || json_value_get_type(param_value) != JSONArray) {
+            ecs_err("testsuite '%s': parameter '%s' must be an array of values",
+                suite->id, param_name ? param_name : "<unnamed>");
             return -1;
         }
 
@@ -127,8 +159,23 @@ static int bake_parse_test_suite(const JSON_Object *suite_obj, bake_suite_list_t
     const char *id = json_object_get_string(suite_obj, "id");
     JSON_Array *tests = json_object_get_array(suite_obj, "testcases");
     if (!id || !tests) {
+        ecs_err("testsuite %s%s%s: missing '%s' attribute",
+            id ? "'" : "", id ? id : "<unnamed>", id ? "'" : "",
+            id ? "testcases" : "id");
         bake_suite_spec_fini(&suite);
         return -1;
+    }
+
+    if (!bake_test_symbol_valid(id)) {
+        ecs_err("testsuite id '%s' is not a valid C identifier", id);
+        bake_suite_spec_fini(&suite);
+        return -1;
+    }
+
+    if (!json_array_get_count(tests)) {
+        ecs_warn("testsuite '%s' has no testcases, skipping", id);
+        bake_suite_spec_fini(&suite);
+        return 0;
     }
 
     suite.id = ecs_os_strdup(id);
