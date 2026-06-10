@@ -438,13 +438,14 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     bake_add_mode_flags(request->mode, ctx->compiler_kind, &mode_cflags, &mode_cxxflags, &mode_ldflags);
     bake_add_strict_flags(ctx->opts.strict, ctx->compiler_kind, &mode_cflags, &mode_cxxflags, &mode_ldflags);
 
-#if !defined(_WIN32)
-    if (cfg->kind == BAKE_PROJECT_TEST) {
+    if (cfg->kind == BAKE_PROJECT_TEST &&
+        ctx->compiler_kind != BAKE_COMPILER_MSVC &&
+        !bake_target_is_emscripten())
+    {
         bake_strlist_append(&mode_cflags, "-pthread");
         bake_strlist_append(&mode_cxxflags, "-pthread");
         bake_strlist_append(&mode_ldflags, "-pthread");
     }
-#endif
 
     bake_compile_list_init(&units);
     bool include_deps = true;
