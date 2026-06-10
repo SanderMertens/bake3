@@ -626,8 +626,7 @@ cleanup:
     return rc;
 }
 
-static int bake_clean_project(const bake_context_t *ctx, const bake_project_cfg_t *cfg, bool recursive) {
-    BAKE_UNUSED(recursive);
+static int bake_clean_project(const bake_context_t *ctx, const bake_project_cfg_t *cfg) {
     char *bake_dir = NULL;
     if (ctx && ctx->opts.local_env && ctx->bake_home && cfg->id && cfg->id[0]) {
         char *build_root = bake_path_join(ctx->bake_home, "build");
@@ -732,7 +731,7 @@ int bake_build_clean(bake_context_t *ctx) {
         }
 
         ecs_trace("#[green][#[normal]  clean#[green]]#[normal] %s", project->cfg->id);
-        if (bake_clean_project(ctx, project->cfg, ctx->opts.recursive) != 0) {
+        if (bake_clean_project(ctx, project->cfg) != 0) {
             goto cleanup;
         }
     }

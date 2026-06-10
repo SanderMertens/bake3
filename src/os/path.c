@@ -113,7 +113,8 @@ bool bake_path_has_prefix_normalized(const char *path, const char *prefix, size_
     return true;
 }
 
-void bake_path_normalize(char *path) {
+#if defined(_WIN32)
+static void bake_path_normalize(char *path) {
     if (!path) {
         return;
     }
@@ -123,6 +124,7 @@ void bake_path_normalize(char *path) {
         }
     }
 }
+#endif
 
 char* bake_path_resolve(const char *path) {
     if (!path || !path[0]) {

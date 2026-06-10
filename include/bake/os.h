@@ -36,7 +36,6 @@ bool bake_path_is_abs(const char *path);
 char* bake_path_join(const char *lhs, const char *rhs);
 char* bake_path_join3(const char *a, const char *b, const char *c);
 bool bake_path_is_sep(char ch);
-void bake_path_normalize(char *path);
 char* bake_path_resolve(const char *path);
 int bake_path_is_dir(const char *path);
 int bake_path_is_symlink(const char *path);

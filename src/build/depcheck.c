@@ -6,7 +6,7 @@ static bool bake_dep_char_is_space(char ch) {
     return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
 }
 
-bool bake_dep_token_outdated(const char *token, int64_t obj_mtime) {
+static bool bake_dep_token_outdated(const char *token, int64_t obj_mtime) {
     if (!token[0]) {
         return false;
     }

@@ -3,7 +3,6 @@
 
 #include "build_internal.h"
 
-bool bake_dep_token_outdated(const char *token, int64_t obj_mtime);
 bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime);
 int64_t bake_project_json_mtime(const bake_project_cfg_t *cfg);
 bool bake_compile_unit_outdated(
