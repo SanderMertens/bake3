@@ -448,11 +448,21 @@ int bake_compile_units_parallel(
         goto cleanup;
     }
 
+    int32_t started = 0;
     for (int32_t i = 0; i < workers; i++) {
         threads[i] = ecs_os_thread_new(bake_compile_worker, &compile_ctx);
+        if (!threads[i]) {
+            ecs_os_ainc(&compile_ctx.failed);
+            break;
+        }
+        started++;
     }
 
-    for (int32_t i = 0; i < workers; i++) {
+    if (!started) {
+        goto cleanup;
+    }
+
+    for (int32_t i = 0; i < started; i++) {
         ecs_os_thread_join(threads[i]);
     }
 
