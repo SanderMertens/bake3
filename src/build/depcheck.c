@@ -2,8 +2,6 @@
 #include "depcheck_internal.h"
 #include "bake/os.h"
 
-#include <ctype.h>
-
 static bool bake_dep_char_is_space(char ch) {
     return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
 }

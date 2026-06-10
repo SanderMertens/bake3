@@ -38,8 +38,6 @@ int bake_proc_run(
         return -1;
     }
 
-    // bake_proc_install_signal_handler();
-
     pid_t pid = fork();
     if (pid < 0) {
         return -1;
