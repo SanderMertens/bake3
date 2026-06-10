@@ -15,7 +15,6 @@
 #ifndef FLECS_SYSTEMS_SOKOL_TYPES_H
 #define FLECS_SYSTEMS_SOKOL_TYPES_H
 
-
 /* Code is used as an importable module, so apps must provide their own main */
 #define SOKOL_NO_ENTRY
 
@@ -4587,7 +4586,6 @@ typedef struct {
 #endif
 
 // POOL STRUCTS
-
 
 /* this *MUST* remain 0 */
 #define _SG_INVALID_SLOT_INDEX (0)
@@ -23263,7 +23261,6 @@ _SOKOL_PRIVATE void _sapp_win32_init_keytable(void) {
 
 #define _SAPP_SAFE_RELEASE(obj) if (obj) { _sapp_d3d11_Release(obj); obj=0; }
 
-
 static const IID _sapp_IID_ID3D11Texture2D = { 0x6f15aaf2,0xd208,0x4e89, {0x9a,0xb4,0x48,0x95,0x35,0xd3,0x4f,0x9c} };
 static const IID _sapp_IID_IDXGIDevice1    = { 0x77db970f,0x6276,0x48ba, {0xba,0x28,0x07,0x01,0x43,0xb4,0x39,0x2c} };
 static const IID _sapp_IID_IDXGIFactory    = { 0x7b7166ec,0x21c7,0x44ae, {0xb2,0x1a,0xc9,0xae,0x32,0x1a,0xe3,0x69} };
@@ -29127,8 +29124,6 @@ SOKOL_API_IMPL sg_context_desc sapp_sgcontext(void) {
 
 #endif /* SOKOL_GLUE_IMPL */
 
-
-
 #define SOKOL_MAX_FX_STEPS (8)
 #define SOKOL_MAX_FX_INPUTS (8)
 #define SOKOL_MAX_FX_OUTPUTS (8)
@@ -29244,7 +29239,6 @@ typedef struct sokol_offscreen_pass_t {
     int32_t sample_count;
 } sokol_offscreen_pass_t;
 
-
 #ifndef SOKOL_RESOURCES_H
 #define SOKOL_RESOURCES_H
 
@@ -29355,7 +29349,6 @@ typedef struct sokol_fx_pass_desc_t {
     sokol_fx_step_t steps[SOKOL_MAX_FX_STEPS];
 } sokol_fx_pass_desc_t;
 
-
 /* Fx implementation */
 
 typedef struct sokol_fx_output_t {
@@ -29434,9 +29427,6 @@ void sokol_fx_update_size(
     int32_t height);
 
 #endif
-
-/** @file Post process effects.
- */
 
 #ifndef SOKOL_FX_H
 #define SOKOL_FX_H
@@ -29529,7 +29519,6 @@ void sokol_update_fx(
 
 #endif
 
-
 struct sokol_screen_pass_t {
     sg_pass_action pass_action;
     sg_pipeline pip;
@@ -29600,12 +29589,8 @@ void sokol_run_atmos_to_screen_pass(
 
 #endif
 
-/** @file Internal renderer module.
- */
-
 #ifndef SOKOL_MODULES_RENDERER_H
 #define SOKOL_MODULES_RENDERER_H
-
 
 typedef struct SokolRenderer {
     sokol_resources_t resources;
@@ -29636,7 +29621,6 @@ void FlecsSystemsSokolRendererImport(
 
 #ifndef SOKOL_MODULES_GEOMETRY_H
 #define SOKOL_MODULES_GEOMETRY_H
-
 
 typedef void (*sokol_geometry_action_t)(
     mat4 *transforms,
@@ -29707,7 +29691,6 @@ void FlecsSystemsSokolGeometryImport(
 
 #endif
 
-
 void sokol_run_scene_pass(
     sokol_offscreen_pass_t *pass,
     sokol_render_state_t *state);
@@ -29719,7 +29702,6 @@ char* sokol_shader_from_str(
     const char *str);
 
 #endif
-
 
 ECS_COMPONENT_DECLARE(SokolQuery);
 
@@ -30026,7 +30008,6 @@ void FlecsSystemsSokolImport(
     ecs_app_set_run_action(sokol_run_action);
 }
 
-
 typedef struct atmos_fs_uniforms_t {
     mat4 inv_mat_vp;
     vec3 eye_pos;
@@ -30166,7 +30147,6 @@ void sokol_run_atmos_pass(
 
     sg_end_pass();
 }
-
 
 typedef struct depth_vs_uniforms_t {
     mat4 mat_vp;
@@ -30392,7 +30372,6 @@ void sokol_run_depth_pass(
 
     sg_end_pass();
 }
-
 
 typedef struct fx_uniforms_t {
     float t;
@@ -30858,7 +30837,6 @@ void sokol_fx_update_size(
     }
 }
 
-
 static
 float quad_vertices_uvs[] = {
     -1.0f, -1.0f,  0.0f,   0, 0,
@@ -31222,7 +31200,6 @@ sg_image sokol_bg_texture(ecs_rgb_t color, int32_t width, int32_t height)
 
     return img;
 }
-
 
 typedef struct scene_vs_uniforms_t {
     mat4 mat_v;
@@ -31631,7 +31608,6 @@ void sokol_run_scene_pass(
 #undef TRANSFORM_I
 #undef LAYOUT
 
-
 static
 sg_pipeline init_screen_pipeline(void) {
     ecs_trace("sokol: initialize screen pipeline");
@@ -31847,8 +31823,6 @@ char* sokol_shader_from_str(
     }
 }
 
-
-
 typedef struct shadow_vs_uniforms_t {
     mat4 mat_vp;
 } shadow_vs_uniforms_t;
@@ -32001,7 +31975,6 @@ void sokol_run_shadow_pass(
     sg_end_pass();
 }
 
-
 static
 const char *shd_fog_header = 
     "#include \"etc/sokol/shaders/fx_fog_header.glsl\"\n";
@@ -32063,7 +32036,6 @@ void sokol_fog_set_params(
     params[4] = uv_horizon;
 }
 
-
 sokol_fx_resources_t* sokol_init_fx(
     int w, int h)
 {
@@ -32083,7 +32055,6 @@ void sokol_update_fx(
     sokol_fx_update_size(&fx->fog, width, height);
     sokol_fx_update_size(&fx->ssao, width, height);
 }
-
 
 // ITU BT.709: vec3(0.2126, 0.7152, 0.0722)
 // ITU BT.601: vec3(0.299, 0.587, 0.114)
@@ -32174,7 +32145,6 @@ SokolFx sokol_init_hdr(
 
     return fx;
 }
-
 
 static
 const char *shd_ssao_header = 
@@ -32271,7 +32241,6 @@ SokolFx sokol_init_ssao(
     return fx;
 }
 
-
 ECS_COMPONENT_DECLARE(SokolGeometry);
 ECS_COMPONENT_DECLARE(SokolGeometryQuery);
 
@@ -32319,7 +32288,6 @@ ECS_CTOR(SokolGeometry, ptr, {
     flecs_allocator_init(ptr->allocator);
     flecs_allocator_fini(ptr->allocator);
     flecs_allocator_init(ptr->allocator);
-
 
     sokol_geometry_buffers_init(ptr->allocator, &ptr->solid);
 })
