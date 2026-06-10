@@ -578,6 +578,14 @@ int bake_link_project_binary(
         goto cleanup;
     }
 
+    /* Rebuild static libraries from scratch: ar only adds/replaces members,
+     * so objects of deleted sources would otherwise linger in the archive. */
+    if (cfg->kind == BAKE_PROJECT_PACKAGE &&
+        bake_remove_file_if_exists(artefact) != 0)
+    {
+        goto cleanup;
+    }
+
     bool use_cpp = bake_language_is_cpp(cfg);
     for (int32_t i = 0; i < units->count; i++) {
         if (units->items[i].cpp) {
