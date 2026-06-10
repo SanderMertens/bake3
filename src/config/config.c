@@ -684,6 +684,51 @@ static int bake_parse_project_cfg_object(
     return 0;
 }
 
+static int bake_json_object_merge(JSON_Object *dst, const JSON_Object *src) {
+    size_t count = json_object_get_count(src);
+    for (size_t i = 0; i < count; i++) {
+        const char *key = json_object_get_name(src, i);
+        JSON_Value *src_val = json_object_get_value_at(src, i);
+        JSON_Value *dst_val = json_object_get_value(dst, key);
+
+        if (dst_val && json_value_get_type(dst_val) == JSONObject &&
+            json_value_get_type(src_val) == JSONObject)
+        {
+            if (bake_json_object_merge(
+                json_value_get_object(dst_val),
+                json_value_get_object(src_val)) != 0)
+            {
+                return -1;
+            }
+            continue;
+        }
+
+        if (dst_val && json_value_get_type(dst_val) == JSONArray &&
+            json_value_get_type(src_val) == JSONArray)
+        {
+            JSON_Array *dst_arr = json_value_get_array(dst_val);
+            JSON_Array *src_arr = json_value_get_array(src_val);
+            size_t n = json_array_get_count(src_arr);
+            for (size_t j = 0; j < n; j++) {
+                JSON_Value *item = json_value_deep_copy(json_array_get_value(src_arr, j));
+                if (!item || json_array_append_value(dst_arr, item) != JSONSuccess) {
+                    json_value_free(item);
+                    return -1;
+                }
+            }
+            continue;
+        }
+
+        JSON_Value *copy = json_value_deep_copy(src_val);
+        if (!copy || json_object_set_value(dst, key, copy) != JSONSuccess) {
+            json_value_free(copy);
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
 static int bake_parse_dependee_cfg(
     const JSON_Object *object,
     bake_dependee_cfg_t *cfg)
@@ -704,8 +749,26 @@ static int bake_parse_dependee_cfg(
         return -1;
     }
 
-    JSON_Value *wrapped = json_object_get_wrapping_value((JSON_Object*)object);
-    char *serialized = wrapped ? json_serialize_to_string(wrapped) : NULL;
+    /* Merge into the previously captured fragment so dependee sections from
+     * the root, value and conditional objects all end up in dependee.json. */
+    JSON_Value *merged = NULL;
+    if (cfg->json && cfg->json[0]) {
+        merged = json_parse_string(cfg->json);
+    }
+    if (!merged) {
+        merged = json_value_init_object();
+    }
+    if (!merged) {
+        return -1;
+    }
+
+    if (bake_json_object_merge(json_value_get_object(merged), object) != 0) {
+        json_value_free(merged);
+        return -1;
+    }
+
+    char *serialized = json_serialize_to_string(merged);
+    json_value_free(merged);
     if (!serialized) {
         return -1;
     }
