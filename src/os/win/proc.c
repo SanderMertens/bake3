@@ -215,14 +215,8 @@ int bake_proc_run(
             std_err = bake_proc_dup_inheritable(GetStdHandle(STD_ERROR_HANDLE));
         }
 
-        if (!std_in || !std_out || !std_err) {
-            ecs_os_free(cmd_line);
-            if (std_in) CloseHandle(std_in);
-            if (std_out) CloseHandle(std_out);
-            if (std_err) CloseHandle(std_err);
-            return -1;
-        }
-
+        /* Absent std handles (no console) are passed through as NULL;
+         * only an explicitly requested redirect may fail the spawn. */
         si.dwFlags |= STARTF_USESTDHANDLES;
         si.hStdInput = std_in;
         si.hStdOutput = std_out;
@@ -248,20 +242,14 @@ int bake_proc_run(
     if (std_err) CloseHandle(std_err);
 
     if (!ok) {
+        bake_log_win_error_last("start command", argv[0]);
         return -1;
     }
 
-    DWORD wait_rc = WAIT_TIMEOUT;
-    for (;;) {
-        wait_rc = WaitForSingleObject(pi.hProcess, 20);
-        if (wait_rc == WAIT_OBJECT_0) {
-            break;
-        }
-        if (wait_rc != WAIT_TIMEOUT) {
-            CloseHandle(pi.hThread);
-            CloseHandle(pi.hProcess);
-            return -1;
-        }
+    if (WaitForSingleObject(pi.hProcess, INFINITE) != WAIT_OBJECT_0) {
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        return -1;
     }
 
     DWORD exit_code = 0;
@@ -274,7 +262,7 @@ int bake_proc_run(
     if (result) {
         result->exit_code = (int)exit_code;
         result->term_signal = 0;
-        result->interrupted = exit_code == 130;
+        result->interrupted = exit_code == STATUS_CONTROL_C_EXIT;
     }
 
     CloseHandle(pi.hThread);

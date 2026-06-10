@@ -144,6 +144,17 @@ int bake_os_rmtree(const char *path) {
      * a dangling symlink would otherwise be reported as nonexistent and
      * left in place. */
     if (bake_path_is_symlink(path)) {
+#if defined(_WIN32)
+        /* Directory junctions and symlinks cannot be deleted with remove();
+         * RemoveDirectory deletes the link without traversing into it. */
+        if (bake_path_is_dir(path)) {
+            if (bake_os_rmdir(path) != 0) {
+                bake_log_errno_last("remove directory link", path);
+                return -1;
+            }
+            return 0;
+        }
+#endif
         return bake_remove_file(path);
     }
 
