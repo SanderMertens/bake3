@@ -406,7 +406,6 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     char *guard_macro = NULL;
     char *api_macro = NULL;
     char *content = NULL;
-    char *existing_content = NULL;
     bool public_deps_ready = false;
     bake_strlist_t public_deps = {0};
     ecs_strbuf_t header = ECS_STRBUF_INIT;
@@ -551,14 +550,6 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
         goto cleanup;
     }
 
-    if (bake_path_exists(header_path)) {
-        existing_content = bake_file_read(header_path, NULL);
-        if (existing_content && !strcmp(existing_content, content)) {
-            rc = 0;
-            goto cleanup;
-        }
-    }
-
     if (bake_file_write(header_path, content) != 0) {
         goto cleanup;
     }
@@ -577,7 +568,6 @@ cleanup:
     ecs_os_free(project_macro_upper);
     ecs_os_free(guard_macro);
     ecs_os_free(api_macro);
-    ecs_os_free(existing_content);
     if (public_deps_ready) {
         bake_strlist_fini(&public_deps);
     }
