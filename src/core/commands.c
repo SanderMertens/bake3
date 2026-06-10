@@ -28,7 +28,7 @@ static const char *bake_help_text =
     "  --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)\n"
     "  --standalone        Use amalgamated dependency sources in deps/\n"
     "  --strict            Enable strict compiler warnings and checks\n"
-    "  --trace             Enable trace logging (Flecs log level 0)\n"
+    "  --trace             Echo compiler and linker commands\n"
     "  -j <count>          Number of parallel jobs for build/test execution\n"
     "  -r                  Recursive clean/rebuild\n"
     "  -h, --help          Show this help\n";
