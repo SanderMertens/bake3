@@ -192,7 +192,15 @@ int bake_proc_run(
             std_out = bake_proc_dup_inheritable(GetStdHandle(STD_OUTPUT_HANDLE));
         }
 
-        if (stdio_cfg->stderr_path && stdio_cfg->stderr_path[0]) {
+        if (stdio_cfg->stderr_to_stdout) {
+            std_err = bake_proc_dup_inheritable(std_out);
+            if (!std_err) {
+                ecs_os_free(cmd_line);
+                if (std_in) CloseHandle(std_in);
+                if (std_out) CloseHandle(std_out);
+                return -1;
+            }
+        } else if (stdio_cfg->stderr_path && stdio_cfg->stderr_path[0]) {
             std_err = bake_proc_open_redirect(
                 stdio_cfg->stderr_path,
                 true,

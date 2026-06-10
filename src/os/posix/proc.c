@@ -68,6 +68,12 @@ int bake_proc_run(
                     _exit(127);
                 }
             }
+
+            if (stdio_cfg->stderr_to_stdout) {
+                if (dup2(STDOUT_FILENO, STDERR_FILENO) < 0) {
+                    _exit(127);
+                }
+            }
         }
 
         execvp(argv[0], (char *const*)argv);

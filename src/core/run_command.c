@@ -127,8 +127,9 @@ static int bake_cmd_append_arg(bake_cmd_line_t *cmd, const char *arg) {
     return 0;
 }
 
-static int bake_cmd_next_token(const char **cursor, char **token_out) {
+static int bake_cmd_next_token(const char **cursor, char **token_out, bool *quoted_out) {
     const char *p = *cursor;
+    *quoted_out = false;
     while (*p && bake_char_is_space(*p)) {
         p++;
     }
@@ -142,6 +143,7 @@ static int bake_cmd_next_token(const char **cursor, char **token_out) {
     ecs_strbuf_t token = ECS_STRBUF_INIT;
     while (*p && !bake_char_is_space(*p)) {
         if (*p == '"' || *p == '\'') {
+            *quoted_out = true;
             char quote = *p++;
             while (*p && *p != quote) {
                 if (*p == '\\' && quote == '"' &&
@@ -183,7 +185,8 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
 
     while (true) {
         char *token = NULL;
-        if (bake_cmd_next_token(&cursor, &token) != 0) {
+        bool quoted = false;
+        if (bake_cmd_next_token(&cursor, &token, &quoted) != 0) {
             bake_cmd_line_fini(cmd);
             return -1;
         }
@@ -198,6 +201,20 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
         }
 
         if (pending != BAKE_CMD_REDIR_NONE) {
+            if (!quoted && token[0] == '&') {
+                bool merge = pending == BAKE_CMD_REDIR_STDERR &&
+                    !strcmp(token, "&1");
+                ecs_os_free(token);
+                if (!merge) {
+                    bake_cmd_line_fini(cmd);
+                    return -1;
+                }
+                cmd->stdio_cfg.stderr_to_stdout = true;
+                pending = BAKE_CMD_REDIR_NONE;
+                pending_append = false;
+                continue;
+            }
+
             int rc = 0;
             if (pending == BAKE_CMD_REDIR_STDIN) {
                 rc = bake_cmd_set_redirect((char**)&cmd->stdio_cfg.stdin_path, token);
@@ -222,7 +239,21 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
         bake_cmd_redir_t target = BAKE_CMD_REDIR_NONE;
         bool append = false;
         const char *inline_path = NULL;
-        if (bake_cmd_parse_redirection_token(token, &target, &append, &inline_path)) {
+        if (!quoted &&
+            bake_cmd_parse_redirection_token(token, &target, &append, &inline_path))
+        {
+            if (inline_path && inline_path[0] == '&') {
+                bool merge = target == BAKE_CMD_REDIR_STDERR &&
+                    !strcmp(inline_path, "&1");
+                ecs_os_free(token);
+                if (!merge) {
+                    bake_cmd_line_fini(cmd);
+                    return -1;
+                }
+                cmd->stdio_cfg.stderr_to_stdout = true;
+                continue;
+            }
+
             if (inline_path && inline_path[0]) {
                 int rc = 0;
                 if (target == BAKE_CMD_REDIR_STDIN) {

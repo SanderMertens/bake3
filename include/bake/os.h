@@ -21,6 +21,7 @@ typedef struct bake_process_stdio_t {
     bool stdout_append;
     const char *stderr_path;
     bool stderr_append;
+    bool stderr_to_stdout;
 } bake_process_stdio_t;
 
 typedef int (*bake_dir_walk_cb)(const bake_dir_entry_t *entry, void *ctx);
