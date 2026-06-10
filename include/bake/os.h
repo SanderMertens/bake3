@@ -55,6 +55,7 @@ void bake_log_win_error_last(const char *action, const char *path);
 int bake_os_setenv(const char *name, const char *value);
 int bake_os_unsetenv(const char *name);
 char* bake_os_home_path(void);
+char* bake_os_executable_path(void);
 int32_t bake_host_threads(void);
 
 const char* bake_host_os(void);

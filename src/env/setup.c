@@ -16,6 +16,11 @@ static int bake_env_run_argv_checked(const char *const *argv) {
 }
 
 static char* bake_env_executable_path(const char *argv0) {
+    char *self = bake_os_executable_path();
+    if (self) {
+        return self;
+    }
+
     if (!argv0 || !argv0[0]) {
         return NULL;
     }
@@ -36,44 +41,61 @@ static char* bake_env_executable_path(const char *argv0) {
 }
 
 
+#if defined(_WIN32)
+static int bake_env_install_bake3_wrapper(const bake_context_t *ctx) {
+    BAKE_UNUSED(ctx);
+    ecs_warn("global wrapper installation is not supported on Windows; "
+        "add %s to PATH manually", ctx->bake_home);
+    return 0;
+}
+#else
 static int bake_env_install_bake3_wrapper(const bake_context_t *ctx) {
     static const char *script_path = "/usr/local/bin/bake3";
-    static const char *script_content =
+    char *script_content = flecs_asprintf(
         "#!/usr/bin/env bash\n"
         "\n"
-        "exec $HOME/bake3/bake3 \"$@\"\n";
+        "exec \"%s/bake3\" \"$@\"\n",
+        ctx->bake_home);
+    if (!script_content) {
+        return -1;
+    }
 
     size_t current_len = 0;
     char *current = bake_file_read(script_path, &current_len);
     if (current && !strcmp(current, script_content)) {
         ecs_os_free(current);
+        ecs_os_free(script_content);
         return 0;
     }
     ecs_os_free(current);
 
     char *tmp_script = bake_path_join(ctx->bake_home, ".bake3-wrapper.sh");
     if (!tmp_script) {
+        ecs_os_free(script_content);
         return -1;
     }
 
-    if (bake_file_write(tmp_script, script_content) != 0) {
+    int rc = bake_file_write(tmp_script, script_content);
+    ecs_os_free(script_content);
+    if (rc != 0) {
         ecs_os_free(tmp_script);
         return -1;
     }
 
     const char *chmod_argv[] = {"chmod", "+x", tmp_script, NULL};
     if (bake_env_run_argv_checked(chmod_argv) != 0) {
-        remove(tmp_script);
+        bake_remove_file_if_exists(tmp_script);
         ecs_os_free(tmp_script);
         return -1;
     }
 
     const char *copy_argv[] = {"sudo", "cp", tmp_script, script_path, NULL};
-    int rc = bake_env_run_argv_checked(copy_argv);
-    remove(tmp_script);
+    rc = bake_env_run_argv_checked(copy_argv);
+    bake_remove_file_if_exists(tmp_script);
     ecs_os_free(tmp_script);
     return rc;
 }
+#endif
 
 int bake_env_setup(bake_context_t *ctx, const char *argv0) {
     if (bake_os_mkdirs(ctx->bake_home) != 0) {

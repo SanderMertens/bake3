@@ -27,6 +27,15 @@ char* bake_os_home_path(void) {
     return home ? ecs_os_strdup(home) : NULL;
 }
 
+char* bake_os_executable_path(void) {
+    char buf[MAX_PATH];
+    DWORD n = GetModuleFileNameA(NULL, buf, MAX_PATH);
+    if (!n || n >= MAX_PATH) {
+        return NULL;
+    }
+    return ecs_os_strdup(buf);
+}
+
 int32_t bake_host_threads(void) {
     SYSTEM_INFO si;
     GetSystemInfo(&si);

@@ -56,10 +56,13 @@ int main(int argc, char *argv[]) {
     }
     opts.cwd = cwd;
 
-    if (argv[0] && argv[0][0]) {
-        char *exe_path = bake_path_is_abs(argv[0])
-            ? ecs_os_strdup(argv[0])
-            : bake_path_join(cwd, argv[0]);
+    {
+        char *exe_path = bake_os_executable_path();
+        if (!exe_path && argv[0] && argv[0][0]) {
+            exe_path = bake_path_is_abs(argv[0])
+                ? ecs_os_strdup(argv[0])
+                : bake_path_join(cwd, argv[0]);
+        }
         if (exe_path && bake_path_exists(exe_path)) {
             bake_os_setenv("BAKE2_EXEC_PATH", exe_path);
         } else {
