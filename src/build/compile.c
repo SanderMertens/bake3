@@ -63,13 +63,19 @@ bake_compiler_kind_t bake_detect_compiler_kind(const char *cc, const char *cxx) 
     if (strstr(probe, "emcc") || strstr(probe, "em++")) {
         return BAKE_COMPILER_CLANG;
     }
-    if (strstr(probe, "cl") || strstr(probe, "cl.exe")) {
+    if (strstr(probe, "clang-cl")) {
         return BAKE_COMPILER_MSVC;
     }
     if (strstr(probe, "clang")) {
         return BAKE_COMPILER_CLANG;
     }
-    if (strstr(probe, "gcc") || strstr(probe, "g++") || strstr(probe, "cc") || strstr(probe, "c++")) {
+    if (strstr(probe, "gcc") || strstr(probe, "g++")) {
+        return BAKE_COMPILER_GCC;
+    }
+    if (strstr(probe, "cl")) {
+        return BAKE_COMPILER_MSVC;
+    }
+    if (strstr(probe, "cc") || strstr(probe, "c++")) {
         return BAKE_COMPILER_GCC;
     }
 
