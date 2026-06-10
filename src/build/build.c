@@ -291,13 +291,9 @@ static int bake_prepare_standalone_sources(
             continue;
         }
 
-        char *out_c = NULL;
-        char *out_h = NULL;
-        if (bake_amalgamate_project(dep_project->cfg, deps_dir, &out_c, &out_h) != 0) {
+        if (bake_amalgamate_project(dep_project->cfg, deps_dir) != 0) {
             goto cleanup;
         }
-        ecs_os_free(out_c);
-        ecs_os_free(out_h);
     }
 
     if (bake_strlist_append_unique(&expected_outputs, bake_standalone_deps_marker) != 0) {

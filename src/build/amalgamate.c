@@ -49,7 +49,7 @@ static int bake_concat_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     return 0;
 }
 
-int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, char **out_c, char **out_h) {
+int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir) {
     int rc = -1;
     char *base = NULL;
     char *h_name = NULL;
@@ -112,23 +112,9 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir, 
         goto cleanup;
     }
 
-    if (out_h) {
-        *out_h = h_path;
-        h_path = NULL;
-    }
-    if (out_c) {
-        *out_c = c_path;
-        c_path = NULL;
-    }
     rc = 0;
 
 cleanup:
-    if (rc != 0 && out_h) {
-        *out_h = NULL;
-    }
-    if (rc != 0 && out_c) {
-        *out_c = NULL;
-    }
 #define F(p) ecs_os_free(p)
     F(base); F(h_name); F(c_name); F(h_path); F(c_path); F(h_content); F(c_content);
 #undef F
