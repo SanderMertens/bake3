@@ -61,6 +61,19 @@ static char* bake_bundle_install_marker(const char *install_dir) {
     return bake_path_join(install_dir, ".bake_bundle_built");
 }
 
+static char* bake_bundle_fingerprint(const bake_bundle_t *bundle) {
+    ecs_strbuf_t buf = ECS_STRBUF_INIT;
+    ecs_strbuf_append(&buf, "build_system=%s\n",
+        bundle->build_system ? bundle->build_system : "");
+    ecs_strbuf_append(&buf, "subdir=%s\n", bundle->subdir ? bundle->subdir : "");
+    ecs_strbuf_append(&buf, "library=%s\n", bundle->library ? bundle->library : "");
+    ecs_strbuf_append(&buf, "header_only=%d\n", bundle->header_only ? 1 : 0);
+    for (int32_t i = 0; i < bundle->cmake_args.count; i++) {
+        ecs_strbuf_append(&buf, "cmake_arg=%s\n", bundle->cmake_args.items[i]);
+    }
+    return ecs_strbuf_get(&buf);
+}
+
 static const char* bake_bundle_cmake_build_type(const char *mode) {
     if (!mode || !mode[0]) {
         return "Debug";
@@ -252,10 +265,15 @@ static bool bake_bundle_uses_cargo(const bake_bundle_t *bundle) {
     return bundle->build_system && !strcmp(bundle->build_system, "cargo");
 }
 
+static bool bake_bundle_cargo_release(const char *mode) {
+    return mode && (!strcmp(mode, "release") || !strcmp(mode, "profile"));
+}
+
 static int bake_bundle_run_cargo(
     const bake_bundle_t *bundle,
     const char *src_dir,
-    const char *build_dir)
+    const char *build_dir,
+    const char *mode)
 {
     char *quoted_src = bake_shell_quote_arg(src_dir);
     char *quoted_build = bake_shell_quote_arg(build_dir);
@@ -267,7 +285,8 @@ static int bake_bundle_run_cargo(
 
     ecs_strbuf_t cmd = ECS_STRBUF_INIT;
     ecs_strbuf_append(&cmd,
-        "cargo build --release --manifest-path %s/Cargo.toml --target-dir %s",
+        "cargo build%s --manifest-path %s/Cargo.toml --target-dir %s",
+        bake_bundle_cargo_release(mode) ? " --release" : "",
         quoted_src, quoted_build);
 
     char *cmd_str = ecs_strbuf_get(&cmd);
@@ -292,7 +311,8 @@ static int bake_bundle_apply_to_project(
     bake_project_cfg_t *cfg,
     const bake_bundle_t *bundle,
     const char *src_root,
-    const char *install_dir)
+    const char *install_dir,
+    const char *mode)
 {
     /* Default include dir: install/include for cmake builds, src for header-only */
     if (bundle->header_only) {
@@ -333,16 +353,15 @@ static int bake_bundle_apply_to_project(
 
     if (!bundle->header_only) {
         static const char *cmake_libdirs[] = { "lib", "lib64", "lib32", NULL };
-        static const char *cargo_libdirs[] = { "release", NULL };
-        const char *const *libdirs;
-        const char *base;
+        static const char *cargo_release_libdirs[] = { "release", NULL };
+        static const char *cargo_debug_libdirs[] = { "debug", NULL };
+        const char *const *libdirs = cmake_libdirs;
         if (bake_bundle_uses_cargo(bundle)) {
-            libdirs = cargo_libdirs;
-            base = install_dir;
-        } else {
-            libdirs = cmake_libdirs;
-            base = install_dir;
+            libdirs = bake_bundle_cargo_release(mode)
+                ? cargo_release_libdirs
+                : cargo_debug_libdirs;
         }
+        const char *base = install_dir;
         char *libpath = NULL;
         if (bake_bundle_resolve_lib(bundle, base, libdirs, &libpath) != 0) {
             const char *libname = (bundle->library && bundle->library[0]) ? bundle->library : bundle->id;
@@ -412,7 +431,25 @@ static int bake_bundle_prepare_one(
         goto cleanup;
     }
 
-    if (!bake_path_exists(src_dir)) {
+    bool need_clone = !bake_path_exists(src_dir);
+    if (!need_clone) {
+        char *git_dir = bake_path_join(src_dir, ".git");
+        if (!git_dir) {
+            goto cleanup;
+        }
+        if (!bake_path_exists(git_dir)) {
+            ecs_warn("bundle '%s' has an incomplete checkout at %s, refetching",
+                bundle->id, src_dir);
+            if (bake_os_rmtree(src_dir) != 0) {
+                ecs_os_free(git_dir);
+                goto cleanup;
+            }
+            need_clone = true;
+        }
+        ecs_os_free(git_dir);
+    }
+
+    if (need_clone) {
         char *src_root = bake_path_dirname(src_dir);
         if (src_root && bake_os_mkdirs(src_root) != 0) {
             ecs_os_free(src_root);
@@ -457,27 +494,40 @@ static int bake_bundle_prepare_one(
             }
         }
 
-        if (!bake_path_exists(marker)) {
+        char *fingerprint = bake_bundle_fingerprint(bundle);
+        if (!fingerprint) {
+            goto cleanup;
+        }
+
+        char *built = bake_file_read(marker, NULL);
+        bool up_to_date = built && !strcmp(built, fingerprint);
+        ecs_os_free(built);
+
+        if (!up_to_date) {
             if (bake_os_mkdirs(build_dir) != 0 || bake_os_mkdirs(install_dir) != 0) {
+                ecs_os_free(fingerprint);
                 goto cleanup;
             }
 
             ecs_trace("#[green][#[normal] bundle#[green]]#[normal] building %s", bundle->id);
-            int rc = uses_cargo
-                ? bake_bundle_run_cargo(bundle, cmake_src_dir, install_dir)
+            int build_rc = uses_cargo
+                ? bake_bundle_run_cargo(bundle, cmake_src_dir, install_dir, ctx->opts.mode)
                 : bake_bundle_run_cmake(bundle, cmake_src_dir, build_dir, install_dir, ctx->opts.mode);
-            if (rc != 0) {
+            if (build_rc != 0) {
                 ecs_err("failed to build bundle '%s'", bundle->id);
+                ecs_os_free(fingerprint);
                 goto cleanup;
             }
 
-            if (bake_file_write(marker, "ok\n") != 0) {
+            if (bake_file_write(marker, fingerprint) != 0) {
+                ecs_os_free(fingerprint);
                 goto cleanup;
             }
         }
+        ecs_os_free(fingerprint);
     }
 
-    if (bake_bundle_apply_to_project(cfg, bundle, cmake_src_dir, install_dir) != 0) {
+    if (bake_bundle_apply_to_project(cfg, bundle, cmake_src_dir, install_dir, ctx->opts.mode) != 0) {
         goto cleanup;
     }
 
