@@ -3,6 +3,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include <direct.h>
 #else
 #include <unistd.h>
 #include <sys/types.h>
@@ -66,6 +67,52 @@ void bake_log_win_error_last(const char *action, const char *path) {
     bake_log_win_error(action, path, GetLastError());
 }
 #endif
+
+int32_t bake_host_threads(void) {
+    int32_t cpu = bake_os_cpu_count();
+    if (cpu < 1) {
+        return 1;
+    }
+    if (cpu > 128) {
+        return 128;
+    }
+    return cpu;
+}
+
+char* bake_os_getcwd(void) {
+    size_t size = 256;
+
+    for (;;) {
+        char *buf = ecs_os_malloc(size);
+        if (!buf) {
+            return NULL;
+        }
+
+#if defined(_WIN32)
+        if (_getcwd(buf, (int)size)) {
+            return buf;
+        }
+#else
+        if (getcwd(buf, size)) {
+            return buf;
+        }
+#endif
+
+        int err = errno;
+        ecs_os_free(buf);
+        if (err != ERANGE) {
+            bake_log_errno("get current directory", NULL, err);
+            return NULL;
+        }
+
+        if (size > (SIZE_MAX / 2)) {
+            ecs_err("failed to get current directory: path is too long");
+            return NULL;
+        }
+
+        size *= 2;
+    }
+}
 
 int bake_remove_file(const char *path) {
     if (!path || !path[0]) {

@@ -53,15 +53,8 @@ char* bake_os_executable_path(void) {
 #endif
 }
 
-int32_t bake_host_threads(void) {
-    long cpu = sysconf(_SC_NPROCESSORS_ONLN);
-    if (cpu < 1) {
-        return 1;
-    }
-    if (cpu > 128) {
-        return 128;
-    }
-    return (int32_t)cpu;
+int32_t bake_os_cpu_count(void) {
+    return (int32_t)sysconf(_SC_NPROCESSORS_ONLN);
 }
 
 #endif

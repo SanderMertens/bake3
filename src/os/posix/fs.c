@@ -99,35 +99,6 @@ int bake_os_mkdir(const char *path) {
     return mkdir(path, 0755);
 }
 
-char* bake_os_getcwd(void) {
-    size_t size = 256;
-
-    for (;;) {
-        char *buf = ecs_os_malloc(size);
-        if (!buf) {
-            return NULL;
-        }
-
-        if (getcwd(buf, size)) {
-            return buf;
-        }
-
-        int err = errno;
-        ecs_os_free(buf);
-        if (err != ERANGE) {
-            bake_log_errno("get current directory", NULL, err);
-            return NULL;
-        }
-
-        if (size > (SIZE_MAX / 2)) {
-            ecs_err("failed to get current directory: path is too long");
-            return NULL;
-        }
-
-        size *= 2;
-    }
-}
-
 int bake_os_rmdir(const char *path) {
     return rmdir(path);
 }

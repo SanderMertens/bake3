@@ -36,17 +36,10 @@ char* bake_os_executable_path(void) {
     return ecs_os_strdup(buf);
 }
 
-int32_t bake_host_threads(void) {
+int32_t bake_os_cpu_count(void) {
     SYSTEM_INFO si;
     GetSystemInfo(&si);
-    DWORD cpu = si.dwNumberOfProcessors;
-    if (cpu < 1) {
-        return 1;
-    }
-    if (cpu > 128) {
-        return 128;
-    }
-    return (int32_t)cpu;
+    return (int32_t)si.dwNumberOfProcessors;
 }
 
 #endif
