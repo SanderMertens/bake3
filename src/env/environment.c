@@ -402,6 +402,10 @@ int bake_env_resolve_external_dependency_binaries(bake_context_t *ctx) {
         return -1;
     }
 
+    /* Collect dependency entities first: resolving imports projects into the
+     * world, which is not allowed while iterating it. */
+    ecs_vec_t deps;
+    ecs_vec_init_t(NULL, &deps, ecs_entity_t, 0);
     ecs_iter_t it = ecs_each_id(ctx->world, ecs_id(BakeProject));
     while (ecs_each_next(&it)) {
         const BakeProject *projects = ecs_field(&it, BakeProject, 0);
@@ -418,14 +422,19 @@ int bake_env_resolve_external_dependency_binaries(bake_context_t *ctx) {
             }
 
             for (int32_t d = 0; d < resolved->dep_count; d++) {
-                if (bake_env_resolve_external_dep_entity(
-                    ctx, resolved->deps[d], mode) != 0)
-                {
-                    return -1;
-                }
+                *ecs_vec_append_t(NULL, &deps, ecs_entity_t) = resolved->deps[d];
             }
         }
     }
+
+    for (int32_t d = 0; d < ecs_vec_count(&deps); d++) {
+        ecs_entity_t dep = *ecs_vec_get_t(&deps, ecs_entity_t, d);
+        if (bake_env_resolve_external_dep_entity(ctx, dep, mode) != 0) {
+            ecs_vec_fini_t(NULL, &deps, ecs_entity_t);
+            return -1;
+        }
+    }
+    ecs_vec_fini_t(NULL, &deps, ecs_entity_t);
 
     return bake_model_refresh_resolved_deps(ctx->world, mode);
 }
