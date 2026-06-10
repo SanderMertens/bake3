@@ -187,7 +187,6 @@ static bool bake_path_mark_parsed(bake_strlist_t *parsed, const char *path) {
     }
 
     if (bake_strlist_append_owned(parsed, normalized) != 0) {
-        ecs_os_free(normalized);
         return false;
     }
 

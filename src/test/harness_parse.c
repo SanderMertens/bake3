@@ -70,8 +70,10 @@ static int bake_parse_test_cases(JSON_Array *tests, bake_suite_spec_t *suite) {
     for (size_t t = 0; t < testcase_count; t++) {
         JSON_Value *test_value = json_array_get_value(tests, t);
         char *name = bake_json_strdup_value(test_value);
-        if (!name || bake_strlist_append_owned(&suite->testcases, name) != 0) {
-            ecs_os_free(name);
+        if (!name) {
+            return -1;
+        }
+        if (bake_strlist_append_owned(&suite->testcases, name) != 0) {
             return -1;
         }
     }
@@ -100,8 +102,11 @@ static int bake_parse_test_parameters(const JSON_Object *params_obj, bake_suite_
         for (size_t v = 0; v < value_count; v++) {
             JSON_Value *value = json_array_get_value(values, v);
             char *value_str = bake_json_strdup_value(value);
-            if (!value_str || bake_strlist_append_owned(&param.values, value_str) != 0) {
-                ecs_os_free(value_str);
+            if (!value_str) {
+                bake_param_spec_fini(&param);
+                return -1;
+            }
+            if (bake_strlist_append_owned(&param.values, value_str) != 0) {
                 bake_param_spec_fini(&param);
                 return -1;
             }
