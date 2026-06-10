@@ -68,7 +68,8 @@ char* bake_file_read(const char *path, size_t *len_out) {
 }
 
 static bool bake_file_content_matches(const char *path, const char *content, size_t len) {
-    if (!bake_path_exists(path)) {
+    int64_t existing_size = bake_os_file_size(path);
+    if (existing_size < 0 || (size_t)existing_size != len) {
         return false;
     }
     size_t existing_len = 0;

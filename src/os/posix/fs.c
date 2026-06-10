@@ -43,6 +43,17 @@ int64_t bake_os_file_mtime(const char *path) {
 #endif
 }
 
+int64_t bake_os_file_size(const char *path) {
+    if (!path || !path[0]) {
+        return -1;
+    }
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        return -1;
+    }
+    return (int64_t)st.st_size;
+}
+
 int bake_file_sync_mode(const char *src, const char *dst) {
     if (!src || !dst) {
         return -1;

@@ -70,6 +70,25 @@ int64_t bake_os_file_mtime(const char *path) {
     return since_epoch_100ns * 100LL;
 }
 
+int64_t bake_os_file_size(const char *path) {
+    if (!path || !path[0]) {
+        return -1;
+    }
+
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &data)) {
+        return -1;
+    }
+    if (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+        return -1;
+    }
+
+    ULARGE_INTEGER size;
+    size.LowPart = data.nFileSizeLow;
+    size.HighPart = data.nFileSizeHigh;
+    return (int64_t)size.QuadPart;
+}
+
 int bake_file_sync_mode(const char *src, const char *dst) {
     if (!src || !dst) {
         return -1;
