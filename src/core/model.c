@@ -410,6 +410,11 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
     }
     ecs_defer_end(world);
 
+    /* Collect matches first: marking adds components, which is not allowed
+     * while an iterator over the same component is active. */
+    ecs_vec_t matched;
+    ecs_vec_init_t(NULL, &matched, ecs_entity_t, 0);
+
     if (!target || !target[0]) {
         ecs_iter_t all = ecs_each_id(world, ecs_id(BakeProject));
         while (ecs_each_next(&all)) {
@@ -418,15 +423,21 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
                 if (project[i].external) {
                     continue;
                 }
-                bake_model_mark_build_recursive(world, all.entities[i], mode, recursive, standalone);
+                *ecs_vec_append_t(NULL, &matched, ecs_entity_t) = all.entities[i];
             }
         }
+
+        for (int32_t i = 0; i < ecs_vec_count(&matched); i++) {
+            ecs_entity_t e = *ecs_vec_get_t(&matched, ecs_entity_t, i);
+            bake_model_mark_build_recursive(world, e, mode, recursive, standalone);
+        }
+        ecs_vec_fini_t(NULL, &matched, ecs_entity_t);
         return;
     }
 
     if (bake_path_exists(target)) {
         bool target_is_dir = bake_path_is_dir(target);
-        bool matched_dir = false;
+        ecs_entity_t exact = 0;
         ecs_iter_t all = ecs_each_id(world, ecs_id(BakeProject));
         while (ecs_each_next(&all)) {
             const BakeProject *project = ecs_field(&all, BakeProject, 0);
@@ -435,22 +446,32 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
                 if (!cfg || !cfg->path) {
                     continue;
                 }
-                if (bake_path_equal_normalized(cfg->path, target)) {
-                    bake_model_mark_build_recursive(world, all.entities[i], mode, true, standalone);
-                    return;
+                if (!exact && bake_path_equal_normalized(cfg->path, target)) {
+                    exact = all.entities[i];
                 }
-
                 if (target_is_dir && bake_path_has_prefix_normalized(cfg->path, target, NULL)) {
-                    bake_model_mark_build_recursive(world, all.entities[i], mode, true, standalone);
-                    matched_dir = true;
+                    *ecs_vec_append_t(NULL, &matched, ecs_entity_t) = all.entities[i];
                 }
             }
         }
 
-        if (matched_dir) {
+        if (exact) {
+            bake_model_mark_build_recursive(world, exact, mode, true, standalone);
+            ecs_vec_fini_t(NULL, &matched, ecs_entity_t);
+            return;
+        }
+
+        if (ecs_vec_count(&matched)) {
+            for (int32_t i = 0; i < ecs_vec_count(&matched); i++) {
+                ecs_entity_t e = *ecs_vec_get_t(&matched, ecs_entity_t, i);
+                bake_model_mark_build_recursive(world, e, mode, true, standalone);
+            }
+            ecs_vec_fini_t(NULL, &matched, ecs_entity_t);
             return;
         }
     }
+
+    ecs_vec_fini_t(NULL, &matched, ecs_entity_t);
 
     ecs_entity_t entity = ecs_lookup_path_w_sep(world, 0, target, "::", NULL, false);
     if (entity) {
