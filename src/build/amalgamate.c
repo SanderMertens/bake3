@@ -297,6 +297,14 @@ static bool bake_arg_is_disabled_macro(const char *arg, const bake_strlist_t *di
     return bake_disable_contains(disable, name, (size_t)(p - name));
 }
 
+static bool bake_line_continues(const char *line) {
+    size_t len = strlen(line);
+    while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+        len--;
+    }
+    return len > 0 && line[len - 1] == '\\';
+}
+
 static bool bake_is_disabled_define(const char *line, const bake_strlist_t *disable) {
     const char *p = bake_skip_ws(line);
     if (p[0] != '#') {
@@ -329,7 +337,7 @@ static bool bake_eval_defined_expr(
         p = bake_skip_ws(p + 1);
     }
 
-    if (strncmp(p, "defined", 7)) {
+    if (strncmp(p, "defined", 7) || bake_is_ident_char(p[7])) {
         return false;
     }
     p += 7;
@@ -468,12 +476,18 @@ static int bake_amalgamate_file(
     char line[BAKE_AMALG_MAX_LINE];
     int32_t line_count = 0;
     bool in_block_comment = false;
+    bool skip_continuation = false;
     bool has_disable = ctx->disable && ctx->disable->count > 0;
     bake_cond_frame_t cond_stack[BAKE_AMALG_MAX_COND];
     int32_t cond_depth = 0;
     int32_t suppressed = 0;
     while (fgets(line, BAKE_AMALG_MAX_LINE, in)) {
         line_count++;
+
+        if (skip_continuation) {
+            skip_continuation = bake_line_continues(line);
+            continue;
+        }
 
         bool line_in_block_comment_at_start = in_block_comment;
         const char *scan = line;
@@ -487,9 +501,25 @@ static int bake_amalgamate_file(
                 scan++;
                 continue;
             }
+            if (scan[0] == '/' && scan[1] == '/') {
+                break;
+            }
             if (scan[0] == '/' && scan[1] == '*') {
                 in_block_comment = true;
                 scan += 2;
+                continue;
+            }
+            if (scan[0] == '"' || scan[0] == '\'') {
+                char quote = *scan++;
+                while (*scan && *scan != quote) {
+                    if (scan[0] == '\\' && scan[1]) {
+                        scan++;
+                    }
+                    scan++;
+                }
+                if (*scan) {
+                    scan++;
+                }
                 continue;
             }
             scan++;
@@ -565,13 +595,34 @@ static int bake_amalgamate_file(
                             suppressed++;
                         }
                     } else {
-                        if (!frame->emit) {
-                            suppressed--;
+                        bool value = false;
+                        bool managed_elif = false;
+                        char *cond = bake_condition_text(arg);
+                        if (cond) {
+                            managed_elif = bake_eval_defined_expr(
+                                cond, ctx->disable, &value);
+                            ecs_os_free(cond);
                         }
-                        frame->emit = true;
-                        frame->managed = false;
-                        if (suppressed == 0) {
-                            fprintf(out, "#if%s", arg);
+
+                        if (managed_elif) {
+                            /* The elif condition itself references a disabled
+                             * flag; keep managing this frame. */
+                            if (value) {
+                                if (!frame->emit) {
+                                    suppressed--;
+                                }
+                                frame->emit = true;
+                                frame->taken = true;
+                            }
+                        } else {
+                            if (!frame->emit) {
+                                suppressed--;
+                            }
+                            frame->emit = true;
+                            frame->managed = false;
+                            if (suppressed == 0) {
+                                fprintf(out, "#if%s", arg);
+                            }
                         }
                     }
                 } else if (suppressed == 0) {
@@ -600,6 +651,7 @@ static int bake_amalgamate_file(
         if (has_disable && !line_in_block_comment_at_start &&
             bake_is_disabled_define(line, ctx->disable))
         {
+            skip_continuation = bake_line_continues(line);
             continue;
         }
 
@@ -806,7 +858,8 @@ static int bake_collect_source_files(
 static bool bake_comment_has_file_directive(const char *start, const char *end) {
     for (const char *q = start; q + 5 <= end; q++) {
         if ((q[0] == '@' || q[0] == '\\') &&
-            q[1] == 'f' && q[2] == 'i' && q[3] == 'l' && q[4] == 'e')
+            q[1] == 'f' && q[2] == 'i' && q[3] == 'l' && q[4] == 'e' &&
+            (q + 5 == end || !bake_is_ident_char(q[5])))
         {
             return true;
         }
