@@ -5,15 +5,10 @@
 
 #include <ctype.h>
 
-int bake_list_append_fmt(ecs_strbuf_t *buf, const bake_strlist_t *list, const char *prefix, bool quote) {
+void bake_list_append_fmt(ecs_strbuf_t *buf, const bake_strlist_t *list, const char *prefix) {
     for (int32_t i = 0; i < list->count; i++) {
-        if (quote) {
-            ecs_strbuf_append(buf, " %s\"%s\"", prefix, list->items[i]);
-        } else {
-            ecs_strbuf_append(buf, " %s%s", prefix, list->items[i]);
-        }
+        ecs_strbuf_append(buf, " %s%s", prefix, list->items[i]);
     }
-    return 0;
 }
 
 char* bake_project_id_as_macro(const char *id) {
@@ -244,7 +239,6 @@ static int bake_collect_dependency_link_inputs(
 typedef struct bake_compile_ctx_t {
     bake_context_t *ctx;
     const bake_project_cfg_t *cfg;
-    const bake_build_paths_t *paths;
     const bake_compile_list_t *units;
     const bake_lang_cfg_t *c_lang;
     const bake_lang_cfg_t *cpp_lang;
@@ -381,7 +375,6 @@ static void* bake_compile_worker(void *arg) {
 int bake_compile_units_parallel(
     bake_context_t *ctx,
     const bake_project_cfg_t *cfg,
-    const bake_build_paths_t *paths,
     const bake_compile_list_t *units,
     const bake_lang_cfg_t *lang,
     const bake_lang_cfg_t *cpp_lang,
@@ -404,7 +397,6 @@ int bake_compile_units_parallel(
     bake_compile_ctx_t compile_ctx = {
         .ctx = ctx,
         .cfg = cfg,
-        .paths = paths,
         .units = units,
         .c_lang = lang,
         .cpp_lang = cpp_lang,
@@ -537,11 +529,6 @@ int bake_link_project_binary(
         *linked_out = false;
     }
 
-    if (cfg->kind == BAKE_PROJECT_CONFIG || cfg->kind == BAKE_PROJECT_TEMPLATE) {
-        *artefact_out = NULL;
-        return 0;
-    }
-
     bake_strlist_t dep_artefacts;
     bake_strlist_t dep_libpaths;
     bake_strlist_t dep_libs;
@@ -606,7 +593,6 @@ int bake_link_project_binary(
     bake_link_cmd_ctx_t cmd_ctx = {
         .ctx = ctx,
         .cfg = cfg,
-        .paths = paths,
         .units = units,
         .lang = lang,
         .mode_ldflags = mode_ldflags,

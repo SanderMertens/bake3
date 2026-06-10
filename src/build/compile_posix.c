@@ -32,8 +32,8 @@ int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_st
         ecs_strbuf_append(cmd, " -std=%s", ctx->lang->cpp_standard);
     }
 
-    bake_list_append_fmt(cmd, &ctx->lang->cflags, "", false);
-    bake_list_append_fmt(cmd, &ctx->lang->defines, "-D", false);
+    bake_list_append_fmt(cmd, &ctx->lang->cflags, "");
+    bake_list_append_fmt(cmd, &ctx->lang->defines, "-D");
     ecs_strbuf_append(cmd, " -DBAKE_PROJECT_ID=\\\"%s\\\"", ctx->cfg->id);
     if (ctx->cfg->kind == BAKE_PROJECT_PACKAGE) {
         char *macro = bake_project_id_as_macro(ctx->cfg->id);
@@ -98,9 +98,9 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
         ecs_strbuf_appendstr(cmd, " -Wl,--end-group");
     }
 #endif
-    bake_list_append_fmt(cmd, ctx->mode_ldflags, "", false);
-    bake_list_append_fmt(cmd, &ctx->lang->ldflags, "", false);
-    bake_list_append_fmt(cmd, ctx->dep_ldflags, "", false);
+    bake_list_append_fmt(cmd, ctx->mode_ldflags, "");
+    bake_list_append_fmt(cmd, &ctx->lang->ldflags, "");
+    bake_list_append_fmt(cmd, ctx->dep_ldflags, "");
     for (int32_t i = 0; i < ctx->lang->libpaths.count; i++) {
         bake_strbuf_append_quoted_path(cmd, " -L", ctx->lang->libpaths.items[i]);
     }

@@ -15,7 +15,6 @@ typedef struct bake_compile_cmd_ctx_t {
 typedef struct bake_link_cmd_ctx_t {
     bake_context_t *ctx;
     const bake_project_cfg_t *cfg;
-    const bake_build_paths_t *paths;
     const bake_compile_list_t *units;
     const bake_lang_cfg_t *lang;
     const bake_strlist_t *mode_ldflags;

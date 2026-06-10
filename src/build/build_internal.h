@@ -60,13 +60,12 @@ int bake_apply_dependee_cfg(
 bake_compiler_kind_t bake_detect_compiler_kind(const char *cc, const char *cxx);
 void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strlist_t *cflags, bake_strlist_t *cxxflags, bake_strlist_t *ldflags);
 void bake_add_strict_flags(bool strict, bake_compiler_kind_t kind, bake_strlist_t *cflags, bake_strlist_t *cxxflags, bake_strlist_t *ldflags);
-int bake_list_append_fmt(ecs_strbuf_t *buf, const bake_strlist_t *list, const char *prefix, bool quote);
+void bake_list_append_fmt(ecs_strbuf_t *buf, const bake_strlist_t *list, const char *prefix);
 char* bake_display_path(const char *full_path, const char *strip_prefix);
 
 int bake_compile_units_parallel(
     bake_context_t *ctx,
     const bake_project_cfg_t *cfg,
-    const bake_build_paths_t *paths,
     const bake_compile_list_t *units,
     const bake_lang_cfg_t *lang,
     const bake_lang_cfg_t *cpp_lang,

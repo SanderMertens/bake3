@@ -491,7 +491,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 
     int32_t compiled_count = 0;
     if (bake_compile_units_parallel(
-        ctx, cfg, &paths, &units, base_lang, base_cpp,
+        ctx, cfg, &units, base_lang, base_cpp,
         &mode_cflags, &mode_cxxflags, &compiled_count) != 0)
     {
         ecs_err("compilation failed for %s", cfg->id);
