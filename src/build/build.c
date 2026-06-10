@@ -11,7 +11,6 @@ ECS_COMPONENT_DECLARE(BakeBuildResult);
 
 ECS_TAG_DECLARE(BakeBuilt);
 ECS_TAG_DECLARE(BakeBuildFailed);
-ECS_TAG_DECLARE(BakeBuildInProgress);
 
 int bake_build_components_init(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, BakeBuildRequest);
@@ -19,7 +18,6 @@ int bake_build_components_init(ecs_world_t *world) {
 
     ECS_TAG_DEFINE(world, BakeBuilt);
     ECS_TAG_DEFINE(world, BakeBuildFailed);
-    ECS_TAG_DEFINE(world, BakeBuildInProgress);
 
     return 0;
 }

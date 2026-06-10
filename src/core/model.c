@@ -8,9 +8,7 @@ ECS_COMPONENT_DECLARE(BakeProject);
 ECS_COMPONENT_DECLARE(BakeResolvedDeps);
 ECS_COMPONENT_DECLARE(BakeDriver);
 ECS_COMPONENT_DECLARE(BakeBuildRule);
-ECS_COMPONENT_DECLARE(BakeEnvProject);
 
-ECS_TAG_DECLARE(BakeDiscovered);
 ECS_TAG_DECLARE(BakeExternal);
 
 ecs_entity_t BakeDependsOn = 0;
@@ -137,13 +135,10 @@ int bake_model_init(ecs_world_t *world) {
     });
     ECS_COMPONENT_DEFINE(world, BakeDriver);
     ECS_COMPONENT_DEFINE(world, BakeBuildRule);
-    ECS_COMPONENT_DEFINE(world, BakeEnvProject);
 
-    ECS_TAG_DEFINE(world, BakeDiscovered);
     ECS_TAG_DEFINE(world, BakeExternal);
     ECS_TAG_DEFINE(world, BakeBuilt);
     ECS_TAG_DEFINE(world, BakeBuildFailed);
-    ECS_TAG_DEFINE(world, BakeBuildInProgress);
 
     BakeDependsOn = ecs_entity(world, {
         .name = "BakeDependsOn"
@@ -213,7 +208,6 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
 
     BakeProject project = {
         .cfg = cfg,
-        .discovered = !external,
         .external = external
     };
 
@@ -223,7 +217,6 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
         ecs_add(world, entity, BakeExternal);
     } else {
         ecs_remove(world, entity, BakeExternal);
-        ecs_add(world, entity, BakeDiscovered);
     }
 
     for (int32_t i = 0; i < cfg->drivers.count; i++) {
@@ -416,7 +409,6 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
                 ecs_remove(world, clear.entities[i], BakeBuildRequest);
                 ecs_remove(world, clear.entities[i], BakeBuilt);
                 ecs_remove(world, clear.entities[i], BakeBuildFailed);
-                ecs_remove(world, clear.entities[i], BakeBuildInProgress);
             }
         }
     }

@@ -407,7 +407,7 @@ int bake_env_resolve_external_dependency_binaries(bake_context_t *ctx) {
         const BakeProject *projects = ecs_field(&it, BakeProject, 0);
         for (int32_t i = 0; i < it.count; i++) {
             const BakeProject *project = &projects[i];
-            if (!project->cfg || project->external || !project->discovered) {
+            if (!project->cfg || project->external) {
                 continue;
             }
 

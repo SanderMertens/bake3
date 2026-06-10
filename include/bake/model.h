@@ -5,7 +5,6 @@
 
 typedef struct BakeProject {
     bake_project_cfg_t *cfg;
-    bool discovered;
     bool external;
 } BakeProject;
 
@@ -27,21 +26,13 @@ typedef struct BakeBuildRule {
     char *command;
 } BakeBuildRule;
 
-typedef struct BakeEnvProject {
-    char *id;
-    char *path;
-    char *kind;
-} BakeEnvProject;
-
 extern ECS_COMPONENT_DECLARE(BakeProject);
 extern ECS_COMPONENT_DECLARE(BakeResolvedDeps);
 extern ECS_COMPONENT_DECLARE(BakeDriver);
 extern ECS_COMPONENT_DECLARE(BakeBuildRule);
-extern ECS_COMPONENT_DECLARE(BakeEnvProject);
 
 extern ecs_entity_t BakeDependsOn;
 
-extern ECS_TAG_DECLARE(BakeDiscovered);
 extern ECS_TAG_DECLARE(BakeExternal);
 
 int bake_model_init(ecs_world_t *world);

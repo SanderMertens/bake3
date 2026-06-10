@@ -19,7 +19,6 @@ extern ECS_COMPONENT_DECLARE(BakeBuildResult);
 
 extern ECS_TAG_DECLARE(BakeBuilt);
 extern ECS_TAG_DECLARE(BakeBuildFailed);
-extern ECS_TAG_DECLARE(BakeBuildInProgress);
 
 int bake_build_components_init(ecs_world_t *world);
 
