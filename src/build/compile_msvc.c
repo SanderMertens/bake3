@@ -11,8 +11,9 @@ int bake_compose_compile_command_msvc(const bake_compile_cmd_ctx_t *ctx, ecs_str
     for (int32_t i = 0; i < ctx->mode_flags->count; i++) {
         ecs_strbuf_append(cmd, " %s", ctx->mode_flags->items[i]);
     }
-    for (int32_t i = 0; i < ctx->lang->cflags.count; i++) {
-        ecs_strbuf_append(cmd, " %s", ctx->lang->cflags.items[i]);
+    bake_list_append_fmt(cmd, &ctx->lang->cflags, "");
+    if (ctx->unit->cpp) {
+        bake_list_append_fmt(cmd, &ctx->lang->cxxflags, "");
     }
     for (int32_t i = 0; i < ctx->lang->defines.count; i++) {
         ecs_strbuf_append(cmd, " /D%s", ctx->lang->defines.items[i]);

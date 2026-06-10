@@ -33,6 +33,9 @@ int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_st
     }
 
     bake_list_append_fmt(cmd, &ctx->lang->cflags, "");
+    if (ctx->unit->cpp) {
+        bake_list_append_fmt(cmd, &ctx->lang->cxxflags, "");
+    }
     bake_list_append_fmt(cmd, &ctx->lang->defines, "-D");
     ecs_strbuf_append(cmd, " -DBAKE_PROJECT_ID=\\\"%s\\\"", ctx->cfg->id);
     if (ctx->cfg->kind == BAKE_PROJECT_PACKAGE) {
