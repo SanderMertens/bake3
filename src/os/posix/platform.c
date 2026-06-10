@@ -24,10 +24,6 @@ char* bake_os_home_path(void) {
     return home ? ecs_os_strdup(home) : NULL;
 }
 
-const char* bake_host_executable_name(void) {
-    return "bake";
-}
-
 int32_t bake_host_threads(void) {
     long cpu = sysconf(_SC_NPROCESSORS_ONLN);
     if (cpu < 1) {

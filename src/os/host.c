@@ -89,30 +89,6 @@ int bake_remove_file_if_exists(const char *path) {
     return bake_remove_file(path);
 }
 
-int bake_rename_file(const char *src, const char *dst) {
-    if (!src || !src[0] || !dst || !dst[0]) {
-        ecs_err("failed to rename file: invalid path");
-        return -1;
-    }
-
-#if defined(_WIN32)
-    remove(dst);
-#endif
-
-    if (rename(src, dst) != 0) {
-        int err = errno;
-        ecs_err(
-            "failed to rename '%s' to '%s': %s (%d)",
-            src,
-            dst,
-            bake_errno_message(err),
-            err);
-        return -1;
-    }
-
-    return 0;
-}
-
 const char* bake_host_os(void) {
 #if defined(__APPLE__)
     return "Darwin";

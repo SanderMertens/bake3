@@ -47,7 +47,6 @@ void bake_log_errno(const char *action, const char *path, int err);
 void bake_log_errno_last(const char *action, const char *path);
 int bake_remove_file(const char *path);
 int bake_remove_file_if_exists(const char *path);
-int bake_rename_file(const char *src, const char *dst);
 #if defined(_WIN32)
 void bake_log_win_error(const char *action, const char *path, unsigned long err);
 void bake_log_win_error_last(const char *action, const char *path);
@@ -56,7 +55,6 @@ void bake_log_win_error_last(const char *action, const char *path);
 int bake_os_setenv(const char *name, const char *value);
 int bake_os_unsetenv(const char *name);
 char* bake_os_home_path(void);
-const char* bake_host_executable_name(void);
 int32_t bake_host_threads(void);
 
 const char* bake_host_os(void);
