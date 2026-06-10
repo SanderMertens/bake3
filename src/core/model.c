@@ -137,8 +137,6 @@ int bake_model_init(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, BakeBuildRule);
 
     ECS_TAG_DEFINE(world, BakeExternal);
-    ECS_TAG_DEFINE(world, BakeBuilt);
-    ECS_TAG_DEFINE(world, BakeBuildFailed);
 
     BakeDependsOn = ecs_entity(world, {
         .name = "BakeDependsOn"
@@ -407,8 +405,6 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
         while (ecs_each_next(&clear)) {
             for (int32_t i = 0; i < clear.count; i++) {
                 ecs_remove(world, clear.entities[i], BakeBuildRequest);
-                ecs_remove(world, clear.entities[i], BakeBuilt);
-                ecs_remove(world, clear.entities[i], BakeBuildFailed);
             }
         }
     }

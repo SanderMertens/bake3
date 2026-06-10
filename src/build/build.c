@@ -9,15 +9,9 @@
 ECS_COMPONENT_DECLARE(BakeBuildRequest);
 ECS_COMPONENT_DECLARE(BakeBuildResult);
 
-ECS_TAG_DECLARE(BakeBuilt);
-ECS_TAG_DECLARE(BakeBuildFailed);
-
 int bake_build_components_init(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, BakeBuildRequest);
     ECS_COMPONENT_DEFINE(world, BakeBuildResult);
-
-    ECS_TAG_DEFINE(world, BakeBuilt);
-    ECS_TAG_DEFINE(world, BakeBuildFailed);
 
     return 0;
 }
@@ -349,7 +343,6 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 
         BakeBuildResult result = { .status = 0, .artefact = NULL };
         ecs_set_ptr(ctx->world, project_entity, BakeBuildResult, &result);
-        ecs_add(ctx->world, project_entity, BakeBuilt);
         if (bake_env_sync_project(ctx, project_entity, &result, request, false) != 0) {
             return -1;
         }
@@ -525,7 +518,6 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         .artefact = artefact
     };
     ecs_set_ptr(ctx->world, project_entity, BakeBuildResult, &result);
-    ecs_add(ctx->world, project_entity, BakeBuilt);
 
     bool rebuilt = compiled_count > 0 || linked;
     if (bake_env_sync_project(ctx, project_entity, &result, request, rebuilt) != 0) {
@@ -599,7 +591,6 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
         }
 
         if (bake_build_one(ctx, order[i], req) != 0) {
-            ecs_add(ctx->world, order[i], BakeBuildFailed);
             goto cleanup;
         }
     }
