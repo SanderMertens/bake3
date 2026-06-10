@@ -119,13 +119,6 @@ struct bake_project_cfg_t {
     bake_strlist_t bundle_sources;
 };
 
-typedef struct bake_build_mode_t {
-    const char *id;
-    bake_strlist_t cflags;
-    bake_strlist_t cxxflags;
-    bake_strlist_t ldflags;
-} bake_build_mode_t;
-
 const char* bake_project_kind_str(bake_project_kind_t kind);
 bake_project_kind_t bake_project_kind_parse(const char *value);
 char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg);
@@ -157,9 +150,6 @@ void bake_project_cfg_init(bake_project_cfg_t *cfg);
 void bake_project_cfg_fini(bake_project_cfg_t *cfg);
 int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t *cfg);
 void bake_project_cfg_set_eval_context(const char *mode, const char *target);
-
-void bake_build_mode_init(bake_build_mode_t *mode, const char *id);
-void bake_build_mode_fini(bake_build_mode_t *mode);
 
 bool bake_language_is_cpp(const bake_project_cfg_t *cfg);
 

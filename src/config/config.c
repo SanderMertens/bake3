@@ -382,19 +382,6 @@ void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
     bake_project_cfg_fini_impl(cfg, true);
 }
 
-void bake_build_mode_init(bake_build_mode_t *mode, const char *id) {
-    mode->id = id;
-    bake_strlist_init(&mode->cflags);
-    bake_strlist_init(&mode->cxxflags);
-    bake_strlist_init(&mode->ldflags);
-}
-
-void bake_build_mode_fini(bake_build_mode_t *mode) {
-    bake_strlist_fini(&mode->cflags);
-    bake_strlist_fini(&mode->cxxflags);
-    bake_strlist_fini(&mode->ldflags);
-}
-
 static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) {
     if (!object) {
         return 0;

@@ -47,7 +47,6 @@ extern ECS_TAG_DECLARE(BakeExternal);
 int bake_model_init(ecs_world_t *world);
 
 ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg, bool external);
-const BakeProject* bake_model_get_project(const ecs_world_t *world, ecs_entity_t entity);
 const BakeProject* bake_model_find_project(const ecs_world_t *world, const char *id, ecs_entity_t *entity_out);
 const BakeProject* bake_model_find_project_by_path(const ecs_world_t *world, const char *path, ecs_entity_t *entity_out);
 void bake_model_link_dependencies(ecs_world_t *world);

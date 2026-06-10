@@ -263,10 +263,6 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
     return entity;
 }
 
-const BakeProject* bake_model_get_project(const ecs_world_t *world, ecs_entity_t entity) {
-    return ecs_get(world, entity, BakeProject);
-}
-
 const BakeProject* bake_model_find_project(const ecs_world_t *world, const char *id, ecs_entity_t *entity_out) {
     ecs_entity_t entity = ecs_lookup_path_w_sep(world, 0, id, "::", NULL, false);
     if (!entity) {
