@@ -5,23 +5,6 @@
 
 #include <flecs.h>
 
-static char* bake_bundle_quote_arg(const char *arg) {
-    if (!arg) {
-        return ecs_os_strdup("\"\"");
-    }
-
-    ecs_strbuf_t buf = ECS_STRBUF_INIT;
-    ecs_strbuf_appendch(&buf, '"');
-    for (const char *p = arg; *p; p++) {
-        if (*p == '"' || *p == '\\') {
-            ecs_strbuf_appendch(&buf, '\\');
-        }
-        ecs_strbuf_appendch(&buf, *p);
-    }
-    ecs_strbuf_appendch(&buf, '"');
-    return ecs_strbuf_get(&buf);
-}
-
 static char* bake_bundle_ref_segment(const bake_bundle_t *bundle) {
     if (bundle->commit && bundle->commit[0]) {
         return flecs_asprintf("commits/%s", bundle->commit);
@@ -98,39 +81,43 @@ static int bake_bundle_clone(const bake_bundle_t *bundle, const char *dest) {
     if (bundle->branch && bundle->branch[0]) ref = bundle->branch;
     else if (bundle->tag && bundle->tag[0]) ref = bundle->tag;
 
+    char *quoted_dest = bake_shell_quote_arg(dest);
+    char *quoted_repo = bake_shell_quote_arg(bundle->repository);
+    char *quoted_ref = ref ? bake_shell_quote_arg(ref) : NULL;
+    if (!quoted_dest || !quoted_repo || (ref && !quoted_ref)) {
+        ecs_os_free(quoted_dest);
+        ecs_os_free(quoted_repo);
+        ecs_os_free(quoted_ref);
+        return -1;
+    }
+
     ecs_strbuf_t cmd = ECS_STRBUF_INIT;
     ecs_strbuf_appendstr(&cmd, "git clone --recurse-submodules");
     if (ref) {
-        ecs_strbuf_append(&cmd, " --branch %s --depth 1 --shallow-submodules", ref);
+        ecs_strbuf_append(&cmd, " --branch %s --depth 1 --shallow-submodules", quoted_ref);
     } else if (!bundle->commit || !bundle->commit[0]) {
         ecs_strbuf_appendstr(&cmd, " --depth 1 --shallow-submodules");
     }
-    ecs_strbuf_append(&cmd, " %s ", bundle->repository);
-
-    char *quoted_dest = bake_bundle_quote_arg(dest);
-    if (!quoted_dest) {
-        ecs_strbuf_reset(&cmd);
-        return -1;
-    }
-    ecs_strbuf_appendstr(&cmd, quoted_dest);
-    ecs_os_free(quoted_dest);
+    ecs_strbuf_append(&cmd, " %s %s", quoted_repo, quoted_dest);
+    ecs_os_free(quoted_repo);
+    ecs_os_free(quoted_ref);
 
     char *cmd_str = ecs_strbuf_get(&cmd);
     if (!cmd_str) {
+        ecs_os_free(quoted_dest);
         return -1;
     }
     int rc = bake_run_command(cmd_str, true);
     ecs_os_free(cmd_str);
     if (rc != 0) {
+        ecs_os_free(quoted_dest);
         return -1;
     }
 
     if (bundle->commit && bundle->commit[0]) {
         ecs_strbuf_t co = ECS_STRBUF_INIT;
-        char *quoted_path = bake_bundle_quote_arg(dest);
-        if (!quoted_path) {
-            return -1;
-        }
+        char *quoted_path = quoted_dest;
+        quoted_dest = NULL;
         ecs_strbuf_append(&co, "git -C %s fetch --depth 1 origin %s", quoted_path, bundle->commit);
         char *fetch_cmd = ecs_strbuf_get(&co);
         rc = fetch_cmd ? bake_run_command(fetch_cmd, true) : -1;
@@ -151,6 +138,7 @@ static int bake_bundle_clone(const bake_bundle_t *bundle, const char *dest) {
         }
     }
 
+    ecs_os_free(quoted_dest);
     return 0;
 }
 
@@ -161,9 +149,9 @@ static int bake_bundle_run_cmake(
     const char *install_dir,
     const char *mode)
 {
-    char *quoted_src = bake_bundle_quote_arg(src_dir);
-    char *quoted_build = bake_bundle_quote_arg(build_dir);
-    char *quoted_install = bake_bundle_quote_arg(install_dir);
+    char *quoted_src = bake_shell_quote_arg(src_dir);
+    char *quoted_build = bake_shell_quote_arg(build_dir);
+    char *quoted_install = bake_shell_quote_arg(install_dir);
     int rc = -1;
 
     if (!quoted_src || !quoted_build || !quoted_install) {
@@ -178,7 +166,7 @@ static int bake_bundle_run_cmake(
         "%s -S %s -B %s -DCMAKE_INSTALL_PREFIX=%s -DCMAKE_BUILD_TYPE=%s -DBUILD_SHARED_LIBS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON",
         cmake_launcher, quoted_src, quoted_build, quoted_install, build_type);
     for (int32_t i = 0; i < bundle->cmake_args.count; i++) {
-        char *q = bake_bundle_quote_arg(bundle->cmake_args.items[i]);
+        char *q = bake_shell_quote_arg(bundle->cmake_args.items[i]);
         if (!q) {
             ecs_strbuf_reset(&configure);
             goto cleanup;
@@ -269,8 +257,8 @@ static int bake_bundle_run_cargo(
     const char *src_dir,
     const char *build_dir)
 {
-    char *quoted_src = bake_bundle_quote_arg(src_dir);
-    char *quoted_build = bake_bundle_quote_arg(build_dir);
+    char *quoted_src = bake_shell_quote_arg(src_dir);
+    char *quoted_build = bake_shell_quote_arg(build_dir);
     int rc = -1;
 
     if (!quoted_src || !quoted_build) {

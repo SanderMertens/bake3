@@ -146,12 +146,16 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
     if (ctx && ctx->opts.run_prefix) {
         ecs_strbuf_append(&cmd, "%s ", ctx->opts.run_prefix);
     }
-    ecs_strbuf_append(&cmd, "\"%s\"", exe_path);
+    char *quoted_exe = bake_shell_quote_arg(exe_path);
+    ecs_strbuf_appendstr(&cmd, quoted_exe);
+    ecs_os_free(quoted_exe);
     if (ctx && ctx->opts.jobs > 0) {
         ecs_strbuf_append(&cmd, " -j %d", ctx->opts.jobs);
     }
     for (int i = 0; ctx && i < ctx->opts.run_argc; i++) {
-        ecs_strbuf_append(&cmd, " \"%s\"", ctx->opts.run_argv[i]);
+        char *quoted_arg = bake_shell_quote_arg(ctx->opts.run_argv[i]);
+        ecs_strbuf_append(&cmd, " %s", quoted_arg);
+        ecs_os_free(quoted_arg);
     }
 
     char *cmd_str = ecs_strbuf_get(&cmd);

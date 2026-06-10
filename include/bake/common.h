@@ -30,6 +30,7 @@
 #define BAKE_UNUSED(x) (void)(x)
 
 int bake_run_command(const char *cmd, bool log_command);
+char* bake_shell_quote_arg(const char *arg);
 char* bake_text_replace(const char *input, const char *needle, const char *replacement);
 
 char* bake_project_id_as_dash(const char *id);

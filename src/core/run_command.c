@@ -20,6 +20,23 @@ bool bake_char_is_space(char ch) {
     return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
 }
 
+char* bake_shell_quote_arg(const char *arg) {
+    if (!arg) {
+        return ecs_os_strdup("\"\"");
+    }
+
+    ecs_strbuf_t buf = ECS_STRBUF_INIT;
+    ecs_strbuf_appendch(&buf, '"');
+    for (const char *p = arg; *p; p++) {
+        if (*p == '"' || *p == '\\') {
+            ecs_strbuf_appendch(&buf, '\\');
+        }
+        ecs_strbuf_appendch(&buf, *p);
+    }
+    ecs_strbuf_appendch(&buf, '"');
+    return ecs_strbuf_get(&buf);
+}
+
 static void bake_cmd_line_fini(bake_cmd_line_t *cmd) {
     if (!cmd) {
         return;
