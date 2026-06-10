@@ -101,10 +101,16 @@ int main(int argc, char *argv[]) {
                     ecs_err("missing value for --local-env");
                     goto cleanup;
                 }
-            } else if ((i + 2) < argc && argv[i + 1][0] && argv[i + 1][0] != '-' &&
-                       !bake_is_command(argv[i + 1]) && bake_is_command(argv[i + 2]))
+            } else if ((i + 1) < argc && argv[i + 1][0] && argv[i + 1][0] != '-' &&
+                       !bake_is_command(argv[i + 1]))
             {
-                candidate = argv[++i];
+                if (bake_local_env_name_valid(argv[i + 1]) &&
+                    !bake_path_exists(argv[i + 1]))
+                {
+                    candidate = argv[++i];
+                } else if ((i + 2) < argc && bake_is_command(argv[i + 2])) {
+                    candidate = argv[++i];
+                }
             }
             if (candidate && !bake_local_env_name_valid(candidate)) {
                 ecs_err("invalid --local-env name '%s' (use letters, digits, '.', '_' or '-')", candidate);
