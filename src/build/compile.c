@@ -380,6 +380,7 @@ static void* bake_compile_worker(void *arg) {
 
 int bake_compile_units_parallel(
     bake_context_t *ctx,
+    ecs_entity_t project_entity,
     const bake_project_cfg_t *cfg,
     const bake_compile_list_t *units,
     const bake_lang_cfg_t *lang,
@@ -396,9 +397,8 @@ int bake_compile_units_parallel(
         return 0;
     }
 
-    ecs_entity_t project_entity = 0;
-    bake_model_find_project(ctx->world, cfg->id, &project_entity);
-    const BakeResolvedDeps *resolved = ecs_get(ctx->world, project_entity, BakeResolvedDeps);
+    const BakeResolvedDeps *resolved =
+        project_entity ? ecs_get(ctx->world, project_entity, BakeResolvedDeps) : NULL;
 
     bake_compile_ctx_t compile_ctx = {
         .ctx = ctx,

@@ -65,6 +65,7 @@ char* bake_display_path(const char *full_path, const char *strip_prefix);
 
 int bake_compile_units_parallel(
     bake_context_t *ctx,
+    ecs_entity_t project_entity,
     const bake_project_cfg_t *cfg,
     const bake_compile_list_t *units,
     const bake_lang_cfg_t *lang,
