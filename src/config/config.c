@@ -834,7 +834,9 @@ static int bake_project_cfg_finalize_defaults(const char *project_json_path, bak
     }
 
     if (!cfg->output_name) {
-        cfg->output_name = bake_path_stem(cfg->id);
+        const char *last_dot = strrchr(cfg->id, '.');
+        cfg->output_name = ecs_os_strdup(
+            (last_dot && last_dot[1]) ? last_dot + 1 : cfg->id);
     }
 
     return cfg->path && cfg->id && cfg->output_name ? 0 : -1;
