@@ -16,9 +16,15 @@ int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *cou
     ecs_vec_t vec = {0};
     ecs_vec_init_t(NULL, &vec, bake_dir_entry_t, 0);
 
-    struct dirent *de = NULL;
-    errno = 0;
-    while ((de = readdir(dir))) {
+    for (;;) {
+        /* Reset errno right before each readdir call: the loop body calls
+         * functions that may set errno on success, which would otherwise turn
+         * a normal end-of-directory into a spurious failure. */
+        errno = 0;
+        struct dirent *de = readdir(dir);
+        if (!de) {
+            break;
+        }
         bake_dir_entry_t *entry = ecs_vec_append_t(NULL, &vec, bake_dir_entry_t);
         entry->name = ecs_os_strdup(de->d_name);
         entry->path = bake_path_join(path, de->d_name);
