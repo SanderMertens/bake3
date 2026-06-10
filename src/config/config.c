@@ -121,6 +121,7 @@ bake_project_kind_t bake_project_kind_parse(const char *value) {
     if (!strcmp(value, "template")) {
         return BAKE_PROJECT_TEMPLATE;
     }
+    ecs_warn("unknown project type '%s', defaulting to application", value);
     return BAKE_PROJECT_APPLICATION;
 }
 
@@ -486,8 +487,7 @@ static int bake_parse_project_value_cfg(
     }
 
     if (bake_json_get_string(object, "language", &cfg->language) < 0) return -1;
-    if (bake_json_get_string(object, "output", &cfg->output_name) < 0) return -1;
-    if (bake_json_get_string(object, "artefact", &cfg->output_name) < 0) return -1;
+    if (bake_json_get_string_alias(object, "output", "artefact", &cfg->output_name) < 0) return -1;
 
     if (bake_json_get_bool(object, "private", &cfg->private_project) < 0) return -1;
     if (bake_json_get_bool(object, "public", &cfg->public_project) < 0) return -1;
@@ -860,10 +860,14 @@ static int bake_parse_rules(const JSON_Array *rules, bake_rule_list_t *rules_out
         const char *ext = json_object_get_string(rule, "ext");
         const char *cmd = json_object_get_string(rule, "command");
 
-        if (ext && cmd) {
-            if (bake_rule_list_append(rules_out, ext, cmd) != 0) {
-                return -1;
-            }
+        if (!ext || !cmd) {
+            ecs_warn("ignoring rule without '%s' attribute",
+                ext ? "command" : "ext");
+            continue;
+        }
+
+        if (bake_rule_list_append(rules_out, ext, cmd) != 0) {
+            return -1;
         }
     }
 
@@ -922,10 +926,6 @@ int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t
 
     if (bake_parse_project_cfg_object(root, cfg, true, true) != 0) {
         goto error;
-    }
-
-    if (!cfg->path) {
-        cfg->path = bake_path_dirname(project_json_path);
     }
 
     if (bake_project_cfg_finalize_defaults(project_json_path, cfg) != 0) {
