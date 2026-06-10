@@ -106,7 +106,7 @@ int bake_env_copy_tree_exact(const char *src, const char *dst) {
         return -1;
     }
 
-    if (bake_env_remove_if_exists(dst) != 0) {
+    if (bake_os_rmtree(dst) != 0) {
         return -1;
     }
 
@@ -185,17 +185,8 @@ char* bake_env_find_test_template_source(void) {
     return NULL;
 }
 
-static bool bake_env_local_mode_enabled(const bake_context_t *ctx) {
-    if (ctx && ctx->opts.local_env) {
-        return true;
-    }
-
-    const char *local_env = getenv("BAKE_LOCAL_ENV");
-    return local_env && !strcmp(local_env, "1");
-}
-
 int bake_env_ensure_local_test_templates(const bake_context_t *ctx) {
-    if (!bake_env_local_mode_enabled(ctx)) {
+    if (!(ctx && ctx->opts.local_env) && !bake_env_is_local()) {
         return 0;
     }
 
@@ -211,12 +202,12 @@ int bake_env_ensure_local_test_templates(const bake_context_t *ctx) {
 
     char *test_src = bake_env_find_test_template_source();
     if (!test_src) {
-        const char *missing = NULL;
-        bake_env_has_required_test_templates(test_dst, &missing);
         ecs_err(
-            "failed to initialize local test harness templates at %s (missing %s); expected templates/test_harness in current working directory, test templates next to bake executable, BAKE_GLOBAL_HOME/test, or ~/bake3/test",
-            test_dst,
-            missing ? missing : "<unknown>");
+            "failed to initialize local test harness templates at %s; "
+            "expected templates/test_harness in current working directory, "
+            "test templates next to bake executable, BAKE_GLOBAL_HOME/test, "
+            "or ~/bake3/test",
+            test_dst);
         ecs_os_free(test_dst);
         return -1;
     }

@@ -153,7 +153,10 @@ int bake_env_init_paths(bake_context_t *ctx) {
         return -1;
     }
 
-    bake_os_setenv("BAKE_HOME", ctx->bake_home);
+    if (bake_os_setenv("BAKE_HOME", ctx->bake_home) != 0) {
+        ecs_err("failed to set BAKE_HOME environment variable");
+        return -1;
+    }
 
     if (bake_os_mkdirs(ctx->bake_home) != 0) {
         return -1;

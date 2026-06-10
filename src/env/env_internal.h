@@ -9,7 +9,6 @@ int bake_env_copy_tree_recursive(const char *src, const char *dst);
 int bake_env_copy_tree_exact(const char *src, const char *dst);
 int bake_env_ensure_local_test_templates(const bake_context_t *ctx);
 
-int bake_env_remove_if_exists(const char *path);
 
 char* bake_env_artefact_path(
     const bake_context_t *ctx,
