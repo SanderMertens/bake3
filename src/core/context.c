@@ -4,6 +4,53 @@
 #include "bake/build_components.h"
 #include "bake/os.h"
 
+/* Allocation failure aborts: bake treats out-of-memory as unrecoverable, so
+ * the rest of the codebase does not need to check allocation results. */
+static
+void bake_alloc_abort(void) {
+    fputs("bake: out of memory\n", stderr);
+    abort();
+}
+
+static
+void* bake_os_malloc(ecs_size_t size) {
+    void *result = malloc((size_t)size);
+    if (!result) {
+        bake_alloc_abort();
+    }
+    return result;
+}
+
+static
+void* bake_os_calloc(ecs_size_t size) {
+    void *result = calloc(1, (size_t)size);
+    if (!result) {
+        bake_alloc_abort();
+    }
+    return result;
+}
+
+static
+void* bake_os_realloc(void *ptr, ecs_size_t size) {
+    void *result = realloc(ptr, (size_t)size);
+    if (!result && size) {
+        bake_alloc_abort();
+    }
+    return result;
+}
+
+static
+char* bake_os_strdup(const char *str) {
+    if (!str) {
+        return NULL;
+    }
+    char *result = strdup(str);
+    if (!result) {
+        bake_alloc_abort();
+    }
+    return result;
+}
+
 static
 void bake_context_init_env(const bake_options_t *opts) {
 
@@ -137,6 +184,10 @@ int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
     ecs_os_set_api_defaults();
     ecs_os_api_t os_api = ecs_os_get_api();
     os_api.log_ = bake_log;
+    os_api.malloc_ = bake_os_malloc;
+    os_api.calloc_ = bake_os_calloc;
+    os_api.realloc_ = bake_os_realloc;
+    os_api.strdup_ = bake_os_strdup;
     ecs_os_set_api(&os_api);
 
     ctx->world = ecs_init();
