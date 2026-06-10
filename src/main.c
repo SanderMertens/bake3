@@ -125,16 +125,25 @@ int main(int argc, char *argv[]) {
                 ecs_err("missing value for -j");
                 goto cleanup;
             }
-            int jobs = atoi(argv[++i]);
-            if (jobs < 1) {
+            char *end = NULL;
+            long jobs = strtol(argv[++i], &end, 10);
+            if (jobs < 1 || !end || *end) {
                 ecs_err("invalid value for -j: %s", argv[i]);
                 goto cleanup;
             }
-            opts.jobs = jobs;
+            opts.jobs = (int)jobs;
             continue;
         }
 
-#define VARG(name, field) if (!strcmp(arg, name) && i + 1 < argc) { opts.field = argv[++i]; continue; }
+#define VARG(name, field) \
+        if (!strcmp(arg, name)) { \
+            if (i + 1 >= argc) { \
+                ecs_err("missing value for %s", name); \
+                goto cleanup; \
+            } \
+            opts.field = argv[++i]; \
+            continue; \
+        }
         VARG("--cfg", mode)
         VARG("--cc", cc)
         VARG("--cxx", cxx)
@@ -142,6 +151,10 @@ int main(int argc, char *argv[]) {
         VARG("--run-prefix", run_prefix)
 #undef VARG
 
+        if (arg[0] == '-') {
+            ecs_err("unknown option: %s", arg);
+            goto cleanup;
+        }
         if (!seen_command && bake_is_command(arg)) {
             opts.command = arg;
             seen_command = true;
@@ -151,6 +164,8 @@ int main(int argc, char *argv[]) {
             opts.target = arg;
             continue;
         }
+        ecs_err("unexpected argument: %s", arg);
+        goto cleanup;
     }
 
     if (!opts.cc) {
