@@ -135,17 +135,20 @@ int bake_os_mkdirs(const char *path) {
 }
 
 int bake_os_rmtree(const char *path) {
-    if (!bake_path_exists(path)) {
-        return 0;
-    }
-
     /* Symlinks (including symlinks to directories) must be unlinked rather
      * than traversed. Treating a directory symlink as a directory and
      * recursing into it would delete the contents of the symlink target,
      * which is almost never what bake wants and has caused source trees
-     * (e.g. legacy bake2 symlinks under ~/bake/include/<id>) to be wiped. */
+     * (e.g. legacy bake2 symlinks under ~/bake/include/<id>) to be wiped.
+     * This check must come before the exists check: stat follows links, so
+     * a dangling symlink would otherwise be reported as nonexistent and
+     * left in place. */
     if (bake_path_is_symlink(path)) {
         return bake_remove_file(path);
+    }
+
+    if (!bake_path_exists(path)) {
+        return 0;
     }
 
     if (!bake_path_is_dir(path)) {

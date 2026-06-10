@@ -38,6 +38,12 @@ bool bake_path_is_abs(const char *path) {
 }
 
 int bake_path_exists(const char *path) {
+    if (!path || !path[0]) {
+        return 0;
+    }
+    if (bake_path_is_symlink(path)) {
+        return 1;
+    }
     struct _stat st;
     return _stat(path, &st) == 0;
 }

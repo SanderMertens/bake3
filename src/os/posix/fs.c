@@ -23,6 +23,9 @@ bool bake_path_is_abs(const char *path) {
 }
 
 int bake_path_exists(const char *path) {
+    if (!path || !path[0]) {
+        return 0;
+    }
     struct stat st;
     return stat(path, &st) == 0;
 }
@@ -60,6 +63,9 @@ int bake_file_sync_mode(const char *src, const char *dst) {
 }
 
 int bake_path_is_dir(const char *path) {
+    if (!path || !path[0]) {
+        return 0;
+    }
     struct stat st;
     if (stat(path, &st) != 0) {
         return 0;
@@ -68,6 +74,9 @@ int bake_path_is_dir(const char *path) {
 }
 
 int bake_path_is_symlink(const char *path) {
+    if (!path || !path[0]) {
+        return 0;
+    }
     struct stat st;
     if (lstat(path, &st) != 0) {
         return 0;

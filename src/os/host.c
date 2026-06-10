@@ -82,7 +82,11 @@ int bake_remove_file(const char *path) {
 }
 
 int bake_remove_file_if_exists(const char *path) {
-    if (!path || !path[0] || !bake_path_exists(path)) {
+    if (!path || !path[0]) {
+        return 0;
+    }
+
+    if (!bake_path_is_symlink(path) && !bake_path_exists(path)) {
         return 0;
     }
 
