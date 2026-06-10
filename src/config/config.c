@@ -793,6 +793,11 @@ static int bake_parse_bundle_entry(
         return -1;
     }
 
+    if (bake_bundle_list_find(bundles, id)) {
+        ecs_warn("ignoring duplicate bundle entry '%s'", id);
+        return 0;
+    }
+
     bake_bundle_t *bundle = bake_bundle_list_append(bundles);
     if (!bundle) {
         return -1;
