@@ -318,13 +318,6 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
     const bake_lang_cfg_t *lang = unit->cpp ? ctx->cpp_lang : ctx->c_lang;
     const bake_strlist_t *mode_flags = unit->cpp ? ctx->mode_cxxflags : ctx->mode_cflags;
 
-    char *obj_dir = bake_path_dirname(unit->obj);
-    if (!obj_dir || bake_os_mkdirs(obj_dir) != 0) {
-        ecs_os_free(obj_dir);
-        return -1;
-    }
-    ecs_os_free(obj_dir);
-
     ecs_strbuf_t cmd = ECS_STRBUF_INIT;
     bake_compile_cmd_ctx_t cmd_ctx = {
         .ctx = ctx->ctx,

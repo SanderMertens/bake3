@@ -466,7 +466,10 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 #endif
         char *obj_name = flecs_asprintf("generated_bake_test%s", obj_ext);
         char *obj_path = obj_name ? bake_path_join(paths.obj_dir, obj_name) : NULL;
-        if (!obj_name || !obj_path || bake_compile_list_append(&units, builtin_test_src, obj_path, NULL, false) != 0) {
+        if (!obj_name || !obj_path ||
+            bake_os_mkdirs(paths.obj_dir) != 0 ||
+            bake_compile_list_append(&units, builtin_test_src, obj_path, NULL, false) != 0)
+        {
             ecs_os_free(obj_name);
             ecs_os_free(obj_path);
             ecs_err("failed to add generated test API source for %s", cfg->id);
