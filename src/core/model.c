@@ -77,6 +77,87 @@ static void bake_resolved_deps_move(void *dst_ptr, void *src_ptr, int32_t count,
     }
 }
 
+static void bake_project_dtor(void *ptr, int32_t count, const ecs_type_info_t *type_info) {
+    (void)type_info;
+    BakeProject *items = ptr;
+    for (int32_t i = 0; i < count; i++) {
+        if (items[i].cfg) {
+            bake_project_cfg_fini(items[i].cfg);
+            ecs_os_free(items[i].cfg);
+            items[i].cfg = NULL;
+        }
+    }
+}
+
+static void bake_project_move(void *dst_ptr, void *src_ptr, int32_t count, const ecs_type_info_t *type_info) {
+    BakeProject *dst = dst_ptr;
+    BakeProject *src = src_ptr;
+    bake_project_dtor(dst, count, type_info);
+    for (int32_t i = 0; i < count; i++) {
+        dst[i] = src[i];
+        memset(&src[i], 0, sizeof(src[i]));
+    }
+}
+
+static void bake_driver_dtor(void *ptr, int32_t count, const ecs_type_info_t *type_info) {
+    (void)type_info;
+    BakeDriver *items = ptr;
+    for (int32_t i = 0; i < count; i++) {
+        ecs_os_free(items[i].id);
+        items[i].id = NULL;
+    }
+}
+
+static void bake_driver_move(void *dst_ptr, void *src_ptr, int32_t count, const ecs_type_info_t *type_info) {
+    BakeDriver *dst = dst_ptr;
+    BakeDriver *src = src_ptr;
+    bake_driver_dtor(dst, count, type_info);
+    for (int32_t i = 0; i < count; i++) {
+        dst[i] = src[i];
+        memset(&src[i], 0, sizeof(src[i]));
+    }
+}
+
+static void bake_build_rule_dtor(void *ptr, int32_t count, const ecs_type_info_t *type_info) {
+    (void)type_info;
+    BakeBuildRule *items = ptr;
+    for (int32_t i = 0; i < count; i++) {
+        ecs_os_free(items[i].ext);
+        ecs_os_free(items[i].command);
+        items[i].ext = NULL;
+        items[i].command = NULL;
+    }
+}
+
+static void bake_build_rule_move(void *dst_ptr, void *src_ptr, int32_t count, const ecs_type_info_t *type_info) {
+    BakeBuildRule *dst = dst_ptr;
+    BakeBuildRule *src = src_ptr;
+    bake_build_rule_dtor(dst, count, type_info);
+    for (int32_t i = 0; i < count; i++) {
+        dst[i] = src[i];
+        memset(&src[i], 0, sizeof(src[i]));
+    }
+}
+
+static void bake_build_result_dtor(void *ptr, int32_t count, const ecs_type_info_t *type_info) {
+    (void)type_info;
+    BakeBuildResult *items = ptr;
+    for (int32_t i = 0; i < count; i++) {
+        ecs_os_free(items[i].artefact);
+        items[i].artefact = NULL;
+    }
+}
+
+static void bake_build_result_move(void *dst_ptr, void *src_ptr, int32_t count, const ecs_type_info_t *type_info) {
+    BakeBuildResult *dst = dst_ptr;
+    BakeBuildResult *src = src_ptr;
+    bake_build_result_dtor(dst, count, type_info);
+    for (int32_t i = 0; i < count; i++) {
+        dst[i] = src[i];
+        memset(&src[i], 0, sizeof(src[i]));
+    }
+}
+
 static int bake_model_append_dep_entity(BakeResolvedDeps *resolved, ecs_entity_t dep) {
     int32_t next_count = resolved->dep_count + 1;
     ecs_entity_t *next = ecs_os_realloc_n(resolved->deps, ecs_entity_t, next_count);
@@ -125,8 +206,16 @@ bool bake_project_is_placeholder(const BakeProject *project) {
 
 int bake_model_init(ecs_world_t *world) {
     ECS_COMPONENT_DEFINE(world, BakeProject);
+    ecs_set_hooks(world, BakeProject, {
+        .dtor = bake_project_dtor,
+        .move = bake_project_move
+    });
     ECS_COMPONENT_DEFINE(world, BakeBuildRequest);
     ECS_COMPONENT_DEFINE(world, BakeBuildResult);
+    ecs_set_hooks(world, BakeBuildResult, {
+        .dtor = bake_build_result_dtor,
+        .move = bake_build_result_move
+    });
     ECS_COMPONENT_DEFINE(world, BakeResolvedDeps);
     ecs_set_hooks(world, BakeResolvedDeps, {
         .ctor = bake_resolved_deps_ctor,
@@ -134,7 +223,15 @@ int bake_model_init(ecs_world_t *world) {
         .move = bake_resolved_deps_move
     });
     ECS_COMPONENT_DEFINE(world, BakeDriver);
+    ecs_set_hooks(world, BakeDriver, {
+        .dtor = bake_driver_dtor,
+        .move = bake_driver_move
+    });
     ECS_COMPONENT_DEFINE(world, BakeBuildRule);
+    ecs_set_hooks(world, BakeBuildRule, {
+        .dtor = bake_build_rule_dtor,
+        .move = bake_build_rule_move
+    });
 
     ECS_TAG_DEFINE(world, BakeExternal);
 
@@ -145,6 +242,26 @@ int bake_model_init(ecs_world_t *world) {
     ecs_add_id(world, BakeDependsOn, EcsTraversable);
 
     return 0;
+}
+
+static void bake_model_delete_driver_rule_children(ecs_world_t *world, ecs_entity_t parent) {
+    ecs_vec_t children;
+    ecs_vec_init_t(NULL, &children, ecs_entity_t, 0);
+    ecs_iter_t it = ecs_children(world, parent);
+    while (ecs_children_next(&it)) {
+        for (int32_t i = 0; i < it.count; i++) {
+            ecs_entity_t child = it.entities[i];
+            if (ecs_has(world, child, BakeDriver) ||
+                ecs_has(world, child, BakeBuildRule))
+            {
+                *ecs_vec_append_t(NULL, &children, ecs_entity_t) = child;
+            }
+        }
+    }
+    for (int32_t i = 0; i < ecs_vec_count(&children); i++) {
+        ecs_delete(world, *ecs_vec_get_t(&children, ecs_entity_t, i));
+    }
+    ecs_vec_fini_t(NULL, &children, ecs_entity_t);
 }
 
 ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg, bool external) {
@@ -191,9 +308,14 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
             }
 
             if (existing_cfg != cfg) {
-                bake_project_cfg_fini(existing->cfg);
-                ecs_os_free(existing->cfg);
+                BakeProject *mut = ecs_ensure(world, entity, BakeProject);
+                bake_project_cfg_fini(mut->cfg);
+                ecs_os_free(mut->cfg);
+                mut->cfg = NULL;
             }
+
+            /* The replacement cfg brings its own drivers and rules. */
+            bake_model_delete_driver_rule_children(world, entity);
         }
     }
 
