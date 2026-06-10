@@ -40,7 +40,11 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
         char ch = content[i];
 
         if (!seen_colon) {
-            if (ch == ':') {
+            /* Only a colon followed by whitespace ends the target; a bare
+             * colon can be part of a Windows drive-letter path. */
+            if (ch == ':' &&
+                ((i + 1) >= len || bake_dep_char_is_space(content[i + 1])))
+            {
                 seen_colon = true;
             }
             continue;
