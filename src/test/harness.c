@@ -68,9 +68,15 @@ int bake_test_generate_harness(
     char *project_json = bake_path_join(cfg->path, "project.json");
     if (!project_json) return -1;
 
-    if (!bake_path_exists(project_json) ||
-        !bake_should_generate_harness(project_json, exe_path))
-    {
+    if (!bake_path_exists(project_json)) {
+        goto cleanup;
+    }
+
+    char *main_src = bake_test_source_path(cfg, "main");
+    bool main_missing = !main_src || !bake_path_exists(main_src);
+    ecs_os_free(main_src);
+
+    if (!main_missing && !bake_should_generate_harness(project_json, exe_path)) {
         goto cleanup;
     }
 

@@ -32,6 +32,7 @@ int bake_generate_suite_file(
     const bake_project_cfg_t *cfg,
     const bake_suite_spec_t *suite);
 
+char* bake_test_source_path(const bake_project_cfg_t *cfg, const char *base);
 int bake_generate_main(
     const bake_project_cfg_t *cfg,
     const bake_suite_list_t *suites);
