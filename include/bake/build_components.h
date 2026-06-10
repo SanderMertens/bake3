@@ -17,8 +17,6 @@ typedef struct BakeBuildResult {
 extern ECS_COMPONENT_DECLARE(BakeBuildRequest);
 extern ECS_COMPONENT_DECLARE(BakeBuildResult);
 
-int bake_build_components_init(ecs_world_t *world);
-
 char* bake_project_build_root(const char *project_path, const char *project_id, const char *mode);
 
 #endif
