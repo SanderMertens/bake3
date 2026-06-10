@@ -252,11 +252,11 @@ int bake_env_import_project_by_id(bake_context_t *ctx, const char *id) {
     const char *mode = ctx->opts.mode ? ctx->opts.mode : "debug";
     artefact = bake_env_find_artefact_path_current_mode(ctx, cfg, mode);
     ecs_entity_t entity = bake_model_add_project(ctx->world, cfg, true);
+    cfg = NULL;
     if (!entity) {
         rc = -1;
         goto cleanup;
     }
-    cfg = NULL;
 
     if (artefact) {
         bake_env_set_project_artefact_result(ctx->world, entity, artefact);
