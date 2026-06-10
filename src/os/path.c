@@ -28,8 +28,7 @@ char* bake_path_join(const char *lhs, const char *rhs) {
 
     size_t lhs_len = strlen(lhs);
     size_t rhs_len = strlen(rhs);
-    char path_sep = bake_path_sep();
-    bool has_sep = lhs[lhs_len - 1] == path_sep;
+    bool has_sep = bake_path_is_sep(lhs[lhs_len - 1]);
 
     char *out = ecs_os_malloc(lhs_len + rhs_len + (has_sep ? 1 : 2));
     if (!out) {
@@ -37,12 +36,11 @@ char* bake_path_join(const char *lhs, const char *rhs) {
     }
 
     memcpy(out, lhs, lhs_len);
-    out[lhs_len] = '\0';
+    size_t w = lhs_len;
     if (!has_sep) {
-        out[lhs_len] = path_sep;
-        out[lhs_len + 1] = '\0';
+        out[w++] = bake_path_sep();
     }
-    strcat(out, rhs);
+    memcpy(out + w, rhs, rhs_len + 1);
     return out;
 }
 

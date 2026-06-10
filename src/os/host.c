@@ -245,9 +245,12 @@ int bake_emsdk_ensure_env(void) {
 
     ecs_trace("#[green][#[normal] emsdk#[green]]#[normal] activating %s", root);
 
+    const char *tmpdir = getenv("TMPDIR");
+    if (!tmpdir || !tmpdir[0]) {
+        tmpdir = "/tmp";
+    }
     char *out_path = flecs_asprintf("%s/bake_emsdk_env.%d",
-        getenv("TMPDIR") && getenv("TMPDIR")[0] ? getenv("TMPDIR") : "/tmp",
-        (int)getpid());
+        tmpdir, (int)getpid());
     char *script = flecs_asprintf(
         ". \"%s/emsdk_env.sh\" > /dev/null 2>&1; env", root);
 

@@ -192,6 +192,12 @@ char* bake_path_dirname(const char *path) {
     }
 
     size_t len = (size_t)(slash - path);
+    if (!len) {
+        /* Parent of a root-level path is the root itself. */
+        char root[2] = { slash[0], '\0' };
+        return ecs_os_strdup(root);
+    }
+
     char *out = ecs_os_malloc(len + 1);
     if (!out) {
         return NULL;
