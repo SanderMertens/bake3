@@ -9,13 +9,22 @@
 #include <sys/types.h>
 #endif
 
-static const char* bake_errno_message(int err) {
-    const char *msg = strerror(err);
-    return (msg && msg[0]) ? msg : "unknown error";
+static const char* bake_errno_message(int err, char *buf, size_t size) {
+#if defined(_WIN32)
+    if (strerror_s(buf, size, err) != 0) {
+        snprintf(buf, size, "errno %d", err);
+    }
+#else
+    if (strerror_r(err, buf, size) != 0) {
+        snprintf(buf, size, "errno %d", err);
+    }
+#endif
+    return buf;
 }
 
 void bake_log_errno(const char *action, const char *path, int err) {
-    const char *msg = bake_errno_message(err);
+    char msgbuf[256];
+    const char *msg = bake_errno_message(err, msgbuf, sizeof(msgbuf));
     const char *verb = (action && action[0]) ? action : "access path";
 
     if (path && path[0]) {
