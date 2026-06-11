@@ -71,10 +71,18 @@ int bake_dir_walk_recursive(const char *root, bake_dir_walk_cb cb, void *ctx) {
 }
 
 static int bake_os_mkdir_component(const char *full_path, const char *component) {
-    if (bake_os_mkdir(component) == 0 || errno == EEXIST) {
-        if (bake_path_is_dir(component)) {
-            return 0;
-        }
+    if (bake_os_mkdir(component) == 0) {
+        return 0;
+    }
+
+    /* mkdir of an existing component fails with EEXIST on POSIX, but Windows
+     * reports EACCES for drive roots like "D:"; accept any existing
+     * directory regardless of the error. */
+    if (bake_path_is_dir(component)) {
+        return 0;
+    }
+
+    if (errno == EEXIST) {
         ecs_err(
             "failed to create directory '%s': path component '%s' is not a directory",
             full_path,
