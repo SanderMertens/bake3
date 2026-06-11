@@ -43,9 +43,6 @@ static char* bake_strip_strings_and_comments(const char *text) {
     }
     size_t len = strlen(text);
     char *out = ecs_os_malloc(len + 1);
-    if (!out) {
-        return NULL;
-    }
     size_t o = 0;
     const char *p = text;
     while (*p) {
@@ -100,9 +97,6 @@ static int bake_text_contains_function_definition(const char *text, const char *
     }
 
     char *clean = bake_strip_strings_and_comments(text);
-    if (!clean) {
-        return 0;
-    }
 
     size_t name_len = strlen(function_name);
     const char *cursor = clean;
@@ -160,9 +154,6 @@ static int bake_text_contains_function_definition(const char *text, const char *
 
 static int bake_suite_has_function(const char *text, const char *suite, const char *suffix) {
     char *name = flecs_asprintf("%s_%s", suite, suffix);
-    if (!name) {
-        return 0;
-    }
     int found = bake_text_contains_function_definition(text, name);
     ecs_os_free(name);
     return found;
@@ -186,9 +177,6 @@ static char* bake_symbol_sanitize(const char *name) {
 
     size_t len = strlen(name);
     char *result = ecs_os_malloc(len + 2);
-    if (!result) {
-        return NULL;
-    }
 
     size_t out = 0;
     if (name[0] >= '0' && name[0] <= '9') {
@@ -213,10 +201,10 @@ static char* bake_harness_try_project_header(const char *include_dir, const char
     }
 
     char *header_id = bake_project_id_as_macro(project_id);
-    char *header_name = header_id ? flecs_asprintf("%s.h", header_id) : NULL;
-    char *header_path = header_name ? bake_path_join(include_dir, header_name) : NULL;
+    char *header_name = flecs_asprintf("%s.h", header_id);
+    char *header_path = bake_path_join(include_dir, header_name);
 
-    if (header_path && bake_path_exists(header_path)) {
+    if (bake_path_exists(header_path)) {
         ecs_os_free(header_id);
         ecs_os_free(header_path);
         return header_name;
@@ -237,7 +225,7 @@ static char* bake_harness_project_header(const bake_project_cfg_t *cfg) {
     char *header_name = NULL;
     char *base_id = NULL;
 
-    if (!include_dir || !bake_path_exists(include_dir)) {
+    if (!bake_path_exists(include_dir)) {
         ecs_os_free(include_dir);
         return NULL;
     }
@@ -245,7 +233,7 @@ static char* bake_harness_project_header(const bake_project_cfg_t *cfg) {
     header_name = bake_harness_try_project_header(include_dir, cfg->id);
     if (!header_name) {
         base_id = bake_project_id_base(cfg->id);
-        if (base_id && strcmp(base_id, cfg->id)) {
+        if (strcmp(base_id, cfg->id)) {
             header_name = bake_harness_try_project_header(include_dir, base_id);
         }
     }
@@ -258,7 +246,7 @@ static char* bake_harness_project_header(const bake_project_cfg_t *cfg) {
 char* bake_test_source_path(const bake_project_cfg_t *cfg, const char *base) {
     const char *ext = bake_language_is_cpp(cfg) ? "cpp" : "c";
     char *file_name = flecs_asprintf("%s.%s", base, ext);
-    char *source = file_name ? bake_path_join3(cfg->path, "src", file_name) : NULL;
+    char *source = bake_path_join3(cfg->path, "src", file_name);
     ecs_os_free(file_name);
     return source;
 }
@@ -288,9 +276,6 @@ static void bake_append_empty_function(
 
 int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_suite_spec_t *suite) {
     char *suite_file = bake_test_source_path(cfg, suite->id);
-    if (!suite_file) {
-        return -1;
-    }
 
     char *existing = NULL;
     if (bake_path_exists(suite_file)) {
@@ -324,7 +309,7 @@ int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_suite_spe
     int rc = 0;
     if (appended) {
         char *content = ecs_strbuf_get(&out);
-        rc = content ? bake_file_write(suite_file, content) : -1;
+        rc = bake_file_write(suite_file, content);
         ecs_os_free(content);
     } else {
         ecs_strbuf_reset(&out);
@@ -335,30 +320,21 @@ int bake_generate_suite_file(const bake_project_cfg_t *cfg, const bake_suite_spe
     return rc;
 }
 
-static int bake_generate_main_suite_params(
+static void bake_generate_main_suite_params(
     ecs_strbuf_t *out,
     const bake_suite_spec_t *suite)
 {
     if (!suite->param_count) {
-        return 0;
+        return;
     }
 
     char **value_names = ecs_os_calloc_n(char*, suite->param_count);
-    if (!value_names) {
-        return -1;
-    }
 
-    int rc = -1;
     for (int32_t p = 0; p < suite->param_count; p++) {
         const bake_param_spec_t *param = &suite->params[p];
         char *param_symbol = bake_symbol_sanitize(param->name);
-        if (param_symbol) {
-            value_names[p] = flecs_asprintf("%s_%s_param", suite->id, param_symbol);
-        }
+        value_names[p] = flecs_asprintf("%s_%s_param", suite->id, param_symbol);
         ecs_os_free(param_symbol);
-        if (!value_names[p]) {
-            goto cleanup;
-        }
 
         ecs_strbuf_append(out, "const char* %s[] = {", value_names[p]);
         for (int32_t v = 0; v < param->values.count; v++) {
@@ -382,14 +358,11 @@ static int bake_generate_main_suite_params(
             (p + 1) < suite->param_count ? "," : "");
     }
     ecs_strbuf_appendstr(out, "};\n\n");
-    rc = 0;
 
-cleanup:
     for (int32_t p = 0; p < suite->param_count; p++) {
         ecs_os_free(value_names[p]);
     }
     ecs_os_free(value_names);
-    return rc;
 }
 
 static void bake_generate_main_suite_decls(
@@ -416,10 +389,6 @@ int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *s
     char *main_path = bake_test_source_path(cfg, "main");
     char *project_header = bake_harness_project_header(cfg);
     const char *header_include = project_header ? project_header : "bake_test.h";
-    if (!main_path) {
-        ecs_os_free(project_header);
-        return -1;
-    }
 
     ecs_strbuf_t out = ECS_STRBUF_INIT;
 
@@ -457,12 +426,7 @@ int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *s
     }
 
     for (int32_t i = 0; i < suites->count; i++) {
-        if (bake_generate_main_suite_params(&out, &suites->items[i]) != 0) {
-            ecs_strbuf_reset(&out);
-            ecs_os_free(project_header);
-            ecs_os_free(main_path);
-            return -1;
-        }
+        bake_generate_main_suite_params(&out, &suites->items[i]);
     }
 
     ecs_strbuf_appendstr(&out, "static bake_test_suite suites[] = {\n");
@@ -521,7 +485,7 @@ int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *s
         suites->count);
 
     char *content = ecs_strbuf_get(&out);
-    int rc = content ? bake_file_write(main_path, content) : -1;
+    int rc = bake_file_write(main_path, content);
 
     ecs_os_free(content);
     ecs_os_free(project_header);

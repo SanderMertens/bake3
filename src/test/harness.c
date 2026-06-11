@@ -33,15 +33,7 @@ static char* bake_test_template_file(const bake_context_t *ctx, const char *file
     }
 
     char *template_root = bake_path_join(ctx->bake_home, "test");
-    if (!template_root) {
-        return NULL;
-    }
-
     char *candidate = bake_path_join(template_root, file);
-    if (!candidate) {
-        ecs_os_free(template_root);
-        return NULL;
-    }
 
     if (!bake_path_exists(candidate)) {
         ecs_err(
@@ -66,14 +58,13 @@ int bake_test_generate_harness(
     int rc = 0;
     bake_suite_list_t suites = {0};
     char *project_json = bake_path_join(cfg->path, "project.json");
-    if (!project_json) return -1;
 
     if (!bake_path_exists(project_json)) {
         goto cleanup;
     }
 
     char *main_src = bake_test_source_path(cfg, "main");
-    bool main_missing = !main_src || !bake_path_exists(main_src);
+    bool main_missing = !bake_path_exists(main_src);
     ecs_os_free(main_src);
 
     if (!main_missing && !bake_should_generate_harness(project_json, exe_path)) {
@@ -117,7 +108,7 @@ int bake_test_generate_builtin_api(
     char *tmpl_hdr = bake_test_template_file(ctx, "bake_test.h");
     char *tmpl_src = bake_test_template_file(ctx, "bake_test.c");
 
-    if (hdr_path && src_path && tmpl_hdr && tmpl_src &&
+    if (tmpl_hdr && tmpl_src &&
         bake_os_file_copy(tmpl_hdr, hdr_path) == 0 &&
         bake_os_file_copy(tmpl_src, src_path) == 0)
     {

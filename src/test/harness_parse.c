@@ -41,28 +41,22 @@ void bake_suite_list_fini(bake_suite_list_t *list) {
     list->capacity = 0;
 }
 
-static int bake_suite_list_append(bake_suite_list_t *list, bake_suite_spec_t *suite) {
+static void bake_suite_list_append(bake_suite_list_t *list, bake_suite_spec_t *suite) {
     if (list->count == list->capacity) {
         int32_t new_cap = list->capacity ? list->capacity * 2 : 8;
-        bake_suite_spec_t *p = ecs_os_realloc_n(list->items, bake_suite_spec_t, new_cap);
-        if (!p) return -1;
-        list->items = p;
+        list->items = ecs_os_realloc_n(list->items, bake_suite_spec_t, new_cap);
         list->capacity = new_cap;
     }
     list->items[list->count++] = *suite;
-    return 0;
 }
 
-static int bake_suite_param_append(bake_suite_spec_t *suite, bake_param_spec_t *param) {
+static void bake_suite_param_append(bake_suite_spec_t *suite, bake_param_spec_t *param) {
     if (suite->param_count == suite->param_capacity) {
         int32_t new_cap = suite->param_capacity ? suite->param_capacity * 2 : 4;
-        bake_param_spec_t *p = ecs_os_realloc_n(suite->params, bake_param_spec_t, new_cap);
-        if (!p) return -1;
-        suite->params = p;
+        suite->params = ecs_os_realloc_n(suite->params, bake_param_spec_t, new_cap);
         suite->param_capacity = new_cap;
     }
     suite->params[suite->param_count++] = *param;
-    return 0;
 }
 
 static bool bake_test_symbol_valid(const char *name) {
@@ -103,9 +97,7 @@ static int bake_parse_test_cases(JSON_Array *tests, bake_suite_spec_t *suite) {
             ecs_os_free(name);
             return -1;
         }
-        if (bake_strlist_append_owned(&suite->testcases, name) != 0) {
-            return -1;
-        }
+        bake_strlist_append_owned(&suite->testcases, name);
     }
     return 0;
 }
@@ -124,10 +116,6 @@ static int bake_parse_test_parameters(const JSON_Object *params_obj, bake_suite_
         bake_param_spec_t param = {0};
         bake_strlist_init(&param.values);
         param.name = ecs_os_strdup(param_name);
-        if (!param.name) {
-            bake_param_spec_fini(&param);
-            return -1;
-        }
 
         JSON_Array *values = json_value_get_array(param_value);
         size_t value_count = values ? json_array_get_count(values) : 0;
@@ -138,16 +126,10 @@ static int bake_parse_test_parameters(const JSON_Object *params_obj, bake_suite_
                 bake_param_spec_fini(&param);
                 return -1;
             }
-            if (bake_strlist_append_owned(&param.values, value_str) != 0) {
-                bake_param_spec_fini(&param);
-                return -1;
-            }
+            bake_strlist_append_owned(&param.values, value_str);
         }
 
-        if (bake_suite_param_append(suite, &param) != 0) {
-            bake_param_spec_fini(&param);
-            return -1;
-        }
+        bake_suite_param_append(suite, &param);
     }
     return 0;
 }
@@ -179,10 +161,6 @@ static int bake_parse_test_suite(const JSON_Object *suite_obj, bake_suite_list_t
     }
 
     suite.id = ecs_os_strdup(id);
-    if (!suite.id) {
-        bake_suite_spec_fini(&suite);
-        return -1;
-    }
 
     suite.setup = json_object_get_boolean(suite_obj, "setup") == 1;
     suite.teardown = json_object_get_boolean(suite_obj, "teardown") == 1;
@@ -200,10 +178,7 @@ static int bake_parse_test_suite(const JSON_Object *suite_obj, bake_suite_list_t
         }
     }
 
-    if (bake_suite_list_append(out, &suite) != 0) {
-        bake_suite_spec_fini(&suite);
-        return -1;
-    }
+    bake_suite_list_append(out, &suite);
 
     return 0;
 }

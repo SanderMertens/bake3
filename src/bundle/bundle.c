@@ -23,15 +23,12 @@ static char* bake_bundle_root_dir(const bake_project_cfg_t *cfg, const bake_bund
         return NULL;
     }
     char *bake = bake_path_join(cfg->path, ".bake");
-    char *bundles = bake ? bake_path_join(bake, "bundles") : NULL;
+    char *bundles = bake_path_join(bake, "bundles");
     ecs_os_free(bake);
-    char *id_dir = bundles ? bake_path_join(bundles, bundle->id) : NULL;
+    char *id_dir = bake_path_join(bundles, bundle->id);
     ecs_os_free(bundles);
-    if (!id_dir) {
-        return NULL;
-    }
     char *ref = bake_bundle_ref_segment(bundle);
-    char *root = ref ? bake_path_join(id_dir, ref) : NULL;
+    char *root = bake_path_join(id_dir, ref);
     ecs_os_free(id_dir);
     ecs_os_free(ref);
     return root;
@@ -44,7 +41,7 @@ static char* bake_bundle_source_dir(const char *root) {
 static char* bake_bundle_build_dir(const char *root, const char *triplet) {
     if (!root || !triplet) return NULL;
     char *base = bake_path_join(root, "build");
-    char *path = base ? bake_path_join(base, triplet) : NULL;
+    char *path = bake_path_join(base, triplet);
     ecs_os_free(base);
     return path;
 }
@@ -52,7 +49,7 @@ static char* bake_bundle_build_dir(const char *root, const char *triplet) {
 static char* bake_bundle_install_dir(const char *root, const char *triplet) {
     if (!root || !triplet) return NULL;
     char *base = bake_path_join(root, "install");
-    char *path = base ? bake_path_join(base, triplet) : NULL;
+    char *path = bake_path_join(base, triplet);
     ecs_os_free(base);
     return path;
 }
@@ -97,12 +94,6 @@ static int bake_bundle_clone(const bake_bundle_t *bundle, const char *dest) {
     char *quoted_dest = bake_shell_quote_arg(dest);
     char *quoted_repo = bake_shell_quote_arg(bundle->repository);
     char *quoted_ref = ref ? bake_shell_quote_arg(ref) : NULL;
-    if (!quoted_dest || !quoted_repo || (ref && !quoted_ref)) {
-        ecs_os_free(quoted_dest);
-        ecs_os_free(quoted_repo);
-        ecs_os_free(quoted_ref);
-        return -1;
-    }
 
     ecs_strbuf_t cmd = ECS_STRBUF_INIT;
     ecs_strbuf_appendstr(&cmd, "git clone --recurse-submodules");
@@ -116,10 +107,6 @@ static int bake_bundle_clone(const bake_bundle_t *bundle, const char *dest) {
     ecs_os_free(quoted_ref);
 
     char *cmd_str = ecs_strbuf_get(&cmd);
-    if (!cmd_str) {
-        ecs_os_free(quoted_dest);
-        return -1;
-    }
     int rc = bake_run_command(cmd_str, true);
     ecs_os_free(cmd_str);
     if (rc != 0) {
@@ -133,7 +120,7 @@ static int bake_bundle_clone(const bake_bundle_t *bundle, const char *dest) {
         quoted_dest = NULL;
         ecs_strbuf_append(&co, "git -C %s fetch --depth 1 origin %s", quoted_path, bundle->commit);
         char *fetch_cmd = ecs_strbuf_get(&co);
-        rc = fetch_cmd ? bake_run_command(fetch_cmd, true) : -1;
+        rc = bake_run_command(fetch_cmd, true);
         ecs_os_free(fetch_cmd);
         if (rc != 0) {
             ecs_os_free(quoted_path);
@@ -143,7 +130,7 @@ static int bake_bundle_clone(const bake_bundle_t *bundle, const char *dest) {
         ecs_strbuf_t cmd2 = ECS_STRBUF_INIT;
         ecs_strbuf_append(&cmd2, "git -C %s checkout %s", quoted_path, bundle->commit);
         char *checkout_cmd = ecs_strbuf_get(&cmd2);
-        rc = checkout_cmd ? bake_run_command(checkout_cmd, true) : -1;
+        rc = bake_run_command(checkout_cmd, true);
         ecs_os_free(checkout_cmd);
         ecs_os_free(quoted_path);
         if (rc != 0) {
@@ -165,11 +152,7 @@ static int bake_bundle_run_cmake(
     char *quoted_src = bake_shell_quote_arg(src_dir);
     char *quoted_build = bake_shell_quote_arg(build_dir);
     char *quoted_install = bake_shell_quote_arg(install_dir);
-    int rc = -1;
-
-    if (!quoted_src || !quoted_build || !quoted_install) {
-        goto cleanup;
-    }
+    int rc;
 
     const char *build_type = bake_bundle_cmake_build_type(mode);
     const char *cmake_launcher = bake_target_is_emscripten() ? "emcmake cmake" : "cmake";
@@ -180,29 +163,25 @@ static int bake_bundle_run_cmake(
         cmake_launcher, quoted_src, quoted_build, quoted_install, build_type);
     for (int32_t i = 0; i < bundle->cmake_args.count; i++) {
         char *q = bake_shell_quote_arg(bundle->cmake_args.items[i]);
-        if (!q) {
-            ecs_strbuf_reset(&configure);
-            goto cleanup;
-        }
         ecs_strbuf_append(&configure, " %s", q);
         ecs_os_free(q);
     }
     char *cfg_cmd = ecs_strbuf_get(&configure);
-    rc = cfg_cmd ? bake_run_command(cfg_cmd, true) : -1;
+    rc = bake_run_command(cfg_cmd, true);
     ecs_os_free(cfg_cmd);
     if (rc != 0) goto cleanup;
 
     ecs_strbuf_t build = ECS_STRBUF_INIT;
     ecs_strbuf_append(&build, "cmake --build %s --config %s", quoted_build, build_type);
     char *build_cmd = ecs_strbuf_get(&build);
-    rc = build_cmd ? bake_run_command(build_cmd, true) : -1;
+    rc = bake_run_command(build_cmd, true);
     ecs_os_free(build_cmd);
     if (rc != 0) goto cleanup;
 
     ecs_strbuf_t install = ECS_STRBUF_INIT;
     ecs_strbuf_append(&install, "cmake --install %s --config %s", quoted_build, build_type);
     char *install_cmd = ecs_strbuf_get(&install);
-    rc = install_cmd ? bake_run_command(install_cmd, true) : -1;
+    rc = bake_run_command(install_cmd, true);
     ecs_os_free(install_cmd);
 
 cleanup:
@@ -237,7 +216,6 @@ static int bake_bundle_resolve_lib(
         char *libdir = libdirs[d][0]
             ? bake_path_join(base_dir, libdirs[d])
             : ecs_os_strdup(base_dir);
-        if (!libdir) continue;
         if (!bake_path_exists(libdir)) {
             ecs_os_free(libdir);
             continue;
@@ -245,9 +223,9 @@ static int bake_bundle_resolve_lib(
         for (int32_t pi = 0; prefixes[pi]; pi++) {
             for (int32_t ei = 0; exts[ei]; ei++) {
                 char *file = flecs_asprintf("%s%s%s", prefixes[pi], libname, exts[ei]);
-                char *full = file ? bake_path_join(libdir, file) : NULL;
+                char *full = bake_path_join(libdir, file);
                 ecs_os_free(file);
-                if (full && bake_path_exists(full)) {
+                if (bake_path_exists(full)) {
                     *libpath_out = libdir;
                     ecs_os_free(full);
                     return 0;
@@ -277,11 +255,6 @@ static int bake_bundle_run_cargo(
 {
     char *quoted_src = bake_shell_quote_arg(src_dir);
     char *quoted_build = bake_shell_quote_arg(build_dir);
-    int rc = -1;
-
-    if (!quoted_src || !quoted_build) {
-        goto cleanup;
-    }
 
     ecs_strbuf_t cmd = ECS_STRBUF_INIT;
     ecs_strbuf_append(&cmd,
@@ -290,21 +263,20 @@ static int bake_bundle_run_cargo(
         quoted_src, quoted_build);
 
     char *cmd_str = ecs_strbuf_get(&cmd);
-    rc = cmd_str ? bake_run_command(cmd_str, true) : -1;
+    int rc = bake_run_command(cmd_str, true);
     ecs_os_free(cmd_str);
     BAKE_UNUSED(bundle);
 
-cleanup:
     ecs_os_free(quoted_src);
     ecs_os_free(quoted_build);
     return rc;
 }
 
-static int bake_bundle_add_include(bake_project_cfg_t *cfg, const char *path) {
+static void bake_bundle_add_include(bake_project_cfg_t *cfg, const char *path) {
     if (!path || !path[0] || !bake_path_exists(path)) {
-        return 0;
+        return;
     }
-    return bake_strlist_append_unique(&cfg->bundle_includes, path);
+    bake_strlist_append_unique(&cfg->bundle_includes, path);
 }
 
 static int bake_bundle_apply_to_project(
@@ -316,12 +288,11 @@ static int bake_bundle_apply_to_project(
 {
     /* Default include dir: install/include for cmake builds, src for header-only */
     if (bundle->header_only) {
-        if (bake_bundle_add_include(cfg, src_root) != 0) return -1;
+        bake_bundle_add_include(cfg, src_root);
     } else {
         char *include_dir = bake_path_join(install_dir, "include");
-        int rc = include_dir ? bake_bundle_add_include(cfg, include_dir) : -1;
+        bake_bundle_add_include(cfg, include_dir);
         ecs_os_free(include_dir);
-        if (rc != 0) return -1;
     }
 
     /* User-specified extra include subdirs (relative to src_root) */
@@ -330,9 +301,8 @@ static int bake_bundle_apply_to_project(
         char *full = (rel[0] == '/' || rel[0] == '\\')
             ? ecs_os_strdup(rel)
             : bake_path_join(src_root, rel);
-        int rc = full ? bake_bundle_add_include(cfg, full) : -1;
+        bake_bundle_add_include(cfg, full);
         ecs_os_free(full);
-        if (rc != 0) return -1;
     }
 
     /* Extra source files compiled into the consuming project */
@@ -341,14 +311,13 @@ static int bake_bundle_apply_to_project(
         char *full = (rel[0] == '/' || rel[0] == '\\')
             ? ecs_os_strdup(rel)
             : bake_path_join(src_root, rel);
-        if (!full || !bake_path_exists(full)) {
-            ecs_err("bundle '%s': source file not found: %s", bundle->id, full ? full : rel);
+        if (!bake_path_exists(full)) {
+            ecs_err("bundle '%s': source file not found: %s", bundle->id, full);
             ecs_os_free(full);
             return -1;
         }
-        int rc = bake_strlist_append_unique(&cfg->bundle_sources, full);
+        bake_strlist_append_unique(&cfg->bundle_sources, full);
         ecs_os_free(full);
-        if (rc != 0) return -1;
     }
 
     if (!bundle->header_only) {
@@ -369,10 +338,7 @@ static int bake_bundle_apply_to_project(
             return -1;
         }
 
-        if (bake_strlist_append_unique(&cfg->bundle_libpaths, libpath) != 0) {
-            ecs_os_free(libpath);
-            return -1;
-        }
+        bake_strlist_append_unique(&cfg->bundle_libpaths, libpath);
 
 #if !defined(_WIN32)
         /* Cargo builds typically produce a shared library next to the static
@@ -381,30 +347,20 @@ static int bake_bundle_apply_to_project(
          * not handled here. */
         if (bake_bundle_uses_cargo(bundle)) {
             char *rpath = flecs_asprintf("-Wl,-rpath,%s", libpath);
-            int rc = rpath ? bake_strlist_append_unique(&cfg->bundle_ldflags, rpath) : -1;
+            bake_strlist_append_unique(&cfg->bundle_ldflags, rpath);
             ecs_os_free(rpath);
-            if (rc != 0) {
-                ecs_os_free(libpath);
-                return -1;
-            }
         }
 #endif
 
         ecs_os_free(libpath);
 
         const char *libname = (bundle->library && bundle->library[0]) ? bundle->library : bundle->id;
-        if (bake_strlist_append_unique(&cfg->bundle_libs, libname) != 0) {
-            return -1;
-        }
+        bake_strlist_append_unique(&cfg->bundle_libs, libname);
     }
 
-    if (bake_strlist_merge_unique(&cfg->bundle_libs, &bundle->libs) != 0) {
-        return -1;
-    }
+    bake_strlist_merge_unique(&cfg->bundle_libs, &bundle->libs);
 
-    if (bake_strlist_merge_unique(&cfg->bundle_ldflags, &bundle->ldflags) != 0) {
-        return -1;
-    }
+    bake_strlist_merge_unique(&cfg->bundle_ldflags, &bundle->ldflags);
 
     return 0;
 }
@@ -422,21 +378,18 @@ static int bake_bundle_prepare_one(
     char *triplet = bake_host_triplet(ctx->opts.mode);
     char *root_dir = bake_bundle_root_dir(cfg, bundle);
     char *src_dir = bake_bundle_source_dir(root_dir);
-    char *build_dir = triplet ? bake_bundle_build_dir(root_dir, triplet) : NULL;
-    char *install_dir = triplet ? bake_bundle_install_dir(root_dir, triplet) : NULL;
+    char *build_dir = bake_bundle_build_dir(root_dir, triplet);
+    char *install_dir = bake_bundle_install_dir(root_dir, triplet);
     char *marker = install_dir ? bake_bundle_install_marker(install_dir) : NULL;
     char *cmake_src_dir = NULL;
 
-    if (!triplet || !root_dir || !src_dir || !build_dir || !install_dir || !marker) {
+    if (!root_dir) {
         goto cleanup;
     }
 
     bool need_clone = !bake_path_exists(src_dir);
     if (!need_clone) {
         char *git_dir = bake_path_join(src_dir, ".git");
-        if (!git_dir) {
-            goto cleanup;
-        }
         if (!bake_path_exists(git_dir)) {
             ecs_warn("bundle '%s' has an incomplete checkout at %s, refetching",
                 bundle->id, src_dir);
@@ -451,7 +404,7 @@ static int bake_bundle_prepare_one(
 
     if (need_clone) {
         char *src_root = bake_path_dirname(src_dir);
-        if (src_root && bake_os_mkdirs(src_root) != 0) {
+        if (bake_os_mkdirs(src_root) != 0) {
             ecs_os_free(src_root);
             goto cleanup;
         }
@@ -467,16 +420,13 @@ static int bake_bundle_prepare_one(
     cmake_src_dir = (bundle->subdir && bundle->subdir[0])
         ? bake_path_join(src_dir, bundle->subdir)
         : ecs_os_strdup(src_dir);
-    if (!cmake_src_dir) {
-        goto cleanup;
-    }
 
     if (!bundle->header_only) {
         bool uses_cargo = bake_bundle_uses_cargo(bundle);
 
         if (!uses_cargo) {
             char *cmakelists = bake_path_join(cmake_src_dir, "CMakeLists.txt");
-            bool has_cmake = cmakelists && bake_path_exists(cmakelists);
+            bool has_cmake = bake_path_exists(cmakelists);
             ecs_os_free(cmakelists);
 
             if (!has_cmake) {
@@ -485,7 +435,7 @@ static int bake_bundle_prepare_one(
             }
         } else {
             char *cargo_toml = bake_path_join(cmake_src_dir, "Cargo.toml");
-            bool has_cargo = cargo_toml && bake_path_exists(cargo_toml);
+            bool has_cargo = bake_path_exists(cargo_toml);
             ecs_os_free(cargo_toml);
 
             if (!has_cargo) {
@@ -495,9 +445,6 @@ static int bake_bundle_prepare_one(
         }
 
         char *fingerprint = bake_bundle_fingerprint(bundle);
-        if (!fingerprint) {
-            goto cleanup;
-        }
 
         char *built = bake_file_read(marker, NULL);
         bool up_to_date = built && !strcmp(built, fingerprint);
