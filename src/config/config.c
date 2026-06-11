@@ -857,8 +857,12 @@ static void bake_project_cfg_finalize_defaults(const char *project_json_path, ba
             }
         }
 
-        while (cfg->id[0] == '.') {
-            memmove(cfg->id, cfg->id + 1, strlen(cfg->id));
+        const char *trimmed = cfg->id;
+        while (trimmed[0] == '.') {
+            trimmed++;
+        }
+        if (trimmed != cfg->id) {
+            memmove(cfg->id, trimmed, strlen(trimmed) + 1);
         }
     }
 

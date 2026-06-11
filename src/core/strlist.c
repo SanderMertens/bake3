@@ -96,13 +96,17 @@ char* bake_strlist_join(const bake_strlist_t *list, const char *separator) {
     }
 
     char *out = ecs_os_malloc(total);
-    out[0] = '\0';
+    char *w = out;
     for (int32_t i = 0; i < list->count; i++) {
         if (i) {
-            strcat(out, separator);
+            memcpy(w, separator, sep_len);
+            w += sep_len;
         }
-        strcat(out, list->items[i]);
+        size_t len = strlen(list->items[i]);
+        memcpy(w, list->items[i], len);
+        w += len;
     }
+    *w = '\0';
 
     return out;
 }

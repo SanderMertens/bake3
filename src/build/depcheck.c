@@ -135,10 +135,6 @@ bool bake_compile_unit_outdated(
         return true;
     }
 
-    if (!bake_path_exists(unit->obj)) {
-        return true;
-    }
-
     int64_t obj_mtime = bake_os_file_mtime(unit->obj);
     int64_t src_mtime = bake_os_file_mtime(unit->src);
     if (obj_mtime < 0 || src_mtime < 0) {

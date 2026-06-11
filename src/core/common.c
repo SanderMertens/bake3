@@ -21,19 +21,25 @@ char* bake_text_replace(const char *input, const char *needle, const char *repla
     }
 
     char *out = ecs_os_malloc(total);
-    out[0] = '\0';
+    char *w = out;
 
     cur = input;
     while (true) {
         const char *hit = strstr(cur, needle);
         if (!hit) {
-            strcat(out, cur);
+            size_t tail_len = strlen(cur);
+            memcpy(w, cur, tail_len);
+            w += tail_len;
             break;
         }
-        strncat(out, cur, (size_t)(hit - cur));
-        strcat(out, replacement);
+        size_t prefix_len = (size_t)(hit - cur);
+        memcpy(w, cur, prefix_len);
+        w += prefix_len;
+        memcpy(w, replacement, repl_len);
+        w += repl_len;
         cur = hit + needle_len;
     }
+    *w = '\0';
 
     return out;
 }
