@@ -439,8 +439,6 @@ static int bake_info_project(bake_context_t *ctx) {
 
     bake_print_cfg_strlist("use:", &cfg->use, 12);
     bake_print_cfg_strlist("use-private:", &cfg->use_private, 12);
-    bake_print_cfg_strlist("use-build:", &cfg->use_build, 12);
-    bake_print_cfg_strlist("use-runtime:", &cfg->use_runtime, 12);
 
     return 0;
 }

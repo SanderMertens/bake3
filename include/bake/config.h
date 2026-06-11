@@ -99,11 +99,6 @@ struct bake_project_cfg_t {
 
     bake_strlist_t use;
     bake_strlist_t use_private;
-    bake_strlist_t use_build;
-    bake_strlist_t use_runtime;
-
-    bake_strlist_t drivers;
-    bake_strlist_t plugins;
 
     bake_dependee_cfg_t dependee;
     bake_lang_cfg_t c_lang;

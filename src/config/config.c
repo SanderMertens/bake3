@@ -334,7 +334,7 @@ static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_depend
     cfg->language = set_defaults ? ecs_os_strdup("c") : NULL;
 
 #define F(n) bake_strlist_init(&cfg->n)
-    F(use); F(use_private); F(use_build); F(use_runtime); F(drivers); F(plugins);
+    F(use); F(use_private);
     F(bundle_includes); F(bundle_libpaths); F(bundle_libs); F(bundle_ldflags);
     F(bundle_sources);
 #undef F
@@ -361,7 +361,7 @@ static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_depend
 #undef F
 
 #define F(n) bake_strlist_fini(&cfg->n)
-    F(use); F(use_private); F(use_build); F(use_runtime); F(drivers); F(plugins);
+    F(use); F(use_private);
     F(bundle_includes); F(bundle_libpaths); F(bundle_libs); F(bundle_ldflags);
     F(bundle_sources);
 #undef F
@@ -511,9 +511,6 @@ static int bake_parse_project_value_cfg(
 
     if (bake_json_get_array_alias(object, "use", NULL, &cfg->use) < 0) return -1;
     if (bake_json_get_array_alias(object, "use-private", "use_private", &cfg->use_private) < 0) return -1;
-    if (bake_json_get_array_alias(object, "use-build", "use_build", &cfg->use_build) < 0) return -1;
-    if (bake_json_get_array_alias(object, "use-runtime", "use_runtime", &cfg->use_runtime) < 0) return -1;
-    if (bake_json_get_array_alias(object, "use-bundle", "use_bundle", &cfg->use_build) < 0) return -1;
 
 #define ARR(key, alias, field) \
     if (bake_json_get_array_alias(object, key, alias, &cfg->c_lang.field) < 0) return -1; \
@@ -622,9 +619,6 @@ static int bake_parse_project_cfg_object(
             cfg->kind = bake_project_kind_parse(type);
             ecs_os_free(type);
         }
-
-        if (bake_json_get_array(object, "drivers", &cfg->drivers) < 0) return -1;
-        if (bake_json_get_array(object, "plugins", &cfg->plugins) < 0) return -1;
 
         JSON_Value *test_value = json_object_get_value(object, "test");
         if (test_value) {

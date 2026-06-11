@@ -5,7 +5,6 @@
 
 typedef struct BakeBuildRequest {
     const char *mode;
-    bool recursive;
     bool standalone;
 } BakeBuildRequest;
 

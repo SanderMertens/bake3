@@ -17,10 +17,6 @@ typedef struct BakeResolvedDeps {
     bake_strlist_t build_libpaths;
 } BakeResolvedDeps;
 
-typedef struct BakeDriver {
-    char *id;
-} BakeDriver;
-
 typedef struct BakeBuildRule {
     char *ext;
     char *command;
@@ -28,7 +24,6 @@ typedef struct BakeBuildRule {
 
 extern ECS_COMPONENT_DECLARE(BakeProject);
 extern ECS_COMPONENT_DECLARE(BakeResolvedDeps);
-extern ECS_COMPONENT_DECLARE(BakeDriver);
 extern ECS_COMPONENT_DECLARE(BakeBuildRule);
 
 extern ecs_entity_t BakeDependsOn;

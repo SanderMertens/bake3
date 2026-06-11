@@ -138,7 +138,7 @@ static void bake_env_add_dependency_ids(bake_strlist_t *queue, const bake_strlis
 
 static void bake_env_queue_project_deps(bake_strlist_t *queue, const bake_project_cfg_t *cfg) {
     const bake_strlist_t *lists[] = {
-        &cfg->use, &cfg->use_private, &cfg->use_build, &cfg->use_runtime
+        &cfg->use, &cfg->use_private
     };
 
     for (int32_t i = 0; i < (int32_t)(sizeof(lists) / sizeof(lists[0])); i++) {
@@ -148,9 +148,7 @@ static void bake_env_queue_project_deps(bake_strlist_t *queue, const bake_projec
     if (cfg->dependee.cfg) {
         const bake_strlist_t *dep_lists[] = {
             &cfg->dependee.cfg->use,
-            &cfg->dependee.cfg->use_private,
-            &cfg->dependee.cfg->use_build,
-            &cfg->dependee.cfg->use_runtime
+            &cfg->dependee.cfg->use_private
         };
 
         for (int32_t i = 0; i < (int32_t)(sizeof(dep_lists) / sizeof(dep_lists[0])); i++) {
