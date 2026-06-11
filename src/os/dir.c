@@ -71,6 +71,13 @@ int bake_dir_walk_recursive(const char *root, bake_dir_walk_cb cb, void *ctx) {
 }
 
 static int bake_os_mkdir_component(const char *full_path, const char *component) {
+#if defined(_WIN32)
+    /* Drive roots like "D:" cannot be created and do not stat reliably. */
+    if (component[0] && component[1] == ':' && !component[2]) {
+        return 0;
+    }
+#endif
+
     if (bake_os_mkdir(component) == 0) {
         return 0;
     }
