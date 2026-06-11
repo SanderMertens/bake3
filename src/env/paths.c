@@ -26,13 +26,13 @@ static char* bake_env_artefact_path_impl(
     }
 
     platform = bake_host_platform();
-    platform_dir = platform ? bake_path_join(ctx->bake_home, platform) : NULL;
-    cfg_dir = platform_dir ? bake_path_join(platform_dir, mode && mode[0] ? mode : "debug") : NULL;
+    platform_dir = bake_path_join(ctx->bake_home, platform);
+    cfg_dir = bake_path_join(platform_dir, mode && mode[0] ? mode : "debug");
     const char *subdir = cfg->kind == BAKE_PROJECT_PACKAGE ? "lib" : "bin";
-    out_dir = cfg_dir ? bake_path_join(cfg_dir, subdir) : NULL;
-    id_dir = scoped ? (out_dir ? bake_path_join(out_dir, cfg->id) : NULL) : NULL;
-    out_path = scoped ? (id_dir ? bake_path_join(id_dir, file_name) : NULL) :
-        (out_dir ? bake_path_join(out_dir, file_name) : NULL);
+    out_dir = bake_path_join(cfg_dir, subdir);
+    id_dir = scoped ? bake_path_join(out_dir, cfg->id) : NULL;
+    out_path = scoped ? bake_path_join(id_dir, file_name) :
+        bake_path_join(out_dir, file_name);
 
 cleanup:
 #define F(p) ecs_os_free(p)
@@ -93,23 +93,11 @@ char* bake_env_resolve_home_path(const char *env_home) {
     /* Use cwd-relative path as fallback, but prefer an existing ancestor match.
      * This keeps a relative BAKE_HOME stable when invoking bake from subdirs. */
     char *resolved = bake_path_join(cwd, env_home);
-    if (!resolved) {
-        ecs_os_free(cwd);
-        return NULL;
-    }
-
     char *probe = ecs_os_strdup(cwd);
     ecs_os_free(cwd);
-    if (!probe) {
-        return resolved;
-    }
 
     while (probe[0]) {
         char *candidate = bake_path_join(probe, env_home);
-        if (!candidate) {
-            break;
-        }
-
         if (bake_path_exists(candidate)) {
             ecs_os_free(resolved);
             resolved = candidate;
@@ -118,12 +106,12 @@ char* bake_env_resolve_home_path(const char *env_home) {
         ecs_os_free(candidate);
 
         char *parent = bake_path_dirname(probe);
-        if (parent && !parent[0] && bake_path_is_abs(probe)) {
+        if (!parent[0] && bake_path_is_abs(probe)) {
             ecs_os_free(parent);
             parent = ecs_os_strdup("/");
         }
 
-        if (!parent || !parent[0] || !strcmp(parent, ".") || !strcmp(parent, probe)) {
+        if (!parent[0] || !strcmp(parent, ".") || !strcmp(parent, probe)) {
             ecs_os_free(parent);
             break;
         }

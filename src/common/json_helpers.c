@@ -48,9 +48,7 @@ int bake_json_parse_strlist(const JSON_Array *array, bake_strlist_t *list) {
             return -1;
         }
 
-        if (bake_strlist_append_owned(list, str) != 0) {
-            return -1;
-        }
+        bake_strlist_append_owned(list, str);
     }
 
     return 0;

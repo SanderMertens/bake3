@@ -37,10 +37,6 @@ static int bake_json_conditional_key_matches(const char *key) {
     }
 
     char *raw = ecs_os_strdup(key);
-    if (!raw) {
-        return -1;
-    }
-
     size_t len = strlen(raw);
     if (len < 4 || raw[0] != '$' || raw[1] != '{' || raw[len - 1] != '}') {
         ecs_os_free(raw);
@@ -174,7 +170,7 @@ int bake_rule_list_append(bake_rule_list_t *list, const char *ext, const char *c
     bake_rule_t *rule = ecs_vec_append_t(NULL, &list->vec, bake_rule_t);
     rule->ext = ecs_os_strdup(ext);
     rule->command = ecs_os_strdup(command);
-    return (rule->ext && rule->command) ? 0 : -1;
+    return 0;
 }
 
 void bake_bundle_list_init(bake_bundle_list_t *list) {
@@ -204,9 +200,6 @@ void bake_bundle_list_fini(bake_bundle_list_t *list) {
 
 bake_bundle_t* bake_bundle_list_append(bake_bundle_list_t *list) {
     bake_bundle_t *item = ecs_vec_append_t(NULL, &list->vec, bake_bundle_t);
-    if (!item) {
-        return NULL;
-    }
     memset(item, 0, sizeof(*item));
     bake_strlist_init(&item->includes);
     bake_strlist_init(&item->sources);
@@ -258,9 +251,6 @@ void bake_amalgamate_list_fini(bake_amalgamate_list_t *list) {
 
 bake_amalgamate_cfg_t* bake_amalgamate_list_append(bake_amalgamate_list_t *list) {
     bake_amalgamate_cfg_t *item = ecs_vec_append_t(NULL, &list->vec, bake_amalgamate_cfg_t);
-    if (!item) {
-        return NULL;
-    }
     memset(item, 0, sizeof(*item));
     bake_strlist_init(&item->disable_flags);
     return item;
@@ -306,9 +296,7 @@ void bake_lang_cfg_fini(bake_lang_cfg_t *cfg) {
 
 void bake_dependee_cfg_init(bake_dependee_cfg_t *cfg) {
     cfg->cfg = ecs_os_calloc_t(bake_project_cfg_t);
-    if (cfg->cfg) {
-        bake_project_cfg_init_impl(cfg->cfg, false, false);
-    }
+    bake_project_cfg_init_impl(cfg->cfg, false, false);
     cfg->json = NULL;
 }
 
@@ -405,12 +393,7 @@ static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) 
     size_t key_count = json_object_get_count(object);
     for (size_t i = 0; i < key_count; i++) {
         const char *key = json_object_get_name(object, i);
-        int cond = bake_json_conditional_key_matches(key);
-        if (cond < 0) {
-            return -1;
-        }
-
-        if (cond > 0) {
+        if (bake_json_conditional_key_matches(key)) {
             JSON_Value *val = json_object_get_value_at(object, i);
             const JSON_Object *nested = json_value_get_object(val);
             if (!nested || bake_parse_lang_cfg(nested, cfg) != 0) {
@@ -446,7 +429,6 @@ static int bake_parse_amalgamate(
     if (type == JSONBoolean) {
         if (json_value_get_boolean(value)) {
             bake_amalgamate_cfg_t *amalg = bake_amalgamate_list_append(&cfg->amalgamate);
-            if (!amalg) return -1;
             if (bake_json_get_string_alias(object, "amalgamate-path", "amalgamate_path", &amalg->path) < 0) return -1;
         }
         return 0;
@@ -454,7 +436,6 @@ static int bake_parse_amalgamate(
 
     if (type == JSONObject) {
         bake_amalgamate_cfg_t *amalg = bake_amalgamate_list_append(&cfg->amalgamate);
-        if (!amalg) return -1;
         return bake_parse_amalgamate_item(json_value_get_object(value), amalg);
     }
 
@@ -468,7 +449,6 @@ static int bake_parse_amalgamate(
                 return -1;
             }
             bake_amalgamate_cfg_t *amalg = bake_amalgamate_list_append(&cfg->amalgamate);
-            if (!amalg) return -1;
             if (bake_parse_amalgamate_item(item, amalg) != 0) return -1;
         }
         return 0;
@@ -574,12 +554,7 @@ static int bake_parse_project_cfg_conditionals(
     size_t key_count = json_object_get_count(object);
     for (size_t i = 0; i < key_count; i++) {
         const char *key = json_object_get_name(object, i);
-        int cond = bake_json_conditional_key_matches(key);
-        if (cond < 0) {
-            return -1;
-        }
-
-        if (cond > 0) {
+        if (bake_json_conditional_key_matches(key)) {
             JSON_Value *val = json_object_get_value_at(object, i);
             const JSON_Object *nested = json_value_get_object(val);
             if (!nested) {
@@ -739,9 +714,6 @@ static int bake_parse_dependee_cfg(
 
     if (!cfg->cfg) {
         cfg->cfg = ecs_os_calloc_t(bake_project_cfg_t);
-        if (!cfg->cfg) {
-            return -1;
-        }
         bake_project_cfg_init_impl(cfg->cfg, false, false);
     }
 
@@ -775,9 +747,6 @@ static int bake_parse_dependee_cfg(
 
     char *dependee_json = ecs_os_strdup(serialized);
     json_free_serialized_string(serialized);
-    if (!dependee_json) {
-        return -1;
-    }
 
     ecs_os_free(cfg->json);
     cfg->json = dependee_json;
@@ -799,14 +768,7 @@ static int bake_parse_bundle_entry(
     }
 
     bake_bundle_t *bundle = bake_bundle_list_append(bundles);
-    if (!bundle) {
-        return -1;
-    }
-
     bundle->id = ecs_os_strdup(id);
-    if (!bundle->id) {
-        return -1;
-    }
 
     if (bake_json_get_string_alias(object, "repository", "repo", &bundle->repository) < 0) return -1;
     if (bake_json_get_string(object, "branch", &bundle->branch) < 0) return -1;
@@ -871,15 +833,13 @@ static int bake_parse_rules(const JSON_Array *rules, bake_rule_list_t *rules_out
             continue;
         }
 
-        if (bake_rule_list_append(rules_out, ext, cmd) != 0) {
-            return -1;
-        }
+        bake_rule_list_append(rules_out, ext, cmd);
     }
 
     return 0;
 }
 
-static int bake_project_cfg_finalize_defaults(const char *project_json_path, bake_project_cfg_t *cfg) {
+static void bake_project_cfg_finalize_defaults(const char *project_json_path, bake_project_cfg_t *cfg) {
     if (cfg->kind == BAKE_PROJECT_TEST) {
         cfg->public_project = false;
     }
@@ -890,9 +850,6 @@ static int bake_project_cfg_finalize_defaults(const char *project_json_path, bak
 
     if (!cfg->id) {
         cfg->id = ecs_os_strdup(cfg->path);
-        if (!cfg->id) {
-            return -1;
-        }
 
         for (char *p = cfg->id; *p; p++) {
             if (*p == '/' || *p == '\\' || *p == ':') {
@@ -910,8 +867,6 @@ static int bake_project_cfg_finalize_defaults(const char *project_json_path, bak
         cfg->output_name = ecs_os_strdup(
             (last_dot && last_dot[1]) ? last_dot + 1 : cfg->id);
     }
-
-    return cfg->path && cfg->id && cfg->output_name ? 0 : -1;
 }
 
 int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t *cfg) {
@@ -933,9 +888,7 @@ int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t
         goto error;
     }
 
-    if (bake_project_cfg_finalize_defaults(project_json_path, cfg) != 0) {
-        goto error;
-    }
+    bake_project_cfg_finalize_defaults(project_json_path, cfg);
 
     json_value_free(root_value);
     ecs_os_free(json);

@@ -26,7 +26,7 @@ bool bake_env_has_required_test_templates(const char *dir, const char **missing_
     for (size_t i = 0; i < template_count; i++) {
         const char *name = bake_env_required_test_templates[i];
         char *path = bake_path_join(dir, name);
-        bool exists = path && bake_path_exists(path);
+        bool exists = bake_path_exists(path);
         ecs_os_free(path);
 
         if (!exists) {
@@ -54,11 +54,6 @@ int bake_env_copy_tree_recursive(const char *src, const char *dst) {
         }
 
         char *dst_path = bake_path_join(dst, entry->name);
-        if (!dst_path) {
-            bake_dir_entries_free(entries, count);
-            return -1;
-        }
-
         int rc = 0;
         if (entry->is_dir) {
             rc = bake_os_mkdirs(dst_path);
@@ -127,7 +122,7 @@ static char* bake_env_test_templates_from_home(const char *home) {
     }
 
     char *test_dir = bake_path_join(home, "test");
-    if (test_dir && bake_env_has_required_test_templates(test_dir, NULL)) {
+    if (bake_env_has_required_test_templates(test_dir, NULL)) {
         return test_dir;
     }
 
@@ -153,14 +148,13 @@ char* bake_env_find_test_template_source(void) {
             return exe_test_templates;
         }
 
-        char *root_dir = exe_dir ? bake_path_dirname(exe_dir) : NULL;
-        char *root_templates = root_dir ?
-            bake_path_join(root_dir, "templates/test_harness") : NULL;
+        char *root_dir = bake_path_dirname(exe_dir);
+        char *root_templates = bake_path_join(root_dir, "templates/test_harness");
 
         ecs_os_free(exe_dir);
         ecs_os_free(root_dir);
 
-        if (root_templates && bake_env_has_required_test_templates(root_templates, NULL)) {
+        if (bake_env_has_required_test_templates(root_templates, NULL)) {
             return root_templates;
         }
         ecs_os_free(root_templates);
@@ -191,10 +185,6 @@ int bake_env_ensure_local_test_templates(const bake_context_t *ctx) {
     }
 
     char *test_dst = bake_path_join(ctx->bake_home, "test");
-    if (!test_dst) {
-        return -1;
-    }
-
     if (bake_env_has_required_test_templates(test_dst, NULL)) {
         ecs_os_free(test_dst);
         return 0;

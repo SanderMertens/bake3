@@ -56,10 +56,6 @@ static int bake_env_install_bake3_wrapper(const bake_context_t *ctx) {
         "\n"
         "exec \"%s/bake3\" \"$@\"\n",
         ctx->bake_home);
-    if (!script_content) {
-        return -1;
-    }
-
     size_t current_len = 0;
     char *current = bake_file_read(script_path, &current_len);
     if (current && !strcmp(current, script_content)) {
@@ -70,11 +66,6 @@ static int bake_env_install_bake3_wrapper(const bake_context_t *ctx) {
     ecs_os_free(current);
 
     char *tmp_script = bake_path_join(ctx->bake_home, ".bake3-wrapper.sh");
-    if (!tmp_script) {
-        ecs_os_free(script_content);
-        return -1;
-    }
-
     int rc = bake_file_write(tmp_script, script_content);
     ecs_os_free(script_content);
     if (rc != 0) {
@@ -107,17 +98,12 @@ int bake_env_setup(bake_context_t *ctx, const char *argv0) {
 #else
     char *dst = bake_path_join(ctx->bake_home, "bake3");
 #endif
-    if (!dst) {
-        return -1;
-    }
-
     char *src = bake_env_executable_path(argv0);
     char *test_dst = bake_path_join(ctx->bake_home, "test");
 
-    if (!src || !test_dst) {
+    if (!src) {
         ecs_err("failed to resolve setup paths");
         ecs_os_free(dst);
-        ecs_os_free(src);
         ecs_os_free(test_dst);
         return -1;
     }
