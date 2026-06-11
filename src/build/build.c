@@ -730,6 +730,10 @@ static int bake_prepare_discovery(bake_context_t *ctx, char **target_path_out) {
         goto cleanup;
     }
 
+    if (ctx->opts.recursive && bake_discover_dependency_sources(ctx) < 0) {
+        goto cleanup;
+    }
+
     ctx->compiler_kind = bake_detect_compiler_kind(ctx->opts.cc, ctx->opts.cxx);
     rc = 0;
 

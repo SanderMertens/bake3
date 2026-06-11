@@ -463,6 +463,33 @@ class BakeTests(unittest.TestCase):
         self.bake(["build", "test/integration/flecs-modules-test/apps/city"])
         self.bake(["build", "test/integration/flecs-modules-test/apps/tower_defense"])
 
+    def test_rebuild_recursive_rebuilds_dependency_from_env_source(self) -> None:
+        dep_target = "test/projects/envpkgs/libmath"
+        app_dir = self.repo_root / "test" / "projects" / "ws" / "apps" / "use_env"
+
+        self.bake(["build", dep_target])
+        self.bake(["build", str(app_dir)])
+
+        artefact = self.artefact_path(dep_target)
+        initial_mtime = artefact.stat().st_mtime_ns
+
+        self.bake(["rebuild"], cwd=app_dir)
+        self.assertEqual(
+            artefact.stat().st_mtime_ns,
+            initial_mtime,
+            "Expected non-recursive rebuild to leave the env dependency untouched",
+        )
+
+        time.sleep(0.02)
+        output = self.strip_ansi(self.bake(["rebuild", "-r"], cwd=app_dir))
+        self.assertIn("env.libs.math", output)
+        self.assertTrue(artefact.exists(), f"Expected dependency artefact at {artefact}")
+        self.assertGreater(
+            artefact.stat().st_mtime_ns,
+            initial_mtime,
+            "Expected recursive rebuild to rebuild the dependency from its source location",
+        )
+
     @unittest.skipIf(platform.system() == "Windows", "incremental rebuild check is flaky on Windows; see CI investigation")
     def test_tower_defense_incremental_does_not_rebuild_main_cpp(self) -> None:
         self.bake(["build", "test/integration/flecs-modules-test"])

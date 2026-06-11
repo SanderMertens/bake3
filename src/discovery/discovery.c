@@ -24,6 +24,32 @@ typedef struct bake_discovery_ctx_t {
     bool skip_special_dirs;
 } bake_discovery_ctx_t;
 
+static int bake_discovery_add_project_file(
+    bake_context_t *ctx,
+    const char *project_json_path)
+{
+    bake_project_cfg_t *cfg = ecs_os_calloc_t(bake_project_cfg_t);
+    bake_project_cfg_init(cfg);
+
+    if (bake_project_cfg_load_file(project_json_path, cfg) != 0) {
+        bake_project_cfg_fini(cfg);
+        ecs_os_free(cfg);
+        ecs_err("failed to parse %s", project_json_path);
+        return 0;
+    }
+
+    if (bake_bundle_prepare_for_project(ctx, cfg) != 0) {
+        bake_project_cfg_fini(cfg);
+        ecs_os_free(cfg);
+        return -1;
+    }
+
+    if (!bake_model_add_project(ctx->world, cfg, false)) {
+        return -1;
+    }
+    return 1;
+}
+
 static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     bake_discovery_ctx_t *ctx = ctx_ptr;
 
@@ -44,26 +70,31 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return 0;
     }
 
-    bake_project_cfg_t *cfg = ecs_os_calloc_t(bake_project_cfg_t);
-    bake_project_cfg_init(cfg);
-
-    if (bake_project_cfg_load_file(entry->path, cfg) != 0) {
-        bake_project_cfg_fini(cfg);
-        ecs_os_free(cfg);
-        ecs_err("failed to parse %s", entry->path);
-        return 0;
+    int rc = bake_discovery_add_project_file(ctx->ctx, entry->path);
+    if (rc < 0) {
+        return -1;
     }
+    if (rc > 0) {
+        ctx->discovered++;
+    }
+    return 0;
+}
 
-    if (bake_bundle_prepare_for_project(ctx->ctx, cfg) != 0) {
-        bake_project_cfg_fini(cfg);
-        ecs_os_free(cfg);
+static int bake_discovery_resolve_dependencies(bake_context_t *ctx) {
+    if (bake_env_import_dependency_closure(ctx) < 0) {
         return -1;
     }
 
-    if (!bake_model_add_project(ctx->ctx->world, cfg, false)) {
+    bake_model_link_dependencies(ctx->world);
+
+    if (bake_env_resolve_external_dependency_binaries(ctx) < 0) {
         return -1;
     }
-    ctx->discovered++;
+
+    if (bake_model_refresh_resolved_deps(ctx->world, ctx->opts.mode) != 0) {
+        return -1;
+    }
+
     return 0;
 }
 
@@ -82,19 +113,72 @@ int bake_discover_projects(
         return -1;
     }
 
-    if (bake_env_import_dependency_closure(ctx) < 0) {
-        return -1;
-    }
-
-    bake_model_link_dependencies(ctx->world);
-
-    if (bake_env_resolve_external_dependency_binaries(ctx) < 0) {
-        return -1;
-    }
-
-    if (bake_model_refresh_resolved_deps(ctx->world, ctx->opts.mode) != 0) {
+    if (bake_discovery_resolve_dependencies(ctx) != 0) {
         return -1;
     }
 
     return discovery.discovered;
+}
+
+/* Promotes external dependencies that were resolved from the bake
+ * environment to regular projects when their recorded source location still
+ * exists, so recursive commands can clean and build them from source. */
+int bake_discover_dependency_sources(bake_context_t *ctx) {
+    int32_t promoted = 0;
+    bake_strlist_t attempted;
+    bake_strlist_init(&attempted);
+
+    int rc = -1;
+    bool dirty = true;
+    while (dirty) {
+        dirty = false;
+
+        /* Collect candidates first: promoting projects mutates the world,
+         * which is not allowed while iterating it. */
+        bake_strlist_t candidates;
+        bake_strlist_init(&candidates);
+        ecs_iter_t it = ecs_each_id(ctx->world, ecs_id(BakeProject));
+        while (ecs_each_next(&it)) {
+            const BakeProject *projects = ecs_field(&it, BakeProject, 0);
+            for (int32_t i = 0; i < it.count; i++) {
+                const BakeProject *project = &projects[i];
+                if (!project->external || !project->cfg || !project->cfg->path) {
+                    continue;
+                }
+
+                char *project_json = bake_path_join(project->cfg->path, "project.json");
+                if (bake_path_exists(project_json) &&
+                    !bake_strlist_contains(&attempted, project_json))
+                {
+                    bake_strlist_append(&candidates, project_json);
+                }
+                ecs_os_free(project_json);
+            }
+        }
+
+        for (int32_t i = 0; i < candidates.count; i++) {
+            const char *project_json = candidates.items[i];
+            bake_strlist_append(&attempted, project_json);
+
+            int add_rc = bake_discovery_add_project_file(ctx, project_json);
+            if (add_rc < 0) {
+                bake_strlist_fini(&candidates);
+                goto cleanup;
+            }
+            if (add_rc > 0) {
+                promoted++;
+                dirty = true;
+            }
+        }
+        bake_strlist_fini(&candidates);
+
+        if (dirty && bake_discovery_resolve_dependencies(ctx) != 0) {
+            goto cleanup;
+        }
+    }
+
+    rc = promoted;
+cleanup:
+    bake_strlist_fini(&attempted);
+    return rc;
 }
