@@ -59,17 +59,11 @@ static void bake_suite_param_append(bake_suite_spec_t *suite, bake_param_spec_t 
     suite->params[suite->param_count++] = *param;
 }
 
-static bool bake_test_symbol_valid(const char *name) {
+static bool bake_test_symbol_chars_valid(const char *name) {
     if (!name || !name[0]) {
         return false;
     }
-    if (!((name[0] >= 'a' && name[0] <= 'z') ||
-          (name[0] >= 'A' && name[0] <= 'Z') ||
-          name[0] == '_'))
-    {
-        return false;
-    }
-    for (const char *p = name + 1; *p; p++) {
+    for (const char *p = name; *p; p++) {
         if (!((*p >= 'a' && *p <= 'z') ||
               (*p >= 'A' && *p <= 'Z') ||
               (*p >= '0' && *p <= '9') ||
@@ -79,6 +73,13 @@ static bool bake_test_symbol_valid(const char *name) {
         }
     }
     return true;
+}
+
+static bool bake_test_symbol_valid(const char *name) {
+    if (!name || (name[0] >= '0' && name[0] <= '9')) {
+        return false;
+    }
+    return bake_test_symbol_chars_valid(name);
 }
 
 static int bake_parse_test_cases(JSON_Array *tests, bake_suite_spec_t *suite) {
@@ -91,8 +92,8 @@ static int bake_parse_test_cases(JSON_Array *tests, bake_suite_spec_t *suite) {
                 suite->id, (int)t);
             return -1;
         }
-        if (!bake_test_symbol_valid(name)) {
-            ecs_err("testsuite '%s': testcase name '%s' is not a valid C identifier",
+        if (!bake_test_symbol_chars_valid(name)) {
+            ecs_err("testsuite '%s': testcase name '%s' contains invalid characters",
                 suite->id, name);
             ecs_os_free(name);
             return -1;
