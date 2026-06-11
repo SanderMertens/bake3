@@ -1618,6 +1618,202 @@ class BakeTests(unittest.TestCase):
             f"expected unknown-conditional warning in output:\n{output}",
         )
 
+    @staticmethod
+    def host_arch() -> str:
+        machine = platform.machine().lower()
+        if machine in {"arm64", "aarch64"}:
+            return "arm64"
+        if machine in {"x86_64", "amd64"}:
+            return "x64"
+        if machine in {"i386", "i686", "x86"}:
+            return "x86"
+        if machine.startswith("arm"):
+            return "arm"
+        return "unknown"
+
+    def write_simple_app_project(
+        self, name: str, main_c: str, lang_c: str | None = None
+    ) -> tuple[Path, str]:
+        stamp = int(time.time() * 1_000_000)
+        app_id = f"{name}_{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"{name}_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True)
+
+        lang_c_section = f',\n    "lang.c": {lang_c}' if lang_c else ""
+        (project_dir / "project.json").write_text(
+            "{\n"
+            f'    "id": "{app_id}",\n'
+            f'    "type": "application"{lang_c_section}\n'
+            "}\n"
+        )
+        (src_dir / "main.c").write_text(main_c)
+        return project_dir, app_id
+
+    def test_cfg_release_builds_separate_triplet(self) -> None:
+        project_dir, app_id = self.write_simple_app_project(
+            "cfg_modes",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("cfg_modes ok\\n");\n'
+            "    return 0;\n"
+            "}\n",
+        )
+
+        self.bake(["--cfg", "release", "build", str(project_dir)])
+
+        triplet_base = f"{self.host_arch()}-{platform.system()}"
+        release_dir = project_dir / ".bake" / f"{triplet_base}-release"
+        debug_dir = project_dir / ".bake" / f"{triplet_base}-debug"
+        release_artefact = release_dir / f"{app_id}{EXE_SUFFIX}"
+
+        self.assertTrue(
+            release_artefact.is_file(),
+            f"Expected release artefact at {release_artefact}",
+        )
+        self.assertFalse(
+            debug_dir.exists(),
+            f"Release build should not create debug triplet dir: {debug_dir}",
+        )
+
+        output = self.run_cmd([str(release_artefact)])
+        self.assertIn("cfg_modes ok", output)
+
+        release_mtime = release_artefact.stat().st_mtime_ns
+
+        self.bake(["build", str(project_dir)])
+
+        debug_artefact = debug_dir / f"{app_id}{EXE_SUFFIX}"
+        self.assertTrue(
+            debug_artefact.is_file(),
+            f"Expected debug artefact at {debug_artefact}",
+        )
+        self.assertTrue(
+            release_artefact.is_file(),
+            f"Debug build clobbered release artefact at {release_artefact}",
+        )
+        self.assertEqual(
+            release_artefact.stat().st_mtime_ns,
+            release_mtime,
+            "Debug build modified the release artefact",
+        )
+
+        self.assertTrue((release_dir / "obj").is_dir(), f"Expected obj dir in {release_dir}")
+        self.assertTrue((debug_dir / "obj").is_dir(), f"Expected obj dir in {debug_dir}")
+
+        release_fingerprint = release_dir / ".bake_cmd"
+        debug_fingerprint = debug_dir / ".bake_cmd"
+        self.assertTrue(release_fingerprint.is_file(), f"Expected fingerprint at {release_fingerprint}")
+        self.assertTrue(debug_fingerprint.is_file(), f"Expected fingerprint at {debug_fingerprint}")
+        self.assertNotEqual(
+            release_fingerprint.read_text(),
+            debug_fingerprint.read_text(),
+            "Expected release and debug builds to have distinct command fingerprints",
+        )
+
+    def test_conditional_os_and_cfg_blocks_apply(self) -> None:
+        host_os = platform.system()
+        other_os = "Linux" if host_os == "Darwin" else "Darwin"
+        lang_c = (
+            "{\n"
+            f'        "${{os {host_os}}}": {{ "defines": ["HOST_OS_MATCHED"] }},\n'
+            f'        "${{os {other_os}}}": {{ "defines": ["OTHER_OS_MATCHED"] }},\n'
+            '        "${cfg debug}": { "defines": ["CFG_DEBUG_MATCHED"] },\n'
+            '        "${cfg release}": { "defines": ["CFG_RELEASE_MATCHED"] }\n'
+            "    }"
+        )
+        project_dir, _ = self.write_simple_app_project(
+            "cond_match",
+            "#ifndef HOST_OS_MATCHED\n"
+            '#error "matching ${os} conditional was not applied"\n'
+            "#endif\n"
+            "#ifdef OTHER_OS_MATCHED\n"
+            '#error "non-matching ${os} conditional was applied"\n'
+            "#endif\n"
+            "#ifndef CFG_DEBUG_MATCHED\n"
+            '#error "matching ${cfg} conditional was not applied"\n'
+            "#endif\n"
+            "#ifdef CFG_RELEASE_MATCHED\n"
+            '#error "non-matching ${cfg} conditional was applied"\n'
+            "#endif\n"
+            "int main(void) {\n"
+            "    return 0;\n"
+            "}\n",
+            lang_c=lang_c,
+        )
+
+        self.bake(["build", str(project_dir)])
+
+    @unittest.skipIf(platform.system() == "Windows", "run-prefix test uses a POSIX shell script")
+    def test_run_prefix_wraps_executed_command(self) -> None:
+        project_dir, app_id = self.write_simple_app_project(
+            "run_prefix",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("run_prefix app output\\n");\n'
+            "    return 0;\n"
+            "}\n",
+        )
+
+        marker = f"run_prefix_marker_{app_id}"
+        script = project_dir / "prefix.sh"
+        script.write_text(
+            "#!/bin/sh\n"
+            f"echo {marker}\n"
+            'exec "$@"\n'
+        )
+        script.chmod(0o755)
+
+        output = self.strip_ansi(
+            self.bake(["run", str(project_dir), "--run-prefix", str(script)])
+        )
+        self.assertIn(marker, output)
+        self.assertIn("run_prefix app output", output)
+
+    @staticmethod
+    def emsdk_available() -> bool:
+        if shutil.which("emcc"):
+            return True
+        candidates = [os.environ.get("EMSDK"), os.environ.get("EMSDK_DIR")]
+        candidates.append(str(Path.home() / "GitHub" / "emsdk"))
+        for candidate in candidates:
+            if not candidate:
+                continue
+            root = Path(candidate)
+            if (root / "emsdk_env.sh").is_file() and (
+                root / "upstream" / "emscripten" / "emcc"
+            ).is_file():
+                return True
+        return False
+
+    @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
+    def test_target_em_builds_wasm_artefacts(self) -> None:
+        if not self.emsdk_available():
+            self.skipTest("emscripten SDK not available")
+
+        project_dir, app_id = self.write_simple_app_project(
+            "em_target",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("hello wasm\\n");\n'
+            "    return 0;\n"
+            "}\n",
+        )
+
+        self.bake(["--target", "em", "build", str(project_dir)])
+
+        triplet_dir = project_dir / ".bake" / "wasm32-Emscripten-debug"
+        self.assertTrue(
+            triplet_dir.is_dir(),
+            f"Expected emscripten triplet dir at {triplet_dir}",
+        )
+
+        js = triplet_dir / f"{app_id}.js"
+        wasm = triplet_dir / f"{app_id}.wasm"
+        self.assertTrue(js.is_file(), f"Expected .js artefact at {js}")
+        self.assertTrue(wasm.is_file(), f"Expected sibling .wasm at {wasm}")
+
     def test_json_strlist_skips_nulls(self) -> None:
         stamp = int(time.time() * 1_000_000)
         root = self.repo_root / "test" / "tmp" / f"json_null_{stamp}"

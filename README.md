@@ -305,7 +305,7 @@ When `--target em` is used, bake:
 - archives static libraries with `emar`,
 - configures `bundle` dependencies with `emcmake cmake`,
 - emits a `wasm32-Emscripten-<cfg>` triplet so wasm artefacts never clash with native ones,
-- gives application targets a `.html` artefact (emscripten also emits the sibling `.js`/`.wasm` files next to it).
+- gives application targets a `.js` artefact (emscripten also emits the sibling `.wasm` file next to it).
 
 Bake locates the Emscripten SDK automatically: if `emcc` is not already on `PATH`, it sources `emsdk_env.sh` from `$EMSDK`, `$EMSDK_DIR`, or `~/GitHub/emsdk` and imports the resulting `PATH` and `EM*` variables for the build. Use `${os Emscripten}` / `${target em}` conditionals in `project.json` to select target-specific dependencies and flags (for example, replacing native GLFW/WebGPU dependencies with `-sUSE_GLFW=3 -sUSE_WEBGPU=1`).
 
