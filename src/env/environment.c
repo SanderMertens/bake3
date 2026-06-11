@@ -205,7 +205,7 @@ int bake_env_import_project_by_id(bake_context_t *ctx, const char *id) {
         source_path = NULL;
     }
 
-    const char *mode = ctx->opts.mode ? ctx->opts.mode : "debug";
+    const char *mode = bake_effective_mode(ctx->opts.mode);
     artefact = bake_env_find_artefact_path_current_mode(ctx, cfg, mode);
     ecs_entity_t entity = bake_model_add_project(ctx->world, cfg, true);
     cfg = NULL;
@@ -339,7 +339,7 @@ int bake_env_resolve_external_dependency_binaries(bake_context_t *ctx) {
         return -1;
     }
 
-    const char *mode = (ctx->opts.mode && ctx->opts.mode[0]) ? ctx->opts.mode : "debug";
+    const char *mode = bake_effective_mode(ctx->opts.mode);
     if (bake_model_refresh_resolved_deps(ctx->world, mode) != 0) {
         return -1;
     }
@@ -501,7 +501,9 @@ int bake_env_sync_project(
         return 0;
     }
 
-    const char *mode = req && req->mode ? req->mode : (ctx->opts.mode ? ctx->opts.mode : "debug");
+    const char *mode = (req && req->mode)
+        ? req->mode
+        : bake_effective_mode(ctx->opts.mode);
     if (!rebuilt && bake_env_project_entry_complete(ctx, cfg, mode)) {
         return 0;
     }

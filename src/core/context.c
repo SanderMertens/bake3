@@ -157,6 +157,10 @@ void bake_log(
     }
 }
 
+const char* bake_effective_mode(const char *mode) {
+    return (mode && mode[0]) ? mode : "debug";
+}
+
 int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
     memset(ctx, 0, sizeof(*ctx));
     ctx->opts = *opts;

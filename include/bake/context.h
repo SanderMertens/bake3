@@ -31,6 +31,8 @@ typedef struct bake_context_t {
     int32_t thread_count;
 } bake_context_t;
 
+const char* bake_effective_mode(const char *mode);
+
 int bake_context_init(bake_context_t *ctx, const bake_options_t *opts);
 void bake_context_fini(bake_context_t *ctx);
 

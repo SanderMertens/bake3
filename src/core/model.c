@@ -640,7 +640,7 @@ static void bake_model_collect_resolved_deps(
 }
 
 int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
-    const char *resolved_mode = (mode && mode[0]) ? mode : "debug";
+    const char *resolved_mode = bake_effective_mode(mode);
     const char *bake_home = bake_env_home();
 
     /* Collect entities first: adding BakeResolvedDeps moves entities between
