@@ -2,10 +2,6 @@
 #include "depcheck_internal.h"
 #include "bake/os.h"
 
-static bool bake_dep_char_is_space(char ch) {
-    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
-}
-
 static bool bake_dep_token_outdated(const char *token, int64_t obj_mtime) {
     if (!token[0]) {
         return false;
@@ -17,6 +13,19 @@ static bool bake_dep_token_outdated(const char *token, int64_t obj_mtime) {
     }
 
     return mtime > obj_mtime;
+}
+
+static char* bake_dep_token_reserve(char *token, size_t token_len, size_t *token_cap) {
+    if ((token_len + 2) < *token_cap) {
+        return token;
+    }
+    size_t next_cap = *token_cap * 2;
+    if (next_cap <= *token_cap) {
+        ecs_os_free(token);
+        return NULL;
+    }
+    *token_cap = next_cap;
+    return ecs_os_realloc_n(token, char, next_cap);
 }
 
 bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
@@ -39,7 +48,7 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
             /* Only a colon followed by whitespace ends the target; a bare
              * colon can be part of a Windows drive-letter path. */
             if (ch == ':' &&
-                ((i + 1) >= len || bake_dep_char_is_space(content[i + 1])))
+                ((i + 1) >= len || bake_char_is_space(content[i + 1])))
             {
                 seen_colon = true;
             }
@@ -61,15 +70,10 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
             bool is_escape = next_ch == ' ' || next_ch == '\t' ||
                 next_ch == '\\' || next_ch == '#' || next_ch == '$' ||
                 next_ch == ':';
-            if ((token_len + 2) >= token_cap) {
-                size_t next_cap = token_cap * 2;
-                if (next_cap <= token_cap) {
-                    ecs_os_free(token);
-                    ecs_os_free(content);
-                    return true;
-                }
-                token = ecs_os_realloc_n(token, char, next_cap);
-                token_cap = next_cap;
+            token = bake_dep_token_reserve(token, token_len, &token_cap);
+            if (!token) {
+                ecs_os_free(content);
+                return true;
             }
             if (is_escape) {
                 token[token_len++] = content[++i];
@@ -79,7 +83,7 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
             continue;
         }
 
-        if (bake_dep_char_is_space(ch)) {
+        if (bake_char_is_space(ch)) {
             token[token_len] = '\0';
             if (token_len && bake_dep_token_outdated(token, obj_mtime)) {
                 outdated = true;
@@ -91,15 +95,10 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
             continue;
         }
 
-        if ((token_len + 2) >= token_cap) {
-            size_t next_cap = token_cap * 2;
-            if (next_cap <= token_cap) {
-                ecs_os_free(token);
-                ecs_os_free(content);
-                return true;
-            }
-            token = ecs_os_realloc_n(token, char, next_cap);
-            token_cap = next_cap;
+        token = bake_dep_token_reserve(token, token_len, &token_cap);
+        if (!token) {
+            ecs_os_free(content);
+            return true;
         }
         token[token_len++] = ch;
     }

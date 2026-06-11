@@ -194,35 +194,24 @@ int bake_collect_compile_units(
         .compiler_kind = compiler_kind
     };
 
-    char *src = bake_path_join(cfg->path, "src");
-    if (bake_path_exists(src)) {
-        if (bake_dir_walk_recursive(src, bake_collect_visit, &ctx) != 0) {
-            ecs_os_free(src);
-            return -1;
-        }
-    }
-    ecs_os_free(src);
+    struct { const char *name; bool enabled; } dirs[] = {
+        { "src", true },
+        { "deps", include_deps },
+        { "test", include_tests }
+    };
 
-    if (include_deps) {
-        char *deps = bake_path_join(cfg->path, "deps");
-        if (bake_path_exists(deps)) {
-            if (bake_dir_walk_recursive(deps, bake_collect_visit, &ctx) != 0) {
-                ecs_os_free(deps);
+    for (size_t d = 0; d < sizeof(dirs) / sizeof(dirs[0]); d++) {
+        if (!dirs[d].enabled) {
+            continue;
+        }
+        char *dir = bake_path_join(cfg->path, dirs[d].name);
+        if (bake_path_exists(dir)) {
+            if (bake_dir_walk_recursive(dir, bake_collect_visit, &ctx) != 0) {
+                ecs_os_free(dir);
                 return -1;
             }
         }
-        ecs_os_free(deps);
-    }
-
-    if (include_tests) {
-        char *test = bake_path_join(cfg->path, "test");
-        if (bake_path_exists(test)) {
-            if (bake_dir_walk_recursive(test, bake_collect_visit, &ctx) != 0) {
-                ecs_os_free(test);
-                return -1;
-            }
-        }
-        ecs_os_free(test);
+        ecs_os_free(dir);
     }
 
     for (int32_t i = 0; i < cfg->bundle_sources.count; i++) {

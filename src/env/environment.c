@@ -116,10 +116,7 @@ static int bake_env_project_entry_complete(
         return 0;
     }
 
-    if (cfg->kind == BAKE_PROJECT_PACKAGE ||
-        cfg->kind == BAKE_PROJECT_APPLICATION ||
-        cfg->kind == BAKE_PROJECT_TEST)
-    {
+    if (bake_project_kind_has_artefact(cfg->kind)) {
         char *artefact = bake_env_find_artefact_path_current_mode(ctx, cfg, mode);
         bool has_artefact = artefact != NULL;
         ecs_os_free(artefact);
@@ -448,10 +445,7 @@ static int bake_env_sync_artefacts(
         return 0;
     }
 
-    if (cfg->kind != BAKE_PROJECT_PACKAGE &&
-        cfg->kind != BAKE_PROJECT_APPLICATION &&
-        cfg->kind != BAKE_PROJECT_TEST)
-    {
+    if (!bake_project_kind_has_artefact(cfg->kind)) {
         return 0;
     }
 
@@ -659,10 +653,7 @@ static int bake_env_remove_project_entry(const bake_context_t *ctx, const char *
         goto cleanup_cfg;
     }
 
-    if (has_cfg &&
-        (cfg.kind == BAKE_PROJECT_PACKAGE ||
-         cfg.kind == BAKE_PROJECT_APPLICATION ||
-         cfg.kind == BAKE_PROJECT_TEST))
+    if (has_cfg && bake_project_kind_has_artefact(cfg.kind))
     {
         if (bake_env_remove_project_artefacts(ctx, &cfg) != 0) {
             goto cleanup_cfg;

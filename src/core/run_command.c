@@ -16,10 +16,6 @@ typedef struct bake_cmd_line_t {
     bake_process_stdio_t stdio_cfg;
 } bake_cmd_line_t;
 
-bool bake_char_is_space(char ch) {
-    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
-}
-
 char* bake_shell_quote_arg(const char *arg) {
     if (!arg) {
         return ecs_os_strdup("\"\"");

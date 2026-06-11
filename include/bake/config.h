@@ -120,6 +120,7 @@ struct bake_project_cfg_t {
 };
 
 const char* bake_project_kind_str(bake_project_kind_t kind);
+bool bake_project_kind_has_artefact(bake_project_kind_t kind);
 bake_project_kind_t bake_project_kind_parse(const char *value);
 char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg);
 

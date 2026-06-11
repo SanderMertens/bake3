@@ -121,12 +121,14 @@ bake_project_kind_t bake_project_kind_parse(const char *value) {
     return BAKE_PROJECT_APPLICATION;
 }
 
+bool bake_project_kind_has_artefact(bake_project_kind_t kind) {
+    return kind == BAKE_PROJECT_PACKAGE ||
+        kind == BAKE_PROJECT_APPLICATION ||
+        kind == BAKE_PROJECT_TEST;
+}
+
 char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg) {
-    if (!cfg || !cfg->output_name ||
-        (cfg->kind != BAKE_PROJECT_PACKAGE &&
-         cfg->kind != BAKE_PROJECT_APPLICATION &&
-         cfg->kind != BAKE_PROJECT_TEST))
-    {
+    if (!cfg || !cfg->output_name || !bake_project_kind_has_artefact(cfg->kind)) {
         return NULL;
     }
 

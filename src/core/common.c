@@ -4,6 +4,10 @@
 
 #include <ctype.h>
 
+bool bake_char_is_space(char ch) {
+    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
+}
+
 char* bake_text_replace(const char *input, const char *needle, const char *replacement) {
     size_t needle_len = strlen(needle);
     size_t repl_len = strlen(replacement);
