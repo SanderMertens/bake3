@@ -70,64 +70,52 @@ int bake_dir_walk_recursive(const char *root, bake_dir_walk_cb cb, void *ctx) {
     return bake_dir_walk_recurse(root, &walk, 0);
 }
 
+static int bake_os_mkdir_component(const char *full_path, const char *component) {
+    if (bake_os_mkdir(component) == 0 || errno == EEXIST) {
+        if (bake_path_is_dir(component)) {
+            return 0;
+        }
+        ecs_err(
+            "failed to create directory '%s': path component '%s' is not a directory",
+            full_path,
+            component);
+        return -1;
+    }
+
+    bake_log_errno_last("create directory", component);
+    return -1;
+}
+
 int bake_os_mkdirs(const char *path) {
     if (!path || !path[0]) {
         ecs_err("failed to create directory: invalid path");
         return -1;
     }
 
-    if (bake_path_exists(path)) {
-        if (!bake_path_is_dir(path)) {
-            ecs_err(
-                "failed to create directory '%s': path exists and is not a directory",
-                path);
-            return -1;
-        }
+    if (bake_path_is_dir(path)) {
         return 0;
     }
 
     char *tmp = ecs_os_strdup(path);
     size_t len = strlen(tmp);
-    for (size_t i = 1; i < len; i++) {
+    int rc = 0;
+    for (size_t i = 1; rc == 0 && i < len; i++) {
         if (tmp[i] == '/' || tmp[i] == '\\') {
             char prev = tmp[i];
             tmp[i] = '\0';
             if (tmp[0]) {
-                if (bake_path_exists(tmp)) {
-                    if (!bake_path_is_dir(tmp)) {
-                        ecs_err(
-                            "failed to create directory '%s': path component '%s' is not a directory",
-                            path,
-                            tmp);
-                        ecs_os_free(tmp);
-                        return -1;
-                    }
-                } else if (bake_os_mkdir(tmp) != 0 && errno != EEXIST) {
-                    bake_log_errno_last("create directory", tmp);
-                    ecs_os_free(tmp);
-                    return -1;
-                }
+                rc = bake_os_mkdir_component(path, tmp);
             }
             tmp[i] = prev;
         }
     }
 
-    if (bake_path_exists(tmp)) {
-        if (!bake_path_is_dir(tmp)) {
-            ecs_err(
-                "failed to create directory '%s': path exists and is not a directory",
-                path);
-            ecs_os_free(tmp);
-            return -1;
-        }
-    } else if (bake_os_mkdir(tmp) != 0 && errno != EEXIST) {
-        bake_log_errno_last("create directory", tmp);
-        ecs_os_free(tmp);
-        return -1;
+    if (rc == 0) {
+        rc = bake_os_mkdir_component(path, tmp);
     }
 
     ecs_os_free(tmp);
-    return 0;
+    return rc;
 }
 
 int bake_os_rmtree(const char *path) {
