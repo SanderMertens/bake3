@@ -534,7 +534,10 @@ cleanup:
     return rc;
 }
 
-static int bake_prepare_discovery(bake_context_t *ctx) {
+/* Discovers projects for the effective target and returns the resolved
+ * target path (NULL when the target is not an existing path) through
+ * target_path_out so commands do not have to resolve it again. */
+static int bake_prepare_discovery(bake_context_t *ctx, char **target_path_out) {
     int rc = -1;
     const char *target = bake_effective_build_target(ctx);
     char *target_path = bake_resolve_target_path(ctx, target);
@@ -558,6 +561,10 @@ static int bake_prepare_discovery(bake_context_t *ctx) {
     rc = 0;
 
 cleanup:
+    if (rc == 0 && target_path_out) {
+        *target_path_out = target_path;
+        target_path = NULL;
+    }
     ecs_os_free(target_path);
     ecs_os_free(target_root);
     return rc;
@@ -629,16 +636,8 @@ static int bake_clean_project(const bake_context_t *ctx, const bake_project_cfg_
     return rc;
 }
 
-int bake_build_clean(bake_context_t *ctx) {
+static int bake_build_clean_prepared(bake_context_t *ctx, const char *target) {
     int rc = -1;
-
-    if (bake_prepare_discovery(ctx) != 0) {
-        return -1;
-    }
-
-    const char *effective_target = bake_effective_build_target(ctx);
-    char *target_path = bake_resolve_target_path(ctx, effective_target);
-    const char *target = target_path ? target_path : effective_target;
     bake_model_mark_build_targets(ctx->world, target, ctx->opts.mode, ctx->opts.recursive, ctx->opts.standalone);
 
     ecs_entity_t *order = NULL;
@@ -667,21 +666,34 @@ int bake_build_clean(bake_context_t *ctx) {
     rc = 0;
 cleanup:
     ecs_os_free(order);
+    return rc;
+}
+
+int bake_build_clean(bake_context_t *ctx) {
+    char *target_path = NULL;
+    if (bake_prepare_discovery(ctx, &target_path) != 0) {
+        return -1;
+    }
+
+    const char *target = target_path
+        ? target_path
+        : bake_effective_build_target(ctx);
+    int rc = bake_build_clean_prepared(ctx, target);
     ecs_os_free(target_path);
     return rc;
 }
 
 int bake_build(bake_context_t *ctx) {
-    int rc = 0;
-
-    if (bake_prepare_discovery(ctx) != 0) {
+    char *target_path = NULL;
+    if (bake_prepare_discovery(ctx, &target_path) != 0) {
         return -1;
     }
 
-    const char *effective_target = bake_effective_build_target(ctx);
-    char *target_path = bake_resolve_target_path(ctx, effective_target);
-    const char *target_resolved = target_path ? target_path : effective_target;
+    const char *target_resolved = target_path
+        ? target_path
+        : bake_effective_build_target(ctx);
 
+    int rc = 0;
     if (bake_execute_build_graph(ctx, target_resolved, true, ctx->opts.standalone) != 0) {
         rc = -1;
     }
@@ -691,22 +703,33 @@ int bake_build(bake_context_t *ctx) {
 }
 
 int bake_build_rebuild(bake_context_t *ctx) {
-    if (bake_build_clean(ctx) != 0) {
+    char *target_path = NULL;
+    if (bake_prepare_discovery(ctx, &target_path) != 0) {
         return -1;
     }
 
-    return bake_build(ctx);
+    const char *target = target_path
+        ? target_path
+        : bake_effective_build_target(ctx);
+
+    int rc = bake_build_clean_prepared(ctx, target);
+    if (rc == 0 && bake_execute_build_graph(ctx, target, true, ctx->opts.standalone) != 0) {
+        rc = -1;
+    }
+
+    ecs_os_free(target_path);
+    return rc;
 }
 
 int bake_build_run(bake_context_t *ctx) {
     int rc = 0;
 
-    if (bake_prepare_discovery(ctx) != 0) {
+    char *target_path = NULL;
+    if (bake_prepare_discovery(ctx, &target_path) != 0) {
         return -1;
     }
 
     const char *effective_target = bake_effective_build_target(ctx);
-    char *target_path = bake_resolve_target_path(ctx, effective_target);
     const char *target_resolved = target_path ? target_path : effective_target;
 
     if (bake_execute_build_graph(ctx, target_resolved, true, ctx->opts.standalone) != 0) {
