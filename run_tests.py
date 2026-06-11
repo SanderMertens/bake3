@@ -47,9 +47,30 @@ class BakeTests(unittest.TestCase):
         cls.bake_home.parent.mkdir(parents=True, exist_ok=True)
         cls.git_snapshot_before = cls.git_snapshot()
 
+        cls._remove_stale_build_state()
         cls.run_cmd(["make", "clean"])
         cls.run_cmd(["make", "-j", "8"])
         cls.bake(["setup", "--local"])
+
+    @classmethod
+    def _remove_stale_build_state(cls) -> None:
+        """Delete .bake build dirs left by previous runs or manual builds.
+
+        Local trees accumulate incremental state built by other bake binaries
+        or with other flags; tests must start from the same blank slate CI
+        gets from a fresh checkout. Nothing under these roots is tracked by
+        git, so removal is safe.
+        """
+        # Limited to trees the suite builds; other integration projects (e.g.
+        # flecs-engine) keep expensive local bundle caches under .bake that
+        # the suite never uses.
+        for root in ("projects", "tests", os.path.join("integration", "flecs-modules-test")):
+            base = cls.repo_root / "test" / root
+            if not base.is_dir():
+                continue
+            for bake_dir in base.glob("**/.bake"):
+                if bake_dir.is_dir() and not bake_dir.is_symlink():
+                    shutil.rmtree(bake_dir)
 
     def setUp(self) -> None:
         self.bake(["clean", "test"])
