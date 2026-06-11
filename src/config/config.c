@@ -373,24 +373,42 @@ void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
     bake_project_cfg_fini_impl(cfg, true);
 }
 
+/* Single source of truth for the language config keys; consumed by both the
+ * lang.c/lang.cpp section parser and the project-level parser. */
+#define BAKE_LANG_ARRAY_KEYS(X) \
+    X("cflags", NULL, cflags) \
+    X("cxxflags", NULL, cxxflags) \
+    X("defines", NULL, defines) \
+    X("ldflags", NULL, ldflags) \
+    X("lib", "libs", libs) \
+    X("static-lib", "static_lib", static_libs) \
+    X("libpath", "libpaths", libpaths) \
+    X("link", "links", links) \
+    X("include", NULL, include_paths) \
+    X("embed", NULL, embed)
+
+#define BAKE_LANG_BOOL_KEYS(X) \
+    X("static", static_lib) \
+    X("export-symbols", export_symbols) \
+    X("precompile-header", precompile_header)
+
 static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) {
     if (!object) {
         return 0;
     }
 
-#define G(key, alias, field) if (bake_json_get_array_alias(object, key, alias, &cfg->field) < 0) return -1
-    G("cflags", NULL, cflags); G("cxxflags", NULL, cxxflags); G("defines", NULL, defines);
-    G("ldflags", NULL, ldflags); G("lib", "libs", libs); G("static-lib", "static_lib", static_libs);
-    G("libpath", "libpaths", libpaths); G("link", "links", links); G("include", NULL, include_paths);
-    G("embed", NULL, embed);
+#define G(key, alias, field) \
+    if (bake_json_get_array_alias(object, key, alias, &cfg->field) < 0) return -1;
+    BAKE_LANG_ARRAY_KEYS(G)
 #undef G
 
     if (bake_json_get_string(object, "c-standard", &cfg->c_standard) < 0) return -1;
     if (bake_json_get_string(object, "cpp-standard", &cfg->cpp_standard) < 0) return -1;
 
-    if (bake_json_get_bool(object, "static", &cfg->static_lib) < 0) return -1;
-    if (bake_json_get_bool(object, "export-symbols", &cfg->export_symbols) < 0) return -1;
-    if (bake_json_get_bool(object, "precompile-header", &cfg->precompile_header) < 0) return -1;
+#define B(key, field) \
+    if (bake_json_get_bool(object, key, &cfg->field) < 0) return -1;
+    BAKE_LANG_BOOL_KEYS(B)
+#undef B
 
     size_t key_count = json_object_get_count(object);
     for (size_t i = 0; i < key_count; i++) {
@@ -484,30 +502,19 @@ static int bake_parse_project_value_cfg(
 
 #define ARR(key, alias, field) \
     if (bake_json_get_array_alias(object, key, alias, &cfg->c_lang.field) < 0) return -1; \
-    if (bake_json_get_array_alias(object, key, alias, &cfg->cpp_lang.field) < 0) return -1
-    ARR("cflags", NULL, cflags);
-    ARR("cxxflags", NULL, cxxflags);
-    ARR("defines", NULL, defines);
-    ARR("ldflags", NULL, ldflags);
-    ARR("lib", "libs", libs);
-    ARR("static-lib", "static_lib", static_libs);
-    ARR("libpath", "libpaths", libpaths);
-    ARR("link", "links", links);
-    ARR("include", NULL, include_paths);
-    ARR("embed", NULL, embed);
+    if (bake_json_get_array_alias(object, key, alias, &cfg->cpp_lang.field) < 0) return -1;
+    BAKE_LANG_ARRAY_KEYS(ARR)
 #undef ARR
 
     if (bake_json_get_string(object, "c-standard", &cfg->c_lang.c_standard) < 0) return -1;
     if (bake_json_get_string(object, "cpp-standard", &cfg->cpp_lang.cpp_standard) < 0) return -1;
 
-#define LBOOL(key, field) do { \
+#define LBOOL(key, field) { \
     bool _v = false; int _rc = bake_json_get_bool(object, key, &_v); \
     if (_rc < 0) return -1; \
     if (_rc == 0) { cfg->c_lang.field = _v; cfg->cpp_lang.field = _v; } \
-} while (0)
-    LBOOL("static", static_lib);
-    LBOOL("export-symbols", export_symbols);
-    LBOOL("precompile-header", precompile_header);
+}
+    BAKE_LANG_BOOL_KEYS(LBOOL)
 #undef LBOOL
 
     return 0;
