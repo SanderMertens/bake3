@@ -1,0 +1,8 @@
+{
+    "id":"examples.c.app_standalone",
+    "type":"application",
+    "value": {
+        "use": ["examples.c.pkg_helloworld"],
+        "standalone": true
+    }
+}

@@ -173,6 +173,7 @@ void bake_add_strict_flags(
 static void bake_collect_dependency_link_inputs(
     ecs_world_t *world,
     const BakeResolvedDeps *resolved,
+    bool include_artefacts,
     bake_strlist_t *artefacts,
     bake_strlist_t *libpaths,
     bake_strlist_t *libs,
@@ -185,7 +186,7 @@ static void bake_collect_dependency_link_inputs(
     bake_strlist_merge_unique(libpaths, &resolved->build_libpaths);
     bake_strlist_merge_unique(ldflags, &resolved->ldflags);
 
-    for (int32_t i = 0; i < resolved->dep_count; i++) {
+    for (int32_t i = 0; include_artefacts && i < resolved->dep_count; i++) {
         const BakeBuildResult *result = ecs_get(world, resolved->deps[i], BakeBuildResult);
         if (!result || !result->artefact ||
             bake_strlist_contains(artefacts, result->artefact))
@@ -478,6 +479,7 @@ int bake_link_project_binary(
     const bake_lang_cfg_t *lang,
     const bake_strlist_t *mode_ldflags,
     bool force_relink,
+    bool standalone,
     char **artefact_out,
     bool *linked_out)
 {
@@ -499,9 +501,12 @@ int bake_link_project_binary(
 
     const BakeResolvedDeps *resolved = ecs_get(ctx->world, project_entity, BakeResolvedDeps);
 
+    /* Standalone builds compile dependency sources from deps/ into the
+     * project's own objects; dependency binaries are not linked. */
     bake_collect_dependency_link_inputs(
         ctx->world,
         resolved,
+        !standalone,
         &dep_artefacts,
         &dep_libpaths,
         &dep_libs,

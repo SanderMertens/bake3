@@ -538,6 +538,130 @@ class BakeTests(unittest.TestCase):
         artefact = self.artefact_path(target)
         self.assertTrue(artefact.exists(), f"Expected artefact at {artefact}")
 
+    def write_standalone_workspace(
+        self, name: str, message: str = "Hello world"
+    ) -> tuple[Path, str, str]:
+        """Create a tmp workspace with a package and a standalone app using it.
+
+        Returns (workspace dir, package id, app id). Project directories are
+        <ws>/pkg and <ws>/app.
+        """
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"{name}_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        pkg_id = f"standalone_pkg_{stamp}"
+        app_id = f"standalone_app_{stamp}"
+
+        pkg_include = ws / "pkg" / "include"
+        pkg_src = ws / "pkg" / "src"
+        app_src = ws / "app" / "src"
+        pkg_include.mkdir(parents=True)
+        pkg_src.mkdir(parents=True)
+        app_src.mkdir(parents=True)
+
+        (ws / "pkg" / "project.json").write_text(
+            f'{{"id": "{pkg_id}", "type": "package"}}\n'
+        )
+        guard = f"{pkg_id.upper()}_H"
+        (pkg_include / f"{pkg_id}.h").write_text(
+            f"#ifndef {guard}\n"
+            f"#define {guard}\n"
+            "void pkg_print(void);\n"
+            "#endif\n"
+        )
+        (pkg_src / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#include <stdio.h>\n"
+            "void pkg_print(void) {\n"
+            f'    printf("{message}\\n");\n'
+            "}\n"
+        )
+
+        (ws / "app" / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            f'"value": {{"use": ["{pkg_id}"], "standalone": true}}}}\n'
+        )
+        (app_src / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "int main(void) {\n"
+            "    pkg_print();\n"
+            "    return 0;\n"
+            "}\n"
+        )
+
+        return ws, pkg_id, app_id
+
+    def test_standalone_flag_generates_amalgamated_deps(self) -> None:
+        self.bake(["build", "test/projects/c/pkg_helloworld"])
+        target = "test/projects/c/app_standalone"
+        deps_dir = self.repo_root / target / "deps"
+        self.addCleanup(shutil.rmtree, deps_dir, ignore_errors=True)
+        if deps_dir.exists():
+            shutil.rmtree(deps_dir)
+
+        output = self.bake(["run", target])
+        self.assertIn("Hello world", self.strip_ansi(output))
+
+        header = deps_dir / "examples_c_pkg_helloworld.h"
+        source = deps_dir / "examples_c_pkg_helloworld.c"
+        marker = deps_dir / ".bake_standalone_deps"
+        self.assertTrue(header.exists(), f"Expected amalgamated header at {header}")
+        self.assertTrue(source.exists(), f"Expected amalgamated source at {source}")
+        self.assertTrue(marker.exists(), f"Expected marker at {marker}")
+
+        header_text = header.read_text()
+        self.assertIn("#define examples_c_pkg_helloworld_STATIC", header_text)
+        self.assertIn("void pkg_helloworld(void);", header_text)
+
+        marker_text = marker.read_text()
+        self.assertIn("examples.c.pkg_helloworld=", marker_text)
+
+        obj_names = [p.name for p in self.object_paths(target)]
+        self.assertTrue(
+            any("examples_c_pkg_helloworld" in name for name in obj_names),
+            f"Expected dependency object among {obj_names}",
+        )
+
+    def test_standalone_deps_refresh_when_dependency_changes(self) -> None:
+        ws, pkg_id, _ = self.write_standalone_workspace("standalone_refresh")
+
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("Hello world", self.strip_ansi(output))
+
+        pkg_main = ws / "pkg" / "src" / "main.c"
+        pkg_main.write_text(pkg_main.read_text().replace("Hello world", "Hello universe"))
+
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("Hello universe", self.strip_ansi(output))
+
+        deps_source = ws / "app" / "deps" / f"{pkg_id}.c"
+        self.assertIn("Hello universe", deps_source.read_text())
+
+    def test_standalone_rebuild_uses_existing_deps_when_dependency_missing(self) -> None:
+        ws, pkg_id, _ = self.write_standalone_workspace("standalone_no_dep")
+
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("Hello world", self.strip_ansi(output))
+
+        shutil.rmtree(ws / "pkg")
+
+        self.bake(["rebuild", "app"], cwd=ws)
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("Hello world", self.strip_ansi(output))
+
+        deps_dir = ws / "app" / "deps"
+        self.assertTrue((deps_dir / f"{pkg_id}.h").exists())
+        self.assertTrue((deps_dir / f"{pkg_id}.c").exists())
+
+    def test_standalone_build_fails_clearly_when_dependency_missing(self) -> None:
+        ws, _, _ = self.write_standalone_workspace("standalone_missing")
+        shutil.rmtree(ws / "pkg")
+
+        output = self.bake_expect_failure(["build", "app"], cwd=ws)
+        self.assertIn(
+            "cannot generate standalone sources", self.strip_ansi(output)
+        )
+
     def test_header_mtime_triggers_rebuild(self) -> None:
         stamp = int(time.time() * 1_000_000)
         project_dir = self.repo_root / "test" / "tmp" / f"header_mtime_{stamp}"

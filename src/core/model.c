@@ -397,9 +397,13 @@ const BakeProject* bake_model_find_project_by_path(const ecs_world_t *world, con
 
 static ecs_entity_t bake_model_ensure_dependency(ecs_world_t *world, const char *id) {
     ecs_entity_t dep = ecs_lookup_path_w_sep(world, 0, id, "::", NULL, false);
-    if (dep) {
+    if (dep && ecs_has(world, dep, BakeProject)) {
         return dep;
     }
+
+    /* A dependency id can collide with a builtin flecs entity name (e.g. the
+     * "flecs" module scope). Register a placeholder project on the entity so
+     * the dependency shows up as unresolved instead of silently vanishing. */
 
     bake_project_cfg_t *cfg = ecs_os_calloc_t(bake_project_cfg_t);
     bake_project_cfg_init(cfg);
@@ -490,6 +494,18 @@ static void bake_model_mark_build_recursive_inner(
     });
 
     if (!recursive) {
+        return;
+    }
+
+    /* Standalone applications and tests compile their dependencies from the
+     * amalgamated sources in deps/, so the dependency projects themselves do
+     * not have to be built. */
+    const BakeProject *project = ecs_get(world, entity, BakeProject);
+    if (project && project->cfg &&
+        (standalone || project->cfg->standalone) &&
+        (project->cfg->kind == BAKE_PROJECT_APPLICATION ||
+         project->cfg->kind == BAKE_PROJECT_TEST))
+    {
         return;
     }
 

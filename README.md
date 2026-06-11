@@ -164,7 +164,7 @@ The following options are supported:
 - `public`: When false, the project will not be copied to the bake environment (see below). Default is true.
 - `amalgamate`: Specify whether the project should amalgamated the source files.
 - `amalgamate-path`: Destination path for the output of the amalgamation process.
-- `standalone`: When true, this will copy all amalgamated sources from dependencies to a `deps` folder in the project, and include those in the project build rather than relying on linking with dependency binaries. This allows for the project to be easily shared, without having to also share the dependencies.
+- `standalone`: When true, this will copy all amalgamated sources from dependencies to a `deps` folder in the project, and include those in the project build rather than relying on linking with dependency binaries. This allows for the project to be easily shared, without having to also share the dependencies. The sources in `deps` are refreshed automatically when a dependency changes. When the dependency sources are not available (for example on a machine that only has the standalone project), the existing sources in `deps` are used as is.
 
 ## Language configuration
 Projects can configure options that are specific to the programming language of the project by adding a `lang.c` or `lang.cpp` section to the project configuration. For example:

@@ -83,6 +83,7 @@ int bake_link_project_binary(
     const bake_lang_cfg_t *lang,
     const bake_strlist_t *mode_ldflags,
     bool force_relink,
+    bool standalone,
     char **artefact_out,
     bool *linked_out);
 
