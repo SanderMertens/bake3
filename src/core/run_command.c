@@ -61,10 +61,6 @@ static int bake_cmd_set_redirect(char **dst, const char *path) {
     }
 
     char *str = ecs_os_strdup(path);
-    if (!str) {
-        return -1;
-    }
-
     ecs_os_free(*dst);
     *dst = str;
     return 0;
@@ -107,13 +103,10 @@ static bool bake_cmd_parse_redirection_token(
     return false;
 }
 
-static int bake_cmd_append_arg(bake_cmd_line_t *cmd, const char *arg) {
+static void bake_cmd_append_arg(bake_cmd_line_t *cmd, const char *arg) {
     if (!cmd->argv) {
         cmd->argv_cap = 8;
         cmd->argv = ecs_os_calloc_n(char*, cmd->argv_cap);
-        if (!cmd->argv) {
-            return -1;
-        }
     }
 
     if ((cmd->argc + 2) > cmd->argv_cap) {
@@ -123,10 +116,6 @@ static int bake_cmd_append_arg(bake_cmd_line_t *cmd, const char *arg) {
         }
 
         char **next_argv = ecs_os_realloc_n(cmd->argv, char*, next);
-        if (!next_argv) {
-            return -1;
-        }
-
         memset(
             &next_argv[cmd->argv_cap],
             0,
@@ -136,12 +125,8 @@ static int bake_cmd_append_arg(bake_cmd_line_t *cmd, const char *arg) {
     }
 
     cmd->argv[cmd->argc] = ecs_os_strdup(arg);
-    if (!cmd->argv[cmd->argc]) {
-        return -1;
-    }
     cmd->argc++;
     cmd->argv[cmd->argc] = NULL;
-    return 0;
 }
 
 static int bake_cmd_next_token(const char **cursor, char **token_out, bool *quoted_out) {
@@ -297,12 +282,7 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
             continue;
         }
 
-        if (bake_cmd_append_arg(cmd, token) != 0) {
-            ecs_os_free(token);
-            bake_cmd_line_fini(cmd);
-            return -1;
-        }
-
+        bake_cmd_append_arg(cmd, token);
         ecs_os_free(token);
     }
 

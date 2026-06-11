@@ -21,9 +21,6 @@ char* bake_text_replace(const char *input, const char *needle, const char *repla
     }
 
     char *out = ecs_os_malloc(total);
-    if (!out) {
-        return NULL;
-    }
     out[0] = '\0';
 
     cur = input;
@@ -70,9 +67,6 @@ char* bake_project_id_as_dash(const char *id) {
 
     size_t len = strlen(id);
     char *out = ecs_os_malloc(len + 1);
-    if (!out) {
-        return NULL;
-    }
 
     for (size_t i = 0; i < len; i++) {
         out[i] = id[i] == '.' ? '-' : id[i];
@@ -87,9 +81,6 @@ char* bake_macro_upper(const char *value) {
     }
 
     char *out = ecs_os_strdup(value);
-    if (!out) {
-        return NULL;
-    }
 
     for (char *ptr = out; *ptr; ptr++) {
         *ptr = (char)toupper((unsigned char)*ptr);

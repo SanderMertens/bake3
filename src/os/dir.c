@@ -87,10 +87,6 @@ int bake_os_mkdirs(const char *path) {
     }
 
     char *tmp = ecs_os_strdup(path);
-    if (!tmp) {
-        return -1;
-    }
-
     size_t len = strlen(tmp);
     for (size_t i = 1; i < len; i++) {
         if (tmp[i] == '/' || tmp[i] == '\\') {
@@ -210,9 +206,6 @@ char* bake_path_dirname(const char *path) {
     }
 
     char *out = ecs_os_malloc(len + 1);
-    if (!out) {
-        return NULL;
-    }
     memcpy(out, path, len);
     out[len] = '\0';
     return out;

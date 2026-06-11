@@ -31,10 +31,6 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
     size_t token_cap = 256;
     size_t token_len = 0;
     char *token = ecs_os_malloc(token_cap);
-    if (!token) {
-        ecs_os_free(content);
-        return true;
-    }
 
     for (size_t i = 0; i < len; i++) {
         char ch = content[i];
@@ -72,13 +68,7 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
                     ecs_os_free(content);
                     return true;
                 }
-                char *next = ecs_os_realloc_n(token, char, next_cap);
-                if (!next) {
-                    ecs_os_free(token);
-                    ecs_os_free(content);
-                    return true;
-                }
-                token = next;
+                token = ecs_os_realloc_n(token, char, next_cap);
                 token_cap = next_cap;
             }
             if (is_escape) {
@@ -108,13 +98,7 @@ bool bake_depfile_outdated(const char *dep_path, int64_t obj_mtime) {
                 ecs_os_free(content);
                 return true;
             }
-            char *next = ecs_os_realloc_n(token, char, next_cap);
-            if (!next) {
-                ecs_os_free(token);
-                ecs_os_free(content);
-                return true;
-            }
-            token = next;
+            token = ecs_os_realloc_n(token, char, next_cap);
             token_cap = next_cap;
         }
         token[token_len++] = ch;
@@ -138,10 +122,6 @@ int64_t bake_project_json_mtime(const bake_project_cfg_t *cfg) {
     }
 
     char *project_json = bake_path_join(cfg->path, "project.json");
-    if (!project_json) {
-        return -1;
-    }
-
     int64_t mtime = bake_os_file_mtime(project_json);
     ecs_os_free(project_json);
     return mtime;
@@ -236,10 +216,6 @@ bool bake_has_dep_artefact_for_lib(
 
     for (int32_t i = 0; i < artefacts->count; i++) {
         char *name = bake_library_name_from_artefact(artefacts->items[i]);
-        if (!name) {
-            continue;
-        }
-
         bool match = !strcmp(name, lib);
         ecs_os_free(name);
         if (match) {

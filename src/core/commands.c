@@ -81,7 +81,6 @@ static void bake_list_template_fini(bake_list_template_t *template_info) {
     if (_c > 1) qsort(ecs_vec_first(&(vec)), (size_t)_c, sizeof(T), (cmp_fn)); \
     if (_c > 0) { \
         T *_p = ecs_os_malloc_n(T, _c); \
-        if (!_p) goto cleanup; \
         ecs_os_memcpy_n(_p, ecs_vec_first_t(&(vec), T), T, _c); \
         *(out_ptr) = _p; \
     } else *(out_ptr) = NULL; \
@@ -144,13 +143,12 @@ static int bake_list_collect_cfgs(
             continue;
         }
         char *base = bake_path_join(cfg_dir->path, subdir);
-        char *artefact_path = base ? bake_path_join(base, artefact_name) : NULL;
+        char *artefact_path = bake_path_join(base, artefact_name);
         ecs_os_free(base);
-        if (!artefact_path) goto cleanup;
-        int append_rc = bake_path_exists(artefact_path)
-            ? bake_strlist_append_unique(cfgs_out, cfg_dir->name) : 0;
+        if (bake_path_exists(artefact_path)) {
+            bake_strlist_append_unique(cfgs_out, cfg_dir->name);
+        }
         ecs_os_free(artefact_path);
-        if (append_rc != 0) goto cleanup;
     }
 
     if (cfgs_out->count > 1) {
@@ -179,10 +177,6 @@ static int bake_list_collect_projects(
     int32_t entry_count = 0;
     ecs_vec_t vec = {0};
     char *meta_dir = bake_path_join(ctx->bake_home, "meta");
-    if (!meta_dir) {
-        goto cleanup;
-    }
-
     if (!bake_path_exists(meta_dir) || !bake_path_is_dir(meta_dir)) {
         rc = 0;
         goto cleanup;
@@ -235,12 +229,6 @@ static int bake_list_collect_projects(
         project->id = ecs_os_strdup(entry->name);
         project->kind = cfg.kind;
         project->cfgs = cfgs;
-        if (!project->id) {
-            bake_strlist_fini(&project->cfgs);
-            ecs_vec_remove_last(&vec);
-            bake_project_cfg_fini(&cfg);
-            goto cleanup;
-        }
         bake_project_cfg_fini(&cfg);
     }
 
@@ -267,10 +255,6 @@ static int bake_list_collect_templates(
     int32_t entry_count = 0;
     ecs_vec_t vec = {0};
     char *template_root = bake_path_join(ctx->bake_home, "template");
-    if (!template_root) {
-        goto cleanup;
-    }
-
     if (!bake_path_exists(template_root) || !bake_path_is_dir(template_root)) {
         rc = 0;
         goto cleanup;
@@ -301,11 +285,7 @@ static int bake_list_collect_templates(
             if (!item->is_dir || bake_is_dot_dir(item->name)) {
                 continue;
             }
-            if (bake_strlist_append(&items, item->name) != 0) {
-                bake_dir_entries_free(item_entries, item_count);
-                bake_strlist_fini(&items);
-                goto cleanup;
-            }
+            bake_strlist_append(&items, item->name);
         }
         bake_dir_entries_free(item_entries, item_count);
 
@@ -318,11 +298,6 @@ static int bake_list_collect_templates(
         bake_list_template_t *tmpl = ecs_vec_append_t(NULL, &vec, bake_list_template_t);
         tmpl->id = ecs_os_strdup(entry->name);
         tmpl->entries = items;
-        if (!tmpl->id) {
-            bake_strlist_fini(&tmpl->entries);
-            ecs_vec_remove_last(&vec);
-            goto cleanup;
-        }
     }
 
     BAKE_VEC_FINALIZE(bake_list_template_t, vec, bake_list_cmp_template, templates_out, count_out);
@@ -337,16 +312,7 @@ cleanup:
 
 static int bake_list_projects(bake_context_t *ctx) {
     char *platform = bake_host_platform();
-    if (!platform) {
-        return -1;
-    }
-
     char *platform_dir = bake_path_join(ctx->bake_home, platform);
-    if (!platform_dir) {
-        ecs_os_free(platform);
-        return -1;
-    }
-
     bake_list_project_t *projects = NULL;
     int32_t project_count = 0;
     if (bake_list_collect_projects(ctx, platform_dir, &projects, &project_count) != 0) {
@@ -384,14 +350,14 @@ static int bake_list_projects(bake_context_t *ctx) {
         }
 
         char *cfg_joined = bake_strlist_join(&project->cfgs, ", ");
-        printf("%c  %s => [%s]\n", symbol, project->id, cfg_joined ? cfg_joined : "");
+        printf("%c  %s => [%s]\n", symbol, project->id, cfg_joined);
         ecs_os_free(cfg_joined);
     }
 
     printf("\nTemplates:\n");
     for (int32_t i = 0; i < template_count; i++) {
         char *items_joined = bake_strlist_join(&templates[i].entries, ", ");
-        printf("T  %s => [%s]\n", templates[i].id, items_joined ? items_joined : "");
+        printf("T  %s => [%s]\n", templates[i].id, items_joined);
         ecs_os_free(items_joined);
     }
 
@@ -416,7 +382,7 @@ static void bake_print_cfg_strlist(
         return;
     }
     char *joined = bake_strlist_join(values, ", ");
-    printf("%-*s %s\n", width, label, joined ? joined : "");
+    printf("%-*s %s\n", width, label, joined);
     ecs_os_free(joined);
 }
 
@@ -439,9 +405,6 @@ static const BakeProject* bake_find_project_for_target(
         abs = ecs_os_strdup(target);
     } else {
         abs = bake_path_join(ctx->opts.cwd, target);
-    }
-    if (!abs) {
-        return NULL;
     }
 
     project = bake_model_find_project_by_path(ctx->world, abs, entity_out);

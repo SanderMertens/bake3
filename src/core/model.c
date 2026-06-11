@@ -158,15 +158,10 @@ static void bake_build_result_move(void *dst_ptr, void *src_ptr, int32_t count, 
     }
 }
 
-static int bake_model_append_dep_entity(BakeResolvedDeps *resolved, ecs_entity_t dep) {
+static void bake_model_append_dep_entity(BakeResolvedDeps *resolved, ecs_entity_t dep) {
     int32_t next_count = resolved->dep_count + 1;
-    ecs_entity_t *next = ecs_os_realloc_n(resolved->deps, ecs_entity_t, next_count);
-    if (!next) {
-        return -1;
-    }
-    resolved->deps = next;
+    resolved->deps = ecs_os_realloc_n(resolved->deps, ecs_entity_t, next_count);
     resolved->deps[resolved->dep_count++] = dep;
-    return 0;
 }
 
 static void bake_model_try_append_include_path(
@@ -178,7 +173,7 @@ static void bake_model_try_append_include_path(
     char *include = NULL;
     if (external && bake_home && cfg && cfg->id) {
         include = bake_path_join3(bake_home, "include", cfg->id);
-        if (include && !bake_path_exists(include)) {
+        if (!bake_path_exists(include)) {
             ecs_os_free(include);
             include = NULL;
         }
@@ -341,10 +336,6 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
 
     for (int32_t i = 0; i < cfg->drivers.count; i++) {
         char *driver_id = ecs_os_strdup(cfg->drivers.items[i]);
-        if (!driver_id) {
-            ecs_err("out of memory while attaching driver '%s'", cfg->drivers.items[i]);
-            return 0;
-        }
         ecs_entity_t drv = ecs_entity(world, {
             .parent = entity
         });
@@ -357,12 +348,6 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
         for (int32_t i = 0; i < rule_count; i++) {
             char *rule_ext = ecs_os_strdup(rules[i].ext);
             char *rule_cmd = ecs_os_strdup(rules[i].command);
-            if (!rule_ext || !rule_cmd) {
-                ecs_os_free(rule_ext);
-                ecs_os_free(rule_cmd);
-                ecs_err("out of memory while attaching build rule for '%s'", rules[i].ext);
-                return 0;
-            }
             ecs_entity_t rule = ecs_entity(world, {
                 .parent = entity
             });
@@ -417,9 +402,6 @@ static ecs_entity_t bake_model_ensure_dependency(ecs_world_t *world, const char 
     }
 
     bake_project_cfg_t *cfg = ecs_os_calloc_t(bake_project_cfg_t);
-    if (!cfg) {
-        return 0;
-    }
     bake_project_cfg_init(cfg);
     ecs_os_free(cfg->id);
     cfg->id = ecs_os_strdup(id);
@@ -600,7 +582,7 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
         bake_model_mark_build_recursive(world, entity, mode, true, standalone);
     }
 }
-static int bake_model_collect_resolved_deps(
+static void bake_model_collect_resolved_deps(
     const ecs_world_t *world,
     ecs_entity_t project_entity,
     const char *mode,
@@ -619,9 +601,7 @@ static int bake_model_collect_resolved_deps(
         }
         ecs_map_insert(visited, (ecs_map_key_t)dep, 0);
 
-        if (bake_model_append_dep_entity(resolved, dep) != 0) {
-            return -1;
-        }
+        bake_model_append_dep_entity(resolved, dep);
 
         const BakeProject *dep_project = ecs_get(world, dep, BakeProject);
         if (dep_project && dep_project->cfg) {
@@ -654,14 +634,9 @@ static int bake_model_collect_resolved_deps(
             }
         }
 
-        if (bake_model_collect_resolved_deps(
-            world, dep, mode, bake_home, resolved, visited) != 0)
-        {
-            return -1;
-        }
+        bake_model_collect_resolved_deps(
+            world, dep, mode, bake_home, resolved, visited);
     }
-
-    return 0;
 }
 
 int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
@@ -679,7 +654,6 @@ int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
         }
     }
 
-    int rc = 0;
     for (int32_t e = 0; e < ecs_vec_count(&entities); e++) {
         ecs_entity_t entity = *ecs_vec_get_t(&entities, ecs_entity_t, e);
 
@@ -690,19 +664,13 @@ int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
         ecs_map_init(&visited, NULL);
         ecs_map_insert(&visited, (ecs_map_key_t)entity, 0);
 
-        if (bake_model_collect_resolved_deps(
+        bake_model_collect_resolved_deps(
             world,
             entity,
             resolved_mode,
             bake_home,
             &resolved,
-            &visited) != 0)
-        {
-            ecs_map_fini(&visited);
-            bake_model_resolved_deps_fini(&resolved);
-            rc = -1;
-            break;
-        }
+            &visited);
 
         ecs_map_fini(&visited);
 
@@ -724,7 +692,7 @@ int bake_model_refresh_resolved_deps(ecs_world_t *world, const char *mode) {
     }
 
     ecs_vec_fini_t(NULL, &entities, ecs_entity_t);
-    return rc;
+    return 0;
 }
 
 static int bake_model_detect_cycle(
@@ -817,11 +785,6 @@ int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities
     }
 
     bake_sort_entry_t *entries = ecs_os_malloc_n(bake_sort_entry_t, count);
-    if (!entries) {
-        ecs_vec_fini_t(NULL, &vec, ecs_entity_t);
-        return -1;
-    }
-
     bool has_valid_depth = true;
     for (int32_t i = 0; i < count; i++) {
         int32_t d = ecs_get_depth(world, vec_entities[i], BakeDependsOn);
@@ -838,10 +801,6 @@ int bake_model_build_order(const ecs_world_t *world, ecs_entity_t **out_entities
     qsort(entries, (size_t)count, sizeof(*entries), bake_sort_entry_cmp);
 
     ecs_entity_t *entities = ecs_os_malloc_n(ecs_entity_t, count);
-    if (!entities) {
-        ecs_os_free(entries);
-        return -1;
-    }
     for (int32_t i = 0; i < count; i++) entities[i] = entries[i].entity;
     ecs_os_free(entries);
 

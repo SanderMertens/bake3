@@ -32,7 +32,7 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
             return 1;
         }
         char *marker = bake_path_join(entry->path, ".bake-skip");
-        bool skip = marker && bake_path_exists(marker);
+        bool skip = bake_path_exists(marker);
         ecs_os_free(marker);
         if (skip) {
             return 1;
@@ -45,9 +45,6 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     }
 
     bake_project_cfg_t *cfg = ecs_os_calloc_t(bake_project_cfg_t);
-    if (!cfg) {
-        return -1;
-    }
     bake_project_cfg_init(cfg);
 
     if (bake_project_cfg_load_file(entry->path, cfg) != 0) {

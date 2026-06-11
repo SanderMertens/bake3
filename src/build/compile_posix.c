@@ -40,15 +40,12 @@ int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_st
     ecs_strbuf_append(cmd, " -DBAKE_PROJECT_ID=\\\"%s\\\"", ctx->cfg->id);
     if (ctx->cfg->kind == BAKE_PROJECT_PACKAGE) {
         char *macro = bake_project_id_as_macro(ctx->cfg->id);
-        if (!macro) {
-            return -1;
-        }
         ecs_strbuf_append(cmd, " -D%s_EXPORTS", macro);
         ecs_os_free(macro);
     }
 
     char *include = bake_path_join(ctx->cfg->path, "include");
-    if (include && bake_path_exists(include)) {
+    if (bake_path_exists(include)) {
         bake_strbuf_append_quoted_path(cmd, " -I", include);
     }
     ecs_os_free(include);
@@ -128,9 +125,7 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
             export_name_alloc = bake_project_id_as_macro(ctx->cfg->id);
             export_name = export_name_alloc;
         }
-        if (export_name) {
-            ecs_strbuf_append(cmd, " -s EXPORT_NAME=\"%s\"", export_name);
-        }
+        ecs_strbuf_append(cmd, " -s EXPORT_NAME=\"%s\"", export_name);
         ecs_os_free(export_name_alloc);
 
         for (int32_t i = 0; i < ctx->lang->embed.count; i++) {

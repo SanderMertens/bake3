@@ -66,20 +66,17 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir) 
     }
 
     base = bake_project_id_as_macro(cfg->id);
-    h_name = base ? flecs_asprintf("%s.h", base) : NULL;
-    c_name = base ? flecs_asprintf("%s.c", base) : NULL;
-    h_path = h_name ? bake_path_join(dst_dir, h_name) : NULL;
-    c_path = c_name ? bake_path_join(dst_dir, c_name) : NULL;
-    if (!base || !h_name || !c_name || !h_path || !c_path) {
-        goto cleanup;
-    }
+    h_name = flecs_asprintf("%s.h", base);
+    c_name = flecs_asprintf("%s.c", base);
+    h_path = bake_path_join(dst_dir, h_name);
+    c_path = bake_path_join(dst_dir, c_name);
 
     ecs_strbuf_append(&h_buf, "/* Amalgamated headers for %s */\n", cfg->id);
     ecs_strbuf_append(&h_buf, "#ifndef %s_H\n", base);
     ecs_strbuf_append(&h_buf, "#define %s_H\n", base);
 
     char *include_dir = bake_path_join(cfg->path, "include");
-    if (include_dir && bake_path_exists(include_dir)) {
+    if (bake_path_exists(include_dir)) {
         bake_concat_ctx_t ctx = {.out = &h_buf, .ext = ".h"};
         if (bake_dir_walk_recursive(include_dir, bake_concat_visit, &ctx) != 0) {
             ecs_os_free(include_dir);
@@ -93,7 +90,7 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir) 
     ecs_strbuf_append(&c_buf, "#include \"%s\"\n", h_name);
 
     char *src_dir = bake_path_join(cfg->path, "src");
-    if (src_dir && bake_path_exists(src_dir)) {
+    if (bake_path_exists(src_dir)) {
         bake_concat_ctx_t ctx = {.out = &c_buf, .ext = ".c"};
         if (bake_dir_walk_recursive(src_dir, bake_concat_visit, &ctx) != 0) {
             ecs_os_free(src_dir);
@@ -104,10 +101,6 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir) 
 
     h_content = ecs_strbuf_get(&h_buf);
     c_content = ecs_strbuf_get(&c_buf);
-    if (!h_content || !c_content) {
-        goto cleanup;
-    }
-
     if (bake_file_write(h_path, h_content) != 0 || bake_file_write(c_path, c_content) != 0) {
         goto cleanup;
     }
@@ -166,10 +159,6 @@ static char* bake_parse_include_file(const char *line, bool *relative_out) {
 
     size_t len = (size_t)(end_ptr - p);
     char *out = ecs_os_malloc(len + 1);
-    if (!out) {
-        return NULL;
-    }
-
     memcpy(out, p, len);
     out[len] = '\0';
     return out;
@@ -186,10 +175,7 @@ static bool bake_path_mark_parsed(bake_strlist_t *parsed, const char *path) {
         return false;
     }
 
-    if (bake_strlist_append_owned(parsed, normalized) != 0) {
-        return false;
-    }
-
+    bake_strlist_append_owned(parsed, normalized);
     return true;
 }
 
@@ -381,9 +367,6 @@ static char* bake_condition_text(const char *arg) {
     const char *start = bake_skip_ws(arg);
     size_t len = strlen(start);
     char *text = ecs_os_malloc(len + 1);
-    if (!text) {
-        return NULL;
-    }
     memcpy(text, start, len);
     text[len] = '\0';
 
@@ -430,9 +413,6 @@ static bool bake_cond_eval_managed(
 
     if (kind == BAKE_CPP_IF) {
         char *cond = bake_condition_text(arg);
-        if (!cond) {
-            return false;
-        }
         bool value = false;
         bool managed = bake_eval_defined_expr(cond, disable, &value);
         ecs_os_free(cond);
@@ -596,13 +576,10 @@ static int bake_amalgamate_file(
                         }
                     } else {
                         bool value = false;
-                        bool managed_elif = false;
                         char *cond = bake_condition_text(arg);
-                        if (cond) {
-                            managed_elif = bake_eval_defined_expr(
-                                cond, ctx->disable, &value);
-                            ecs_os_free(cond);
-                        }
+                        bool managed_elif = bake_eval_defined_expr(
+                            cond, ctx->disable, &value);
+                        ecs_os_free(cond);
 
                         if (managed_elif) {
                             /* The elif condition itself references a disabled
@@ -744,27 +721,23 @@ static int bake_amalgamate_file(
     return 0;
 }
 
-static int bake_try_source_name(
+static void bake_try_source_name(
     const char *src_dir,
     const char *name,
     const char *ext,
     char **out)
 {
     if (*out) {
-        return 0;
+        return;
     }
 
     char *path = flecs_asprintf("%s/%s.%s", src_dir, name, ext);
-    if (!path) {
-        return -1;
-    }
     if (bake_path_exists(path)) {
         *out = path;
-        return 0;
+        return;
     }
 
     ecs_os_free(path);
-    return 0;
 }
 
 static char* bake_find_main_src_file(
@@ -777,26 +750,14 @@ static char* bake_find_main_src_file(
     const char *const *exts = bake_language_is_cpp(cfg) ? cpp_exts : c_exts;
 
     char *id_base = bake_project_id_base(cfg->id);
-    if (!id_base) {
-        return NULL;
-    }
-
     char *found = NULL;
     for (int i = 0; exts[i] && !found; i++) {
-        if (bake_try_source_name(src_dir, "main", exts[i], &found) != 0) {
-            ecs_os_free(found);
-            ecs_os_free(id_base);
-            return NULL;
+        bake_try_source_name(src_dir, "main", exts[i], &found);
+        if (!found) {
+            bake_try_source_name(src_dir, project_id, exts[i], &found);
         }
-        if (!found && bake_try_source_name(src_dir, project_id, exts[i], &found) != 0) {
-            ecs_os_free(found);
-            ecs_os_free(id_base);
-            return NULL;
-        }
-        if (!found && bake_try_source_name(src_dir, id_base, exts[i], &found) != 0) {
-            ecs_os_free(found);
-            ecs_os_free(id_base);
-            return NULL;
+        if (!found) {
+            bake_try_source_name(src_dir, id_base, exts[i], &found);
         }
     }
 
@@ -869,10 +830,6 @@ static bool bake_comment_has_file_directive(const char *start, const char *end) 
 
 static char* bake_clean_amalgamation(const char *in, size_t in_len) {
     char *out = ecs_os_malloc(in_len + 1);
-    if (!out) {
-        return NULL;
-    }
-
     size_t w = 0;
     int newline_run = 2;
     const char *p = in;
@@ -955,10 +912,6 @@ static int bake_finalize_amalgamation(
 
     char *cleaned = bake_clean_amalgamation(raw, len);
     ecs_os_free(raw);
-    if (!cleaned) {
-        return -1;
-    }
-
     int rc = bake_file_write(out_file, cleaned);
     ecs_os_free(cleaned);
     return rc;
@@ -984,15 +937,13 @@ static int bake_generate_one_amalgamation(
     bool main_included = false;
     bake_strlist_t parsed = {0};
     bake_strlist_t sources = {0};
-    bool parsed_ready = false;
-    bool sources_ready = false;
 
     const char *output_base =
         (amalg->prefix && amalg->prefix[0]) ? amalg->prefix : project_id;
 
     output_path = (amalg->path && amalg->path[0]) ?
         bake_path_join(cfg->path, amalg->path) : ecs_os_strdup(cfg->path);
-    if (!output_path || bake_os_mkdirs(output_path) != 0) {
+    if (bake_os_mkdirs(output_path) != 0) {
         goto cleanup;
     }
 
@@ -1001,9 +952,6 @@ static int bake_generate_one_amalgamation(
     include_tmp = flecs_asprintf("%s/%s.h.tmp", output_path, output_base);
     src_out = flecs_asprintf("%s/%s.%s", output_path, output_base, src_ext);
     src_tmp = flecs_asprintf("%s/%s.%s.tmp", output_path, output_base, src_ext);
-    if (!include_out || !include_tmp || !src_out || !src_tmp) {
-        goto cleanup;
-    }
 
     bake_amalgamate_ctx_t ctx = {
         .cfg = cfg,
@@ -1013,7 +961,6 @@ static int bake_generate_one_amalgamation(
     };
 
     bake_strlist_init(&parsed);
-    parsed_ready = true;
 
     include_fp = fopen(include_tmp, "wb");
     if (!include_fp) {
@@ -1045,7 +992,6 @@ static int bake_generate_one_amalgamation(
     }
 
     bake_strlist_init(&sources);
-    sources_ready = true;
     if (bake_collect_source_files(src_path, &sources) != 0) {
         goto cleanup;
     }
@@ -1090,12 +1036,8 @@ cleanup:
             remove(src_tmp);
         }
     }
-    if (sources_ready) {
-        bake_strlist_fini(&sources);
-    }
-    if (parsed_ready) {
-        bake_strlist_fini(&parsed);
-    }
+    bake_strlist_fini(&sources);
+    bake_strlist_fini(&parsed);
     ecs_os_free(output_path);
     ecs_os_free(include_out);
     ecs_os_free(include_tmp);
@@ -1119,17 +1061,13 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
     char *project_id = bake_project_id_as_macro(cfg->id);
     char *include_path = bake_path_join(cfg->path, "include");
     char *src_path = bake_path_join(cfg->path, "src");
-    char *main_header = include_path && project_id ?
-        flecs_asprintf("%s/%s.h", include_path, project_id) : NULL;
-    if (!project_id || !include_path || !src_path || !main_header) {
-        goto cleanup;
-    }
+    char *main_header = flecs_asprintf("%s/%s.h", include_path, project_id);
 
     if (!bake_path_exists(main_header)) {
         char *id_base = bake_project_id_base(cfg->id);
-        char *base_project_id = id_base ? bake_project_id_as_macro(id_base) : NULL;
-        char *base_header = base_project_id ? flecs_asprintf("%s/%s.h", include_path, base_project_id) : NULL;
-        if (base_project_id && base_header && bake_path_exists(base_header)) {
+        char *base_project_id = bake_project_id_as_macro(id_base);
+        char *base_header = flecs_asprintf("%s/%s.h", include_path, base_project_id);
+        if (bake_path_exists(base_header)) {
             ecs_os_free(project_id);
             project_id = base_project_id;
             base_project_id = NULL;

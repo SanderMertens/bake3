@@ -93,9 +93,6 @@ char* bake_os_getcwd(void) {
 
     for (;;) {
         char *buf = ecs_os_malloc(size);
-        if (!buf) {
-            return NULL;
-        }
 
 #if defined(_WIN32)
         if (_getcwd(buf, (int)size)) {
@@ -241,7 +238,7 @@ static bool bake_exe_in_path(const char *exe) {
             dir[len] = '\0';
             char *full = bake_path_join(dir, exe);
             ecs_os_free(dir);
-            if (full && !access(full, X_OK)) {
+            if (!access(full, X_OK)) {
                 ecs_os_free(full);
                 return true;
             }
@@ -269,13 +266,13 @@ static char* bake_find_emsdk_root(void) {
     if (home) {
         home_default = bake_path_join(home, "GitHub/emsdk");
         ecs_os_free(home);
-        if (home_default) candidates[count++] = home_default;
+        candidates[count++] = home_default;
     }
 
     char *result = NULL;
     for (int32_t i = 0; i < count; i++) {
         char *script = bake_path_join(candidates[i], "emsdk_env.sh");
-        if (script && bake_path_exists(script)) {
+        if (bake_path_exists(script)) {
             result = ecs_os_strdup(candidates[i]);
             ecs_os_free(script);
             break;

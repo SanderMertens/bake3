@@ -18,9 +18,6 @@ char* bake_project_id_as_macro(const char *id) {
 
     size_t len = strlen(id);
     char *out = ecs_os_malloc(len + 1);
-    if (!out) {
-        return NULL;
-    }
 
     for (size_t i = 0; i < len; i++) {
         unsigned char ch = (unsigned char)id[i];
@@ -194,7 +191,7 @@ void bake_add_strict_flags(
     bake_append_flags(ldflags, gnu_ld);
 }
 
-static int bake_collect_dependency_link_inputs(
+static void bake_collect_dependency_link_inputs(
     ecs_world_t *world,
     const BakeResolvedDeps *resolved,
     bake_strlist_t *artefacts,
@@ -203,14 +200,11 @@ static int bake_collect_dependency_link_inputs(
     bake_strlist_t *ldflags)
 {
     if (!resolved) {
-        return 0;
+        return;
     }
 
-    if (bake_strlist_merge_unique(libpaths, &resolved->build_libpaths) != 0 ||
-        bake_strlist_merge_unique(ldflags, &resolved->ldflags) != 0)
-    {
-        return -1;
-    }
+    bake_strlist_merge_unique(libpaths, &resolved->build_libpaths);
+    bake_strlist_merge_unique(ldflags, &resolved->ldflags);
 
     for (int32_t i = 0; i < resolved->dep_count; i++) {
         const BakeBuildResult *result = ecs_get(world, resolved->deps[i], BakeBuildResult);
@@ -222,10 +216,8 @@ static int bake_collect_dependency_link_inputs(
 
         bake_strlist_append(artefacts, result->artefact);
         char *libdir = bake_path_dirname(result->artefact);
-        if (libdir) {
-            bake_strlist_append_unique(libpaths, libdir);
-            ecs_os_free(libdir);
-        }
+        bake_strlist_append_unique(libpaths, libdir);
+        ecs_os_free(libdir);
     }
 
     for (int32_t i = 0; i < resolved->libs.count; i++) {
@@ -238,8 +230,6 @@ static int bake_collect_dependency_link_inputs(
 
         bake_strlist_append(libs, lib);
     }
-
-    return 0;
 }
 
 typedef struct bake_compile_ctx_t {
@@ -283,15 +273,12 @@ static char* bake_compile_display_path(const bake_project_cfg_t *cfg, const char
     }
 
     char *path = bake_display_path(src, cfg ? cfg->path : NULL);
-    if (!path) {
-        return bake_path_basename(src);
-    }
 
     /* Strip leading "src/" from compile display paths */
     if (!strncmp(path, "src/", 4) || !strncmp(path, "src\\", 4)) {
         char *trimmed = ecs_os_strdup(path + 4);
         ecs_os_free(path);
-        return trimmed ? trimmed : bake_path_basename(src);
+        return trimmed;
     }
 
     if (!path[0] || !strcmp(path, ".")) {
@@ -328,19 +315,14 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
         .dep_includes = &ctx->dep_includes
     };
 
-    int rc = 0;
     if (ctx->ctx->compiler_kind == BAKE_COMPILER_MSVC) {
-        rc = bake_compose_compile_command_msvc(&cmd_ctx, &cmd);
+        bake_compose_compile_command_msvc(&cmd_ctx, &cmd);
     } else {
-        rc = bake_compose_compile_command_posix(&cmd_ctx, &cmd);
-    }
-    if (rc != 0) {
-        ecs_strbuf_reset(&cmd);
-        return -1;
+        bake_compose_compile_command_posix(&cmd_ctx, &cmd);
     }
 
     char *command = ecs_strbuf_get(&cmd);
-    rc = bake_run_compiler_command(ctx->ctx, ctx->print_lock, command);
+    int rc = bake_run_compiler_command(ctx->ctx, ctx->print_lock, command);
     ecs_os_free(command);
     return rc;
 }
@@ -404,12 +386,8 @@ int bake_compile_units_parallel(
     };
 
     int rc = -1;
-    bool dep_includes_ready = false;
     ecs_os_thread_t *threads = NULL;
     compile_ctx.compile_mask = ecs_os_calloc_n(bool, units->count);
-    if (!compile_ctx.compile_mask) {
-        goto cleanup;
-    }
 
     int64_t project_json_mtime = bake_project_json_mtime(cfg);
     for (int32_t i = 0; i < units->count; i++) {
@@ -427,11 +405,8 @@ int bake_compile_units_parallel(
     }
 
     bake_strlist_init(&compile_ctx.dep_includes);
-    dep_includes_ready = true;
     if (resolved) {
-        if (bake_strlist_merge_unique(&compile_ctx.dep_includes, &resolved->include_paths) != 0) {
-            goto cleanup;
-        }
+        bake_strlist_merge_unique(&compile_ctx.dep_includes, &resolved->include_paths);
     }
     compile_ctx.print_lock = ecs_os_mutex_new();
 
@@ -444,10 +419,6 @@ int bake_compile_units_parallel(
     }
 
     threads = ecs_os_malloc_n(ecs_os_thread_t, workers);
-    if (!threads) {
-        goto cleanup;
-    }
-
     int32_t started = 0;
     for (int32_t i = 0; i < workers; i++) {
         threads[i] = ecs_os_thread_new(bake_compile_worker, &compile_ctx);
@@ -474,9 +445,7 @@ int bake_compile_units_parallel(
 
 cleanup:
     ecs_os_free(threads);
-    if (dep_includes_ready) {
-        bake_strlist_fini(&compile_ctx.dep_includes);
-    }
+    bake_strlist_fini(&compile_ctx.dep_includes);
     if (compile_ctx.print_lock) {
         ecs_os_mutex_free(compile_ctx.print_lock);
     }
@@ -549,16 +518,13 @@ int bake_link_project_binary(
 
     const BakeResolvedDeps *resolved = ecs_get(ctx->world, project_entity, BakeResolvedDeps);
 
-    if (bake_collect_dependency_link_inputs(
+    bake_collect_dependency_link_inputs(
         ctx->world,
         resolved,
         &dep_artefacts,
         &dep_libpaths,
         &dep_libs,
-        &dep_ldflags) != 0)
-    {
-        goto cleanup;
-    }
+        &dep_ldflags);
 
     bool is_lib = cfg->kind == BAKE_PROJECT_PACKAGE;
     file_name = bake_project_cfg_artefact_name(cfg);
@@ -570,9 +536,6 @@ int bake_link_project_binary(
     artefact = bake_path_join(is_lib ? paths->lib_dir : paths->bin_dir, file_name);
     ecs_os_free(file_name);
     file_name = NULL;
-    if (!artefact) {
-        goto cleanup;
-    }
 
     if (!bake_link_inputs_outdated(cfg, artefact, units, &dep_artefacts)) {
         *artefact_out = artefact;
@@ -621,15 +584,10 @@ int bake_link_project_binary(
         .use_cpp = use_cpp
     };
 
-    int compose_rc = 0;
     if (ctx->compiler_kind == BAKE_COMPILER_MSVC) {
-        compose_rc = bake_compose_link_command_msvc(&cmd_ctx, &cmd);
+        bake_compose_link_command_msvc(&cmd_ctx, &cmd);
     } else {
-        compose_rc = bake_compose_link_command_posix(&cmd_ctx, &cmd);
-    }
-    if (compose_rc != 0) {
-        ecs_strbuf_reset(&cmd);
-        goto cleanup;
+        bake_compose_link_command_posix(&cmd_ctx, &cmd);
     }
 
     char *command = ecs_strbuf_get(&cmd);

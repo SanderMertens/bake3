@@ -1,9 +1,9 @@
 #include "bake/strlist.h"
 #include <flecs.h>
 
-static int bake_strlist_ensure(bake_strlist_t *list, int32_t n) {
+static void bake_strlist_ensure(bake_strlist_t *list, int32_t n) {
     if (list->count + n <= list->capacity) {
-        return 0;
+        return;
     }
 
     int32_t next = list->capacity ? list->capacity * 2 : 8;
@@ -11,14 +11,8 @@ static int bake_strlist_ensure(bake_strlist_t *list, int32_t n) {
         next *= 2;
     }
 
-    char **items = ecs_os_realloc_n(list->items, char*, next);
-    if (!items) {
-        return -1;
-    }
-
-    list->items = items;
+    list->items = ecs_os_realloc_n(list->items, char*, next);
     list->capacity = next;
-    return 0;
 }
 
 void bake_strlist_init(bake_strlist_t *list) {
@@ -46,10 +40,7 @@ int bake_strlist_append(bake_strlist_t *list, const char *value) {
 }
 
 int bake_strlist_append_owned(bake_strlist_t *list, char *value) {
-    if (bake_strlist_ensure(list, 1) != 0) {
-        ecs_os_free(value);
-        return -1;
-    }
+    bake_strlist_ensure(list, 1);
     list->items[list->count++] = value;
     return 0;
 }
@@ -105,10 +96,6 @@ char* bake_strlist_join(const bake_strlist_t *list, const char *separator) {
     }
 
     char *out = ecs_os_malloc(total);
-    if (!out) {
-        return NULL;
-    }
-
     out[0] = '\0';
     for (int32_t i = 0; i < list->count; i++) {
         if (i) {

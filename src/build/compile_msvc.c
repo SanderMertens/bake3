@@ -21,15 +21,12 @@ int bake_compose_compile_command_msvc(const bake_compile_cmd_ctx_t *ctx, ecs_str
     ecs_strbuf_append(cmd, " /DBAKE_PROJECT_ID=\\\"%s\\\"", ctx->cfg->id);
     if (ctx->cfg->kind == BAKE_PROJECT_PACKAGE) {
         char *macro = bake_project_id_as_macro(ctx->cfg->id);
-        if (!macro) {
-            return -1;
-        }
         ecs_strbuf_append(cmd, " /D%s_EXPORTS", macro);
         ecs_os_free(macro);
     }
 
     char *include = bake_path_join(ctx->cfg->path, "include");
-    if (include && bake_path_exists(include)) {
+    if (bake_path_exists(include)) {
         ecs_strbuf_append(cmd, " /I\"%s\"", include);
     }
     ecs_os_free(include);

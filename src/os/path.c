@@ -31,10 +31,6 @@ char* bake_path_join(const char *lhs, const char *rhs) {
     bool has_sep = bake_path_is_sep(lhs[lhs_len - 1]);
 
     char *out = ecs_os_malloc(lhs_len + rhs_len + (has_sep ? 1 : 2));
-    if (!out) {
-        return NULL;
-    }
-
     memcpy(out, lhs, lhs_len);
     size_t w = lhs_len;
     if (!has_sep) {
@@ -133,9 +129,7 @@ char* bake_path_resolve(const char *path) {
     char buf[_MAX_PATH];
     if (_fullpath(buf, path, _MAX_PATH)) {
         char *out = ecs_os_strdup(buf);
-        if (out) {
-            bake_path_normalize(out);
-        }
+        bake_path_normalize(out);
         return out;
     }
 #else

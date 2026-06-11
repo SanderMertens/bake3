@@ -68,11 +68,7 @@ int bake_compile_list_append(
 {
     if (list->count == list->capacity) {
         int32_t next = list->capacity ? list->capacity * 2 : 32;
-        bake_compile_unit_t *items = ecs_os_realloc_n(list->items, bake_compile_unit_t, next);
-        if (!items) {
-            return -1;
-        }
-        list->items = items;
+        list->items = ecs_os_realloc_n(list->items, bake_compile_unit_t, next);
         list->capacity = next;
     }
 
@@ -81,12 +77,6 @@ int bake_compile_list_append(
     unit->obj = ecs_os_strdup(obj);
     unit->dep = dep ? ecs_os_strdup(dep) : NULL;
     unit->cpp = cpp;
-    if (!unit->src || !unit->obj || (dep && !unit->dep)) {
-        ecs_os_free(unit->src);
-        ecs_os_free(unit->obj);
-        ecs_os_free(unit->dep);
-        return -1;
-    }
     list->count++;
     return 0;
 }
@@ -111,12 +101,6 @@ int bake_build_paths_init(const bake_project_cfg_t *cfg, const char *mode, bake_
     paths->bin_dir = ecs_os_strdup(paths->build_root);
     paths->lib_dir = ecs_os_strdup(paths->build_root);
     paths->gen_dir = bake_path_join(paths->build_root, "generated");
-
-    if (!paths->obj_dir || !paths->bin_dir || !paths->lib_dir || !paths->gen_dir) {
-        ecs_err("bake_build_paths_init: failed to allocate path(s)");
-        bake_build_paths_fini(paths);
-        return -1;
-    }
 
     if (bake_os_mkdirs(paths->build_root) != 0 ||
         bake_os_mkdirs(paths->obj_dir) != 0 ||
@@ -156,10 +140,6 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     }
 
     char *rel = bake_rel_path(ctx->cfg->path, entry->path);
-    if (!rel) {
-        return -1;
-    }
-
     for (char *p = rel; *p; p++) {
         if (*p == '\\') {
             *p = '/';
@@ -176,33 +156,21 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
 
     char *obj_file = flecs_asprintf("%s%s", rel, obj_ext);
     ecs_os_free(rel);
-    if (!obj_file) {
-        return -1;
-    }
 
     char *obj_path = bake_path_join(ctx->paths->obj_dir, obj_file);
     ecs_os_free(obj_file);
-    if (!obj_path) {
-        return -1;
-    }
 
     char *obj_parent = bake_path_dirname(obj_path);
-    if (obj_parent) {
-        if (bake_os_mkdirs(obj_parent) != 0) {
-            ecs_os_free(obj_parent);
-            ecs_os_free(obj_path);
-            return -1;
-        }
+    if (bake_os_mkdirs(obj_parent) != 0) {
         ecs_os_free(obj_parent);
+        ecs_os_free(obj_path);
+        return -1;
     }
+    ecs_os_free(obj_parent);
 
     char *dep_path = NULL;
     if (ctx->compiler_kind != BAKE_COMPILER_MSVC) {
         dep_path = flecs_asprintf("%s.d", obj_path);
-        if (!dep_path) {
-            ecs_os_free(obj_path);
-            return -1;
-        }
     }
 
     int rc = bake_compile_list_append(ctx->units, entry->path, obj_path, dep_path, cpp);
@@ -227,7 +195,7 @@ int bake_collect_compile_units(
     };
 
     char *src = bake_path_join(cfg->path, "src");
-    if (src && bake_path_exists(src)) {
+    if (bake_path_exists(src)) {
         if (bake_dir_walk_recursive(src, bake_collect_visit, &ctx) != 0) {
             ecs_os_free(src);
             return -1;
@@ -237,7 +205,7 @@ int bake_collect_compile_units(
 
     if (include_deps) {
         char *deps = bake_path_join(cfg->path, "deps");
-        if (deps && bake_path_exists(deps)) {
+        if (bake_path_exists(deps)) {
             if (bake_dir_walk_recursive(deps, bake_collect_visit, &ctx) != 0) {
                 ecs_os_free(deps);
                 return -1;
@@ -248,7 +216,7 @@ int bake_collect_compile_units(
 
     if (include_tests) {
         char *test = bake_path_join(cfg->path, "test");
-        if (test && bake_path_exists(test)) {
+        if (bake_path_exists(test)) {
             if (bake_dir_walk_recursive(test, bake_collect_visit, &ctx) != 0) {
                 ecs_os_free(test);
                 return -1;
@@ -261,7 +229,7 @@ int bake_collect_compile_units(
         const char *path = cfg->bundle_sources.items[i];
         char *base = bake_path_basename(path);
         bake_dir_entry_t entry = {
-            .name = base ? base : (char*)path,
+            .name = base,
             .path = (char*)path,
             .is_dir = false
         };
@@ -296,10 +264,6 @@ static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     }
 
     char *stem = bake_path_stem(entry->path);
-    if (!stem) {
-        return -1;
-    }
-
     const struct { const char *needle; const char *value; } subs[] = {
         {"{input}",   entry->path},
         {"{project}", ctx->cfg->path},
@@ -307,15 +271,12 @@ static int bake_rule_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         {"{stem}",    stem},
     };
     char *cmd = ecs_os_strdup(ctx->command);
-    for (size_t i = 0; cmd && i < sizeof(subs) / sizeof(subs[0]); i++) {
+    for (size_t i = 0; i < sizeof(subs) / sizeof(subs[0]); i++) {
         char *next = bake_text_replace(cmd, subs[i].needle, subs[i].value);
         ecs_os_free(cmd);
         cmd = next;
     }
     ecs_os_free(stem);
-    if (!cmd) {
-        return -1;
-    }
 
     int rc = bake_run_command(cmd, true);
     ecs_os_free(cmd);
@@ -351,16 +312,12 @@ int bake_execute_rules(
     return 0;
 }
 
-static int bake_append_dep_include(
+static void bake_append_dep_include(
     ecs_strbuf_t *header,
     const char *dep_id,
     bool standalone_local_headers)
 {
     char *dep_macro = bake_project_id_as_macro(dep_id);
-    if (!dep_macro) {
-        return -1;
-    }
-
     if (standalone_local_headers) {
         ecs_strbuf_append(header, "#include \"../../deps/%s.h\"\n", dep_macro);
     } else {
@@ -368,26 +325,21 @@ static int bake_append_dep_include(
     }
 
     ecs_os_free(dep_macro);
-    return 0;
 }
 
-static int bake_append_dep_includes(
+static void bake_append_dep_includes(
     ecs_strbuf_t *header,
     const bake_strlist_t *deps,
     bool standalone_local_headers)
 {
     if (!deps || deps->count == 0) {
         ecs_strbuf_appendstr(header, "/* No dependencies */\n");
-        return 0;
+        return;
     }
 
     for (int32_t i = 0; i < deps->count; i++) {
-        if (bake_append_dep_include(header, deps->items[i], standalone_local_headers) != 0) {
-            return -1;
-        }
+        bake_append_dep_include(header, deps->items[i], standalone_local_headers);
     }
-
-    return 0;
 }
 
 int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cfg) {
@@ -406,7 +358,6 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     char *guard_macro = NULL;
     char *api_macro = NULL;
     char *content = NULL;
-    bool public_deps_ready = false;
     bake_strlist_t public_deps = {0};
     ecs_strbuf_t header = ECS_STRBUF_INIT;
 
@@ -415,24 +366,13 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     }
 
     include_root = bake_path_join(cfg->path, "include");
-    if (!include_root) {
-        goto cleanup;
-    }
-
     if (!bake_path_exists(include_root)) {
         rc = 0;
         goto cleanup;
     }
 
     project_dir = bake_project_id_as_dash(cfg->id);
-    if (!project_dir) {
-        goto cleanup;
-    }
-
     char *tmp = bake_path_join(include_root, project_dir);
-    if (!tmp) {
-        goto cleanup;
-    }
     ecs_os_free(project_dir);
     project_dir = tmp;
     tmp = NULL;
@@ -444,18 +384,14 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     header_path = bake_path_join(project_dir, "bake_config.h");
     project_macro = bake_project_id_as_macro(cfg->id);
     project_macro_upper = bake_macro_upper(project_macro);
-    guard_macro = project_macro_upper ? flecs_asprintf("%s_BAKE_CONFIG_H", project_macro_upper) : NULL;
-    api_macro = project_macro_upper ? flecs_asprintf("%s_API", project_macro_upper) : NULL;
-    if (!header_path || !project_macro || !project_macro_upper || !guard_macro || !api_macro) {
-        goto cleanup;
-    }
+    guard_macro = flecs_asprintf("%s_BAKE_CONFIG_H", project_macro_upper);
+    api_macro = flecs_asprintf("%s_API", project_macro_upper);
 
     bool standalone_local_headers =
         cfg->standalone &&
         (cfg->kind == BAKE_PROJECT_APPLICATION || cfg->kind == BAKE_PROJECT_TEST);
 
     bake_strlist_init(&public_deps);
-    public_deps_ready = true;
 
     for (int32_t i = 0; i < cfg->use.count; i++) {
         bake_strlist_append_unique(&public_deps, cfg->use.items[i]);
@@ -502,9 +438,7 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     ecs_strbuf_append(&header, "#define %s\n\n", guard_macro);
 
     ecs_strbuf_appendstr(&header, "/* Headers of public dependencies */\n");
-    if (bake_append_dep_includes(&header, &public_deps, standalone_local_headers) != 0) {
-        goto cleanup;
-    }
+    bake_append_dep_includes(&header, &public_deps, standalone_local_headers);
     if (cfg->kind == BAKE_PROJECT_TEST && cfg->has_test_spec) {
         ecs_strbuf_appendstr(&header, "#include <bake_test.h>\n");
     }
@@ -514,14 +448,10 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
         ecs_strbuf_appendstr(&header, "/* Headers of private dependencies */\n");
         if (cfg->kind == BAKE_PROJECT_PACKAGE) {
             ecs_strbuf_append(&header, "#ifdef %s_EXPORTS\n", project_macro);
-            if (bake_append_dep_includes(&header, &cfg->use_private, standalone_local_headers) != 0) {
-                goto cleanup;
-            }
+            bake_append_dep_includes(&header, &cfg->use_private, standalone_local_headers);
             ecs_strbuf_appendstr(&header, "#endif\n\n");
         } else {
-            if (bake_append_dep_includes(&header, &cfg->use_private, standalone_local_headers) != 0) {
-                goto cleanup;
-            }
+            bake_append_dep_includes(&header, &cfg->use_private, standalone_local_headers);
             ecs_strbuf_appendstr(&header, "\n");
         }
     }
@@ -546,10 +476,6 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     ecs_strbuf_appendstr(&header, "#endif\n\n");
 
     content = ecs_strbuf_get(&header);
-    if (!content) {
-        goto cleanup;
-    }
-
     if (bake_file_write(header_path, content) != 0) {
         goto cleanup;
     }
@@ -568,9 +494,7 @@ cleanup:
     ecs_os_free(project_macro_upper);
     ecs_os_free(guard_macro);
     ecs_os_free(api_macro);
-    if (public_deps_ready) {
-        bake_strlist_fini(&public_deps);
-    }
+    bake_strlist_fini(&public_deps);
     return rc;
 }
 
