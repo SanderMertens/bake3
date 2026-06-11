@@ -2,6 +2,7 @@
 #include "bake/os.h"
 #include "env_internal.h"
 
+#if !defined(_WIN32)
 static int bake_env_run_argv_checked(const char *const *argv) {
     bake_process_result_t result = {0};
     if (bake_proc_run_argv(argv, &result) != 0) {
@@ -14,6 +15,7 @@ static int bake_env_run_argv_checked(const char *const *argv) {
 
     return 0;
 }
+#endif
 
 static char* bake_env_executable_path(const char *argv0) {
     char *self = bake_os_executable_path();
