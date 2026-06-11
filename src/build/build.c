@@ -41,23 +41,6 @@ char* bake_project_build_root(const char *project_path, const char *project_id, 
 
 static const char *bake_standalone_deps_marker = ".bake_standalone_deps";
 
-static void bake_lang_cfg_copy(bake_lang_cfg_t *dst, const bake_lang_cfg_t *src) {
-    bake_lang_cfg_init(dst);
-
-    ecs_os_free(dst->c_standard);
-    ecs_os_free(dst->cpp_standard);
-    dst->c_standard = ecs_os_strdup(src->c_standard);
-    dst->cpp_standard = ecs_os_strdup(src->cpp_standard);
-    dst->static_lib = src->static_lib;
-    dst->export_symbols = src->export_symbols;
-    dst->precompile_header = src->precompile_header;
-
-#define CP(f) bake_strlist_copy(&dst->f, &src->f)
-    CP(cflags); CP(cxxflags); CP(defines); CP(ldflags); CP(libs);
-    CP(static_libs); CP(libpaths); CP(links); CP(include_paths); CP(embed);
-#undef CP
-}
-
 char* bake_display_path(const char *full_path, const char *strip_prefix) {
     if (!full_path) {
         return ecs_os_strdup(".");
@@ -419,12 +402,9 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         ecs_os_free(obj_path);
     }
 
-    const bake_lang_cfg_t *base_lang = &c_lang;
-    const bake_lang_cfg_t *base_cpp = &cpp_lang;
-
     int32_t compiled_count = 0;
     if (bake_compile_units_parallel(
-        ctx, project_entity, cfg, &units, base_lang, base_cpp,
+        ctx, project_entity, cfg, &units, &c_lang, &cpp_lang,
         &mode_cflags, &mode_cxxflags, &compiled_count) != 0)
     {
         ecs_err("compilation failed for %s", cfg->id);
@@ -434,7 +414,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     char *artefact = NULL;
     bool linked = false;
     if (bake_link_project_binary(
-        ctx, project_entity, cfg, &paths, &units, base_lang, &mode_ldflags,
+        ctx, project_entity, cfg, &paths, &units, &c_lang, &mode_ldflags,
         &artefact, &linked) != 0)
     {
         ecs_err("link failed for %s", cfg->id);

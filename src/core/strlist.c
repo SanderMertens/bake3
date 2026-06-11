@@ -56,13 +56,13 @@ int bake_strlist_merge_unique(bake_strlist_t *dst, const bake_strlist_t *src) {
     return 0;
 }
 
-int bake_strlist_contains(const bake_strlist_t *list, const char *value) {
+bool bake_strlist_contains(const bake_strlist_t *list, const char *value) {
     for (int32_t i = 0; i < list->count; i++) {
         if (!strcmp(list->items[i], value)) {
-            return 1;
+            return true;
         }
     }
-    return 0;
+    return false;
 }
 
 int bake_strlist_copy(bake_strlist_t *dst, const bake_strlist_t *src) {

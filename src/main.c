@@ -64,9 +64,9 @@ int main(int argc, char *argv[]) {
                 : bake_path_join(cwd, argv[0]);
         }
         if (exe_path && bake_path_exists(exe_path)) {
-            bake_os_setenv("BAKE2_EXEC_PATH", exe_path);
+            bake_os_setenv("BAKE3_EXEC_PATH", exe_path);
         } else {
-            bake_os_unsetenv("BAKE2_EXEC_PATH");
+            bake_os_unsetenv("BAKE3_EXEC_PATH");
         }
         ecs_os_free(exe_path);
     }

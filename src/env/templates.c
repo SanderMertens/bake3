@@ -139,7 +139,7 @@ char* bake_env_find_test_template_source(void) {
     }
     ecs_os_free(cwd_templates);
 
-    const char *exe_path = getenv("BAKE2_EXEC_PATH");
+    const char *exe_path = getenv("BAKE3_EXEC_PATH");
     if (exe_path && exe_path[0]) {
         char *exe_dir = bake_path_dirname(exe_path);
         char *exe_test_templates = bake_env_test_templates_from_home(exe_dir);

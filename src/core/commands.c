@@ -448,17 +448,25 @@ static int bake_info_project(bake_context_t *ctx) {
 int bake_execute(bake_context_t *ctx, const char *argv0) {
     const char *cmd = ctx->opts.command;
     if (!cmd) {
+        ctx->prepare_bundles = true;
         return bake_build(ctx);
     }
 
-    static const struct { const char *name; int (*fn)(bake_context_t*); } table[] = {
-        {"build", bake_build}, {"run", bake_build_run},
-        {"clean", bake_build_clean}, {"rebuild", bake_build_rebuild},
-        {"list", bake_list_projects}, {"info", bake_info_project},
-        {"reset", bake_env_reset},
+    static const struct {
+        const char *name;
+        int (*fn)(bake_context_t*);
+        bool prepare_bundles;
+    } table[] = {
+        {"build", bake_build, true}, {"run", bake_build_run, true},
+        {"clean", bake_build_clean, false}, {"rebuild", bake_build_rebuild, true},
+        {"list", bake_list_projects, false}, {"info", bake_info_project, false},
+        {"reset", bake_env_reset, false},
     };
     for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
-        if (!strcmp(cmd, table[i].name)) return table[i].fn(ctx);
+        if (!strcmp(cmd, table[i].name)) {
+            ctx->prepare_bundles = table[i].prepare_bundles;
+            return table[i].fn(ctx);
+        }
     }
 
     if (!strcmp(cmd, "cleanup")) {

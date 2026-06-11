@@ -11,27 +11,6 @@ void bake_list_append_fmt(ecs_strbuf_t *buf, const bake_strlist_t *list, const c
     }
 }
 
-char* bake_project_id_as_macro(const char *id) {
-    if (!id) {
-        return NULL;
-    }
-
-    size_t len = strlen(id);
-    char *out = ecs_os_malloc(len + 1);
-
-    for (size_t i = 0; i < len; i++) {
-        unsigned char ch = (unsigned char)id[i];
-        if (isalnum(ch)) {
-            out[i] = (char)tolower(ch);
-        } else {
-            out[i] = '_';
-        }
-    }
-    out[len] = '\0';
-    return out;
-}
-
-
 static void bake_append_flags(bake_strlist_t *list, const char *const *flags) {
     for (int32_t i = 0; flags[i]; i++) {
         bake_strlist_append(list, flags[i]);

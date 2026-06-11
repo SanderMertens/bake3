@@ -1,5 +1,5 @@
 #include "bake/model.h"
-#include "bake/build_components.h"
+#include "bake/build.h"
 #include "bake/bundle.h"
 #include "bake/environment.h"
 #include "bake/os.h"

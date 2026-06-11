@@ -24,7 +24,6 @@ typedef struct bake_build_paths_t {
     char *gen_dir;
 } bake_build_paths_t;
 
-char* bake_project_build_root(const char *project_path, const char *project_id, const char *mode);
 
 void bake_compile_list_init(bake_compile_list_t *list);
 void bake_compile_list_fini(bake_compile_list_t *list);

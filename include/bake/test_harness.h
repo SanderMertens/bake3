@@ -1,7 +1,7 @@
 #ifndef BAKE3_TEST_HARNESS_H
 #define BAKE3_TEST_HARNESS_H
 
-#include "bake/discovery.h"
+#include "bake/model.h"
 
 int bake_test_generate_harness(
     bake_context_t *ctx,

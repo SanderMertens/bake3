@@ -195,7 +195,7 @@ static int bake_bundle_resolve_lib(
     const bake_bundle_t *bundle,
     const char *base_dir,
     const char *const *libdirs,
-    char **libpath_out)
+    char **libdir_out)
 {
     const char *libname = (bundle->library && bundle->library[0]) ? bundle->library : bundle->id;
 
@@ -226,7 +226,7 @@ static int bake_bundle_resolve_lib(
                 char *full = bake_path_join(libdir, file);
                 ecs_os_free(file);
                 if (bake_path_exists(full)) {
-                    *libpath_out = libdir;
+                    *libdir_out = libdir;
                     ecs_os_free(full);
                     return 0;
                 }
@@ -381,7 +381,7 @@ static int bake_bundle_prepare_one(
     char *build_dir = bake_bundle_build_dir(root_dir, triplet);
     char *install_dir = bake_bundle_install_dir(root_dir, triplet);
     char *marker = install_dir ? bake_bundle_install_marker(install_dir) : NULL;
-    char *cmake_src_dir = NULL;
+    char *bundle_src_dir = NULL;
 
     if (!root_dir) {
         goto cleanup;
@@ -417,7 +417,7 @@ static int bake_bundle_prepare_one(
         }
     }
 
-    cmake_src_dir = (bundle->subdir && bundle->subdir[0])
+    bundle_src_dir = (bundle->subdir && bundle->subdir[0])
         ? bake_path_join(src_dir, bundle->subdir)
         : ecs_os_strdup(src_dir);
 
@@ -425,21 +425,21 @@ static int bake_bundle_prepare_one(
         bool uses_cargo = bake_bundle_uses_cargo(bundle);
 
         if (!uses_cargo) {
-            char *cmakelists = bake_path_join(cmake_src_dir, "CMakeLists.txt");
+            char *cmakelists = bake_path_join(bundle_src_dir, "CMakeLists.txt");
             bool has_cmake = bake_path_exists(cmakelists);
             ecs_os_free(cmakelists);
 
             if (!has_cmake) {
-                ecs_err("bundle '%s' has no CMakeLists.txt at %s", bundle->id, cmake_src_dir);
+                ecs_err("bundle '%s' has no CMakeLists.txt at %s", bundle->id, bundle_src_dir);
                 goto cleanup;
             }
         } else {
-            char *cargo_toml = bake_path_join(cmake_src_dir, "Cargo.toml");
+            char *cargo_toml = bake_path_join(bundle_src_dir, "Cargo.toml");
             bool has_cargo = bake_path_exists(cargo_toml);
             ecs_os_free(cargo_toml);
 
             if (!has_cargo) {
-                ecs_err("bundle '%s' has no Cargo.toml at %s", bundle->id, cmake_src_dir);
+                ecs_err("bundle '%s' has no Cargo.toml at %s", bundle->id, bundle_src_dir);
                 goto cleanup;
             }
         }
@@ -458,8 +458,8 @@ static int bake_bundle_prepare_one(
 
             ecs_trace("#[green][#[normal] bundle#[green]]#[normal] building %s", bundle->id);
             int build_rc = uses_cargo
-                ? bake_bundle_run_cargo(bundle, cmake_src_dir, install_dir, ctx->opts.mode)
-                : bake_bundle_run_cmake(bundle, cmake_src_dir, build_dir, install_dir, ctx->opts.mode);
+                ? bake_bundle_run_cargo(bundle, bundle_src_dir, install_dir, ctx->opts.mode)
+                : bake_bundle_run_cmake(bundle, bundle_src_dir, build_dir, install_dir, ctx->opts.mode);
             if (build_rc != 0) {
                 ecs_err("failed to build bundle '%s'", bundle->id);
                 ecs_os_free(fingerprint);
@@ -474,7 +474,7 @@ static int bake_bundle_prepare_one(
         ecs_os_free(fingerprint);
     }
 
-    if (bake_bundle_apply_to_project(cfg, bundle, cmake_src_dir, install_dir, ctx->opts.mode) != 0) {
+    if (bake_bundle_apply_to_project(cfg, bundle, bundle_src_dir, install_dir, ctx->opts.mode) != 0) {
         goto cleanup;
     }
 
@@ -487,7 +487,7 @@ cleanup:
     ecs_os_free(build_dir);
     ecs_os_free(install_dir);
     ecs_os_free(marker);
-    ecs_os_free(cmake_src_dir);
+    ecs_os_free(bundle_src_dir);
     return rc;
 }
 
@@ -503,11 +503,7 @@ int bake_bundle_prepare_for_project(bake_context_t *ctx, bake_project_cfg_t *cfg
         return 0;
     }
 
-    const char *cmd = ctx->opts.command;
-    if (cmd && (!strcmp(cmd, "clean") || !strcmp(cmd, "info") ||
-                !strcmp(cmd, "list") || !strcmp(cmd, "cleanup") ||
-                !strcmp(cmd, "reset")))
-    {
+    if (!ctx->prepare_bundles) {
         return 0;
     }
 

@@ -28,6 +28,7 @@ typedef struct bake_context_t {
     bake_options_t opts;
     char *bake_home;
     bake_compiler_kind_t compiler_kind;
+    bool prepare_bundles;
     int32_t thread_count;
 } bake_context_t;
 

@@ -285,6 +285,21 @@ void bake_lang_cfg_init(bake_lang_cfg_t *cfg) {
     bake_lang_cfg_init_impl(cfg, true);
 }
 
+void bake_lang_cfg_copy(bake_lang_cfg_t *dst, const bake_lang_cfg_t *src) {
+    bake_lang_cfg_init_impl(dst, false);
+
+    dst->c_standard = ecs_os_strdup(src->c_standard);
+    dst->cpp_standard = ecs_os_strdup(src->cpp_standard);
+    dst->static_lib = src->static_lib;
+    dst->export_symbols = src->export_symbols;
+    dst->precompile_header = src->precompile_header;
+
+#define CP(f) bake_strlist_copy(&dst->f, &src->f)
+    CP(cflags); CP(cxxflags); CP(defines); CP(ldflags); CP(libs);
+    CP(static_libs); CP(libpaths); CP(links); CP(include_paths); CP(embed);
+#undef CP
+}
+
 void bake_lang_cfg_fini(bake_lang_cfg_t *cfg) {
 #define F(n) bake_strlist_fini(&cfg->n)
     F(cflags); F(cxxflags); F(defines); F(ldflags); F(libs);

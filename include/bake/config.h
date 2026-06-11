@@ -142,6 +142,7 @@ int32_t bake_amalgamate_list_count(const bake_amalgamate_list_t *list);
 bake_amalgamate_cfg_t* bake_amalgamate_list_get(const bake_amalgamate_list_t *list, int32_t index);
 
 void bake_lang_cfg_init(bake_lang_cfg_t *cfg);
+void bake_lang_cfg_copy(bake_lang_cfg_t *dst, const bake_lang_cfg_t *src);
 void bake_lang_cfg_fini(bake_lang_cfg_t *cfg);
 
 void bake_dependee_cfg_init(bake_dependee_cfg_t *cfg);
