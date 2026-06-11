@@ -472,6 +472,13 @@ static void bake_model_mark_build_recursive_inner(
     }
     ecs_map_insert(visited, (ecs_map_key_t)entity, 0);
 
+    /* Dependency ids can collide with builtin flecs entity names (e.g. the
+     * "flecs" module scope); only entities that are actual projects can be
+     * built. */
+    if (!ecs_has(world, entity, BakeProject)) {
+        return;
+    }
+
     if (ecs_has(world, entity, BakeBuildRequest)) {
         return;
     }

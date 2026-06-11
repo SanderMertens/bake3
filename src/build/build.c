@@ -243,6 +243,8 @@ cleanup:
 static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, const BakeBuildRequest *request) {
     const BakeProject *project = ecs_get(ctx->world, project_entity, BakeProject);
     if (!project || !project->cfg) {
+        const char *name = ecs_get_name(ctx->world, project_entity);
+        ecs_err("cannot build '%s': not a known project", name ? name : "<unnamed>");
         return -1;
     }
 
