@@ -240,6 +240,78 @@ cleanup:
     return rc;
 }
 
+static void bake_fingerprint_append_list(
+    ecs_strbuf_t *buf,
+    const char *key,
+    const bake_strlist_t *list)
+{
+    ecs_strbuf_append(buf, "%s=", key);
+    for (int32_t i = 0; i < list->count; i++) {
+        ecs_strbuf_append(buf, "%s;", list->items[i]);
+    }
+    ecs_strbuf_appendch(buf, '\n');
+}
+
+static void bake_fingerprint_append_lang(
+    ecs_strbuf_t *buf,
+    const char *prefix,
+    const bake_lang_cfg_t *lang)
+{
+    ecs_strbuf_append(buf, "%s.std=%s/%s\n", prefix,
+        lang->c_standard ? lang->c_standard : "",
+        lang->cpp_standard ? lang->cpp_standard : "");
+    ecs_strbuf_append(buf, "%s.bools=%d%d%d\n", prefix,
+        lang->static_lib ? 1 : 0,
+        lang->export_symbols ? 1 : 0,
+        lang->precompile_header ? 1 : 0);
+
+#define L(f) bake_fingerprint_append_list(buf, prefix, &lang->f)
+    L(cflags); L(cxxflags); L(defines); L(ldflags); L(libs);
+    L(static_libs); L(libpaths); L(links); L(include_paths); L(embed);
+#undef L
+}
+
+/* Captures the configuration that shapes compile and link commands. When it
+ * differs from the stored value, all objects are stale even if their mtimes
+ * are not: flag changes and bake upgrades do not touch source files.
+ * Dependency-derived paths are deliberately not included: they vary between
+ * a cold and a warm build (install dirs appear after the first pass), and
+ * dependency changes are already tracked through project.json and artefact
+ * timestamps. */
+static char* bake_compose_build_fingerprint(
+    const bake_context_t *ctx,
+    const BakeBuildRequest *request,
+    const bake_lang_cfg_t *c_lang,
+    const bake_lang_cfg_t *cpp_lang,
+    const bake_strlist_t *mode_cflags,
+    const bake_strlist_t *mode_cxxflags,
+    const bake_strlist_t *mode_ldflags)
+{
+    ecs_strbuf_t buf = ECS_STRBUF_INIT;
+
+    char *exe = bake_os_executable_path();
+    ecs_strbuf_append(&buf, "bake=%lld\n",
+        exe ? (long long)bake_os_file_mtime(exe) : 0);
+    ecs_os_free(exe);
+
+    ecs_strbuf_append(&buf, "cc=%s\ncxx=%s\nkind=%d\nmode=%s\nstrict=%d\ntarget=%s-%s\n",
+        ctx->opts.cc ? ctx->opts.cc : "",
+        ctx->opts.cxx ? ctx->opts.cxx : "",
+        (int)ctx->compiler_kind,
+        bake_effective_mode(request->mode),
+        ctx->opts.strict ? 1 : 0,
+        bake_target_arch(),
+        bake_target_os());
+
+    bake_fingerprint_append_lang(&buf, "c", c_lang);
+    bake_fingerprint_append_lang(&buf, "cpp", cpp_lang);
+    bake_fingerprint_append_list(&buf, "mode_cflags", mode_cflags);
+    bake_fingerprint_append_list(&buf, "mode_cxxflags", mode_cxxflags);
+    bake_fingerprint_append_list(&buf, "mode_ldflags", mode_ldflags);
+
+    return ecs_strbuf_get(&buf);
+}
+
 static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, const BakeBuildRequest *request) {
     const BakeProject *project = ecs_get(ctx->world, project_entity, BakeProject);
     if (!project || !project->cfg) {
@@ -270,6 +342,8 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     int rc = -1;
+    char *fingerprint = NULL;
+    char *fingerprint_path = NULL;
     bake_build_paths_t paths = {0};
     bake_lang_cfg_t c_lang = {0};
     bake_lang_cfg_t cpp_lang = {0};
@@ -404,10 +478,19 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         ecs_os_free(obj_path);
     }
 
+    fingerprint = bake_compose_build_fingerprint(
+        ctx, request, &c_lang, &cpp_lang,
+        &mode_cflags, &mode_cxxflags, &mode_ldflags);
+    fingerprint_path = bake_path_join(paths.build_root, ".bake_cmd");
+    char *prev_fingerprint = bake_file_read(fingerprint_path, NULL);
+    bool flags_changed = !prev_fingerprint ||
+        strcmp(prev_fingerprint, fingerprint) != 0;
+    ecs_os_free(prev_fingerprint);
+
     int32_t compiled_count = 0;
     if (bake_compile_units_parallel(
         ctx, project_entity, cfg, &units, &c_lang, &cpp_lang,
-        &mode_cflags, &mode_cxxflags, &compiled_count) != 0)
+        &mode_cflags, &mode_cxxflags, flags_changed, &compiled_count) != 0)
     {
         ecs_err("compilation failed for %s", cfg->id);
         goto cleanup;
@@ -417,9 +500,14 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     bool linked = false;
     if (bake_link_project_binary(
         ctx, project_entity, cfg, &paths, &units, &c_lang, &mode_ldflags,
-        &artefact, &linked) != 0)
+        flags_changed, &artefact, &linked) != 0)
     {
         ecs_err("link failed for %s", cfg->id);
+        goto cleanup;
+    }
+
+    if (flags_changed && bake_file_write(fingerprint_path, fingerprint) != 0) {
+        ecs_os_free(artefact);
         goto cleanup;
     }
 
@@ -442,6 +530,8 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     rc = 0;
 
 cleanup:
+    ecs_os_free(fingerprint);
+    ecs_os_free(fingerprint_path);
     bake_compile_list_fini(&units);
     bake_strlist_fini(&mode_cflags);
     bake_strlist_fini(&mode_cxxflags);

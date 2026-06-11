@@ -341,6 +341,7 @@ int bake_compile_units_parallel(
     const bake_lang_cfg_t *cpp_lang,
     const bake_strlist_t *mode_cflags,
     const bake_strlist_t *mode_cxxflags,
+    bool force_rebuild,
     int32_t *compiled_count_out)
 {
     if (compiled_count_out) {
@@ -370,7 +371,7 @@ int bake_compile_units_parallel(
 
     int64_t project_json_mtime = bake_project_json_mtime(cfg);
     for (int32_t i = 0; i < units->count; i++) {
-        compile_ctx.compile_mask[i] = bake_compile_unit_outdated(
+        compile_ctx.compile_mask[i] = force_rebuild || bake_compile_unit_outdated(
             &units->items[i],
             project_json_mtime);
         if (compile_ctx.compile_mask[i]) {
@@ -476,6 +477,7 @@ int bake_link_project_binary(
     const bake_compile_list_t *units,
     const bake_lang_cfg_t *lang,
     const bake_strlist_t *mode_ldflags,
+    bool force_relink,
     char **artefact_out,
     bool *linked_out)
 {
@@ -516,7 +518,9 @@ int bake_link_project_binary(
     ecs_os_free(file_name);
     file_name = NULL;
 
-    if (!bake_link_inputs_outdated(cfg, artefact, units, &dep_artefacts)) {
+    if (!force_relink &&
+        !bake_link_inputs_outdated(cfg, artefact, units, &dep_artefacts))
+    {
         *artefact_out = artefact;
         artefact = NULL;
         rc = 0;

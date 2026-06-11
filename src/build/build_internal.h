@@ -71,6 +71,7 @@ int bake_compile_units_parallel(
     const bake_lang_cfg_t *cpp_lang,
     const bake_strlist_t *mode_cflags,
     const bake_strlist_t *mode_cxxflags,
+    bool force_rebuild,
     int32_t *compiled_count_out);
 
 int bake_link_project_binary(
@@ -81,6 +82,7 @@ int bake_link_project_binary(
     const bake_compile_list_t *units,
     const bake_lang_cfg_t *lang,
     const bake_strlist_t *mode_ldflags,
+    bool force_relink,
     char **artefact_out,
     bool *linked_out);
 
