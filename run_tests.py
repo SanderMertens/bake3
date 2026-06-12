@@ -788,6 +788,34 @@ class BakeTests(unittest.TestCase):
         self.assertEqual(state.application_names, frozenset())
         self.assertEqual(state.package_names - {"flecs"}, frozenset())
 
+    def test_test_command_builds_and_runs_test_project(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.testcmd.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"test_cmd_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True)
+
+        (project_dir / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{project_id}\",\n"
+            "    \"type\": \"test\",\n"
+            "    \"value\": {\n"
+            "        \"output\": \"test_cmd_project\"\n"
+            "    },\n"
+            "    \"test\": {\n"
+            "        \"testsuites\": [{\n"
+            "            \"id\": \"Math\",\n"
+            "            \"testcases\": [\"add\"]\n"
+            "        }]\n"
+            "    }\n"
+            "}\n"
+        )
+        (src_dir / "Math.c").write_text("void Math_add(void) { }\n")
+
+        output = self.strip_ansi(self.bake(["test", str(project_dir)]))
+        self.assertIn("PASS", output)
+
     def test_project_json_testsuites_generate_missing_stubs(self) -> None:
         stamp = int(time.time() * 1_000_000)
         project_id = f"tmp.tests.harness.{stamp}"

@@ -8,33 +8,11 @@ static bool bake_char_is_ident(char ch) {
         (ch == '_');
 }
 
-static const char* bake_skip_ws_and_comments(const char *ptr) {
-    for (;;) {
-        while (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r' || *ptr == '\f' || *ptr == '\v') {
-            ptr++;
-        }
-
-        if (ptr[0] == '/' && ptr[1] == '/') {
-            ptr += 2;
-            while (*ptr && *ptr != '\n') {
-                ptr++;
-            }
-            continue;
-        }
-
-        if (ptr[0] == '/' && ptr[1] == '*') {
-            ptr += 2;
-            while (*ptr && !(ptr[0] == '*' && ptr[1] == '/')) {
-                ptr++;
-            }
-            if (*ptr) {
-                ptr += 2;
-            }
-            continue;
-        }
-
-        return ptr;
+static const char* bake_skip_ws(const char *ptr) {
+    while (*ptr == ' ' || *ptr == '\t' || *ptr == '\n' || *ptr == '\r' || *ptr == '\f' || *ptr == '\v') {
+        ptr++;
     }
+    return ptr;
 }
 
 static char* bake_strip_strings_and_comments(const char *text) {
@@ -118,7 +96,7 @@ static int bake_text_contains_function_definition(const char *text, const char *
             continue;
         }
 
-        const char *ptr = bake_skip_ws_and_comments(name_end);
+        const char *ptr = bake_skip_ws(name_end);
         if (*ptr != '(') {
             cursor = hit + 1;
             continue;
@@ -139,7 +117,7 @@ static int bake_text_contains_function_definition(const char *text, const char *
             break;
         }
 
-        ptr = bake_skip_ws_and_comments(ptr);
+        ptr = bake_skip_ws(ptr);
         if (*ptr == '{') {
             found = 1;
             break;

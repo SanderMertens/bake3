@@ -443,6 +443,34 @@ static int bake_info_project(bake_context_t *ctx) {
     return 0;
 }
 
+static int bake_env_cleanup_cmd(bake_context_t *ctx) {
+    int32_t removed = 0;
+    int rc = bake_env_cleanup(ctx, &removed);
+    if (rc == 0) {
+        ecs_trace("removed %d stale project(s) from bake environment", removed);
+    }
+    return rc;
+}
+
+static const struct {
+    const char *name;
+    int (*fn)(bake_context_t*);
+    bool prepare_bundles;
+} bake_command_table[] = {
+    {"build", bake_build, true}, {"run", bake_build_run, true},
+    {"test", bake_build_run, true},
+    {"clean", bake_build_clean, false}, {"rebuild", bake_build_rebuild, true},
+    {"list", bake_list_projects, false}, {"info", bake_info_project, false},
+    {"reset", bake_env_reset, false}, {"cleanup", bake_env_cleanup_cmd, false},
+};
+
+bool bake_is_command(const char *arg) {
+    for (size_t i = 0; i < sizeof(bake_command_table) / sizeof(bake_command_table[0]); i++) {
+        if (!strcmp(arg, bake_command_table[i].name)) return true;
+    }
+    return !strcmp(arg, "setup") || !strcmp(arg, "help");
+}
+
 int bake_execute(bake_context_t *ctx, const char *argv0) {
     const char *cmd = ctx->opts.command;
     if (!cmd) {
@@ -450,30 +478,11 @@ int bake_execute(bake_context_t *ctx, const char *argv0) {
         return bake_build(ctx);
     }
 
-    static const struct {
-        const char *name;
-        int (*fn)(bake_context_t*);
-        bool prepare_bundles;
-    } table[] = {
-        {"build", bake_build, true}, {"run", bake_build_run, true},
-        {"clean", bake_build_clean, false}, {"rebuild", bake_build_rebuild, true},
-        {"list", bake_list_projects, false}, {"info", bake_info_project, false},
-        {"reset", bake_env_reset, false},
-    };
-    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
-        if (!strcmp(cmd, table[i].name)) {
-            ctx->prepare_bundles = table[i].prepare_bundles;
-            return table[i].fn(ctx);
+    for (size_t i = 0; i < sizeof(bake_command_table) / sizeof(bake_command_table[0]); i++) {
+        if (!strcmp(cmd, bake_command_table[i].name)) {
+            ctx->prepare_bundles = bake_command_table[i].prepare_bundles;
+            return bake_command_table[i].fn(ctx);
         }
-    }
-
-    if (!strcmp(cmd, "cleanup")) {
-        int32_t removed = 0;
-        int rc = bake_env_cleanup(ctx, &removed);
-        if (rc == 0) {
-            ecs_trace("removed %d stale project(s) from bake environment", removed);
-        }
-        return rc;
     }
 
     if (!strcmp(cmd, "setup")) {

@@ -26,17 +26,6 @@ static bool bake_local_env_name_valid(const char *name) {
     return true;
 }
 
-static bool bake_is_command(const char *arg) {
-    static const char *cmds[] = {
-        "build", "run", "test", "clean", "rebuild", "list",
-        "info", "reset", "cleanup", "setup", "help"
-    };
-    for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {
-        if (!strcmp(arg, cmds[i])) return true;
-    }
-    return false;
-}
-
 int main(int argc, char *argv[]) {
     ecs_os_init();
     setvbuf(stdout, NULL, _IONBF, 0);
