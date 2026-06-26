@@ -1,4 +1,5 @@
 #include "bake/environment.h"
+#include "bake/bundle.h"
 #include "bake/os.h"
 #include "env_internal.h"
 
@@ -201,6 +202,18 @@ int bake_env_import_project_by_id(bake_context_t *ctx, const char *id) {
         ecs_os_free(cfg->path);
         cfg->path = source_path;
         source_path = NULL;
+    }
+
+    /* Prepare bundles for imported dependencies so their include paths,
+     * libraries and link flags propagate to dependees. A dependency whose
+     * public header includes a bundle header (e.g. <cglm/cglm.h>) is otherwise
+     * unbuildable from a consuming project: the bundle include path is only
+     * known after the bundle is prepared, which normally happens during the
+     * dependency's own build. Bundles are cached by fingerprint, so this only
+     * re-applies include/lib paths when the bundle is already built. */
+    if (bake_bundle_prepare_for_project(ctx, cfg) != 0) {
+        rc = -1;
+        goto cleanup;
     }
 
     const char *mode = bake_effective_mode(ctx->opts.mode);

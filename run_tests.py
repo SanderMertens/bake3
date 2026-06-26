@@ -689,6 +689,105 @@ class BakeTests(unittest.TestCase):
             "cannot generate standalone sources", self.strip_ansi(output)
         )
 
+    @classmethod
+    def _git_init_repo(cls, path: Path) -> None:
+        git_env = {
+            **cls.env,
+            "GIT_AUTHOR_NAME": "bake",
+            "GIT_AUTHOR_EMAIL": "bake@example.com",
+            "GIT_COMMITTER_NAME": "bake",
+            "GIT_COMMITTER_EMAIL": "bake@example.com",
+        }
+        for cmd in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "init"]):
+            subprocess.run(["git", *cmd], cwd=path, check=True, env=git_env)
+
+    def write_bundle_consumer_workspace(self, name: str) -> tuple[Path, Path, Path]:
+        """Create a package that re-exports a bundle header through its public
+        header, plus a separate application that consumes the package.
+
+        The bundle is a header-only local git repository. Because the app lives
+        in its own directory tree, the package is resolved as an external
+        (installed) dependency rather than discovered locally -- the same shape
+        as an app using flecs_engine, whose public header includes
+        <cglm/cglm.h> from a bundle. Returns (workspace, pkg dir, app dir).
+        """
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"{name}_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        pkg_id = f"bundle_pkg_{stamp}"
+        app_id = f"bundle_app_{stamp}"
+        bundle_id = f"bundlelib_{stamp}"
+
+        # Header-only bundle source as a standalone local git repository. The
+        # header sits under <bundle_id>/ so it is reachable as
+        # <bundle_id>/<bundle_id>.h once the bundle's include path is added.
+        repo = ws / "bundle_repo"
+        (repo / bundle_id).mkdir(parents=True)
+        bundle_guard = f"{bundle_id.upper()}_H"
+        (repo / bundle_id / f"{bundle_id}.h").write_text(
+            f"#ifndef {bundle_guard}\n"
+            f"#define {bundle_guard}\n"
+            "#define BUNDLE_VALUE 42\n"
+            "#endif\n"
+        )
+        self._git_init_repo(repo)
+
+        pkg_dir = ws / "pkg"
+        app_dir = ws / "app"
+        pkg_include = pkg_dir / "include"
+        pkg_src = pkg_dir / "src"
+        app_src = app_dir / "src"
+        pkg_include.mkdir(parents=True)
+        pkg_src.mkdir(parents=True)
+        app_src.mkdir(parents=True)
+
+        (pkg_dir / "project.json").write_text(
+            f'{{"id": "{pkg_id}", "type": "package", '
+            f'"bundle": {{"{bundle_id}": '
+            f'{{"repository": "{repo.as_posix()}", "header-only": true}}}}}}\n'
+        )
+        pkg_guard = f"{pkg_id.upper()}_H"
+        (pkg_include / f"{pkg_id}.h").write_text(
+            f"#ifndef {pkg_guard}\n"
+            f"#define {pkg_guard}\n"
+            f"#include <{bundle_id}/{bundle_id}.h>\n"
+            "int pkg_value(void);\n"
+            "#endif\n"
+        )
+        (pkg_src / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "int pkg_value(void) {\n"
+            "    return BUNDLE_VALUE;\n"
+            "}\n"
+        )
+
+        (app_dir / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            f'"value": {{"use": ["{pkg_id}"]}}}}\n'
+        )
+        (app_src / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("value=%d\\n", pkg_value());\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        return ws, pkg_dir, app_dir
+
+    def test_external_dependency_bundle_include_propagates_to_consumer(self) -> None:
+        _, pkg_dir, app_dir = self.write_bundle_consumer_workspace("bundle_consumer")
+
+        # Build and install the package; this prepares (clones) its bundle.
+        self.bake(["build"], cwd=pkg_dir)
+
+        # The app pulls in the package's public header, which includes the
+        # bundle header. The package is resolved from the environment, so its
+        # bundle include path must propagate to the consumer for this to build.
+        output = self.bake(["run"], cwd=app_dir)
+        self.assertIn("value=42", self.strip_ansi(output))
+
     def test_header_mtime_triggers_rebuild(self) -> None:
         stamp = int(time.time() * 1_000_000)
         project_dir = self.repo_root / "test" / "tmp" / f"header_mtime_{stamp}"
