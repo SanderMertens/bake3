@@ -676,6 +676,13 @@ static bool bake_is_supported_source(const char *path) {
         bake_has_suffix(path, ".C");
 }
 
+static bool bake_source_is_cpp(const char *path) {
+    return bake_has_suffix(path, ".cpp") ||
+        bake_has_suffix(path, ".cc") ||
+        bake_has_suffix(path, ".cxx") ||
+        bake_has_suffix(path, ".C");
+}
+
 static int bake_collect_source_files_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     bake_collect_sources_ctx_t *ctx = ctx_ptr;
     if (entry->is_dir) {
@@ -826,6 +833,86 @@ static int bake_finalize_amalgamation(
     return rc;
 }
 
+/* Amalgamates the sources of a single language (C or C++) into one translation
+ * unit. C and C++ sources go to separate files -- like Objective-C does -- so a
+ * project that mixes them (e.g. a C++ package with C sources) does not force its
+ * C code to be compiled as C++, which would fail on C-only idioms. Each unit
+ * starts from a copy of the header's parsed set so it includes <base>.h once and
+ * skips the headers already inlined there. Sets *created when a file is written
+ * (a language with no sources produces nothing). */
+static int bake_amalgamate_source_group(
+    const bake_amalgamate_ctx_t *ctx,
+    const char *out_tmp,
+    bool want_cpp,
+    const bake_strlist_t *sources,
+    const char *main_src,
+    const bake_strlist_t *base_parsed,
+    bool *created)
+{
+    *created = false;
+
+    bool main_in_group =
+        main_src && (bake_source_is_cpp(main_src) == want_cpp);
+    bool any = main_in_group;
+    for (int32_t i = 0; i < sources->count && !any; i++) {
+        if (main_src && !strcmp(sources->items[i], main_src)) {
+            continue;
+        }
+        if (bake_source_is_cpp(sources->items[i]) == want_cpp) {
+            any = true;
+        }
+    }
+    if (!any) {
+        return 0;
+    }
+
+    FILE *fp = fopen(out_tmp, "wb");
+    if (!fp) {
+        return -1;
+    }
+
+    bake_strlist_t parsed = {0};
+    bake_strlist_init(&parsed);
+    bake_strlist_copy(&parsed, base_parsed);
+    bool main_included = false;
+    int rc = -1;
+
+    if (main_in_group && bake_amalgamate_file(
+        ctx, fp, false, main_src, "(main source)", 0,
+        &parsed, &main_included) != 0)
+    {
+        goto done;
+    }
+
+    for (int32_t i = 0; i < sources->count; i++) {
+        if (main_src && !strcmp(sources->items[i], main_src)) {
+            continue;
+        }
+        if (bake_source_is_cpp(sources->items[i]) != want_cpp) {
+            continue;
+        }
+        if (bake_amalgamate_file(
+            ctx, fp, false, sources->items[i], "(source)", 0,
+            &parsed, &main_included) != 0)
+        {
+            goto done;
+        }
+    }
+
+    if (!main_included) {
+        fprintf(fp, "#include \"%s.h\"\n", ctx->include_name);
+    }
+
+    rc = 0;
+done:
+    fclose(fp);
+    bake_strlist_fini(&parsed);
+    if (rc == 0) {
+        *created = true;
+    }
+    return rc;
+}
+
 static int bake_generate_amalgamation_to_dir(
     const bake_project_cfg_t *cfg,
     const char *project_id,
@@ -839,15 +926,18 @@ static int bake_generate_amalgamation_to_dir(
     int rc = -1;
     char *include_out = NULL;
     char *include_tmp = NULL;
-    char *src_out = NULL;
-    char *src_tmp = NULL;
+    char *c_out = NULL;
+    char *c_tmp = NULL;
+    char *cpp_out = NULL;
+    char *cpp_tmp = NULL;
     char *objc_out = NULL;
     char *objc_tmp = NULL;
     char *main_src = NULL;
     FILE *include_fp = NULL;
-    FILE *src_fp = NULL;
     FILE *objc_fp = NULL;
     bool main_included = false;
+    bool c_created = false;
+    bool cpp_created = false;
     bool objc_created = false;
     bake_strlist_t parsed = {0};
     bake_strlist_t objc_parsed = {0};
@@ -858,11 +948,12 @@ static int bake_generate_amalgamation_to_dir(
         goto cleanup;
     }
 
-    const char *src_ext = bake_language_is_cpp(cfg) ? "cpp" : "c";
     include_out = flecs_asprintf("%s/%s.h", output_path, output_base);
     include_tmp = flecs_asprintf("%s/%s.h.tmp", output_path, output_base);
-    src_out = flecs_asprintf("%s/%s.%s", output_path, output_base, src_ext);
-    src_tmp = flecs_asprintf("%s/%s.%s.tmp", output_path, output_base, src_ext);
+    c_out = flecs_asprintf("%s/%s.c", output_path, output_base);
+    c_tmp = flecs_asprintf("%s/%s.c.tmp", output_path, output_base);
+    cpp_out = flecs_asprintf("%s/%s.cpp", output_path, output_base);
+    cpp_tmp = flecs_asprintf("%s/%s.cpp.tmp", output_path, output_base);
     objc_out = flecs_asprintf("%s/%s_objc.m", output_path, output_base);
     objc_tmp = flecs_asprintf("%s/%s_objc.m.tmp", output_path, output_base);
 
@@ -891,41 +982,26 @@ static int bake_generate_amalgamation_to_dir(
     fclose(include_fp);
     include_fp = NULL;
 
-    src_fp = fopen(src_tmp, "wb");
-    if (!src_fp) {
-        goto cleanup;
-    }
-
     main_src = bake_find_main_src_file(cfg, src_path, project_id);
-    if (main_src && bake_amalgamate_file(
-        &ctx, src_fp, false, main_src, "(main source)", 0,
-        &parsed, &main_included) != 0)
-    {
-        goto cleanup;
-    }
 
     bake_strlist_init(&sources);
     if (bake_collect_source_files_w_suffix(src_path, NULL, &sources) != 0) {
         goto cleanup;
     }
 
-    for (int32_t i = 0; i < sources.count; i++) {
-        if (main_src && !strcmp(sources.items[i], main_src)) {
-            continue;
-        }
-        if (bake_amalgamate_file(
-            &ctx, src_fp, false, sources.items[i], "(source)", 0,
-            &parsed, &main_included) != 0)
-        {
-            goto cleanup;
-        }
+    /* C and C++ sources are amalgamated into separate <base>.c and <base>.cpp
+     * files so that C code is never compiled as C++. Either file is omitted
+     * when the project has no sources of that language. */
+    if (bake_amalgamate_source_group(
+        &ctx, c_tmp, false, &sources, main_src, &parsed, &c_created) != 0)
+    {
+        goto cleanup;
     }
-
-    if (!main_included) {
-        fprintf(src_fp, "#include \"%s.h\"\n", output_base);
+    if (bake_amalgamate_source_group(
+        &ctx, cpp_tmp, true, &sources, main_src, &parsed, &cpp_created) != 0)
+    {
+        goto cleanup;
     }
-    fclose(src_fp);
-    src_fp = NULL;
 
     /* Objective-C sources are amalgamated into a separate <base>_objc.m file
      * (only when the project has any), as they cannot live in the .c output. */
@@ -941,6 +1017,11 @@ static int bake_generate_amalgamation_to_dir(
         }
         objc_created = true;
 
+        /* When the project also has C/C++ sources they already pull in the
+         * amalgamated header, so the Objective-C unit -- which inlines the
+         * headers it includes directly -- does not re-emit it, matching the
+         * output produced before C and C++ were split into separate units. */
+        main_included = c_created || cpp_created;
         bake_strlist_init(&objc_parsed);
         for (int32_t i = 0; i < objc_sources.count; i++) {
             if (bake_amalgamate_file(
@@ -954,9 +1035,15 @@ static int bake_generate_amalgamation_to_dir(
         objc_fp = NULL;
     }
 
-    if (bake_finalize_amalgamation(include_tmp, include_out) != 0 ||
-        bake_finalize_amalgamation(src_tmp, src_out) != 0)
-    {
+    if (bake_finalize_amalgamation(include_tmp, include_out) != 0) {
+        goto cleanup;
+    }
+
+    if (c_created && bake_finalize_amalgamation(c_tmp, c_out) != 0) {
+        goto cleanup;
+    }
+
+    if (cpp_created && bake_finalize_amalgamation(cpp_tmp, cpp_out) != 0) {
         goto cleanup;
     }
 
@@ -969,9 +1056,6 @@ cleanup:
     if (include_fp) {
         fclose(include_fp);
     }
-    if (src_fp) {
-        fclose(src_fp);
-    }
     if (objc_fp) {
         fclose(objc_fp);
     }
@@ -979,8 +1063,11 @@ cleanup:
         if (include_tmp) {
             remove(include_tmp);
         }
-        if (src_tmp) {
-            remove(src_tmp);
+        if (c_tmp) {
+            remove(c_tmp);
+        }
+        if (cpp_tmp) {
+            remove(cpp_tmp);
         }
         if (objc_tmp) {
             remove(objc_tmp);
@@ -992,8 +1079,10 @@ cleanup:
     bake_strlist_fini(&objc_parsed);
     ecs_os_free(include_out);
     ecs_os_free(include_tmp);
-    ecs_os_free(src_out);
-    ecs_os_free(src_tmp);
+    ecs_os_free(c_out);
+    ecs_os_free(c_tmp);
+    ecs_os_free(cpp_out);
+    ecs_os_free(cpp_tmp);
     ecs_os_free(objc_out);
     ecs_os_free(objc_tmp);
     ecs_os_free(main_src);

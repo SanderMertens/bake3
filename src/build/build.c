@@ -239,16 +239,21 @@ static int bake_prepare_standalone_sources(
             continue;
         }
 
-        const char *src_ext = bake_language_is_cpp(dep_cfg) ? "cpp" : "c";
         char *base = bake_project_id_as_macro(dep_cfg->id);
         char *h_name = flecs_asprintf("%s.h", base);
-        char *c_name = flecs_asprintf("%s.%s", base, src_ext);
+        char *c_name = flecs_asprintf("%s.c", base);
+        char *cpp_name = flecs_asprintf("%s.cpp", base);
         char *objc_name = flecs_asprintf("%s_objc.m", base);
         char *h_path = bake_path_join(deps_dir, h_name);
         char *c_path = bake_path_join(deps_dir, c_name);
+        char *cpp_path = bake_path_join(deps_dir, cpp_name);
         char *prev_value = bake_standalone_marker_value(prev_marker, dep_cfg->id);
 
-        bool have_files = bake_path_exists(h_path) && bake_path_exists(c_path);
+        /* Amalgamation splits a dependency into <base>.c and/or <base>.cpp;
+         * either may be absent, so the header plus at least one source is the
+         * signal that usable standalone sources already exist. */
+        bool have_files = bake_path_exists(h_path) &&
+            (bake_path_exists(c_path) || bake_path_exists(cpp_path));
         bool dep_available = dep_cfg->path && bake_path_exists(dep_cfg->path);
         int dep_rc = 0;
 
@@ -288,6 +293,7 @@ static int bake_prepare_standalone_sources(
         if (dep_rc == 0) {
             bake_strlist_append_unique(&expected_outputs, h_name);
             bake_strlist_append_unique(&expected_outputs, c_name);
+            bake_strlist_append_unique(&expected_outputs, cpp_name);
             bake_strlist_append_unique(&expected_outputs, objc_name);
         }
 
@@ -295,9 +301,11 @@ static int bake_prepare_standalone_sources(
         ecs_os_free(base);
         ecs_os_free(h_name);
         ecs_os_free(c_name);
+        ecs_os_free(cpp_name);
         ecs_os_free(objc_name);
         ecs_os_free(h_path);
         ecs_os_free(c_path);
+        ecs_os_free(cpp_path);
 
         if (dep_rc != 0) {
             goto cleanup;

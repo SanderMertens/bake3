@@ -788,6 +788,103 @@ class BakeTests(unittest.TestCase):
         output = self.bake(["run"], cwd=app_dir)
         self.assertIn("value=42", self.strip_ansi(output))
 
+    def write_mixed_language_standalone_workspace(
+        self, name: str
+    ) -> tuple[Path, str, str]:
+        """Workspace with a C++ package that also contains C sources, consumed
+        by a standalone app. The C source uses a C-only idiom (implicit void*
+        conversion) that fails when compiled as C++, so amalgamating it into a
+        single .cpp would break the build -- it must land in its own .c file.
+        Mirrors a C++ package like flecs_engine whose implementation is mostly
+        C. Returns (workspace, package id, app id).
+        """
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"{name}_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        pkg_id = f"mixed_pkg_{stamp}"
+        app_id = f"mixed_app_{stamp}"
+
+        pkg_include = ws / "pkg" / "include"
+        pkg_src = ws / "pkg" / "src"
+        app_src = ws / "app" / "src"
+        pkg_include.mkdir(parents=True)
+        pkg_src.mkdir(parents=True)
+        app_src.mkdir(parents=True)
+
+        (ws / "pkg" / "project.json").write_text(
+            f'{{"id": "{pkg_id}", "type": "package", '
+            f'"value": {{"language": "c++"}}}}\n'
+        )
+        guard = f"{pkg_id.upper()}_H"
+        (pkg_include / f"{pkg_id}.h").write_text(
+            f"#ifndef {guard}\n"
+            f"#define {guard}\n"
+            "#ifdef __cplusplus\n"
+            'extern "C" {\n'
+            "#endif\n"
+            "int c_part_value(void);\n"
+            "int cpp_part_value(void);\n"
+            "#ifdef __cplusplus\n"
+            "}\n"
+            "#endif\n"
+            "#endif\n"
+        )
+        # C source: the implicit void*->int* conversion is valid C but an error
+        # in C++, so this only compiles when emitted to a .c file.
+        (pkg_src / "c_part.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "int c_part_value(void) {\n"
+            "    void *v = 0;\n"
+            "    int *p = v;\n"
+            "    (void)p;\n"
+            "    return 21;\n"
+            "}\n"
+        )
+        # C++ source: a template makes this valid C++ but not C.
+        (pkg_src / "cpp_part.cpp").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "template<typename T> static T add21(T a) { return a + T(21); }\n"
+            "int cpp_part_value(void) {\n"
+            "    return add21<int>(0);\n"
+            "}\n"
+        )
+
+        (ws / "app" / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            f'"value": {{"use": ["{pkg_id}"], "standalone": true}}}}\n'
+        )
+        (app_src / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("sum=%d\\n", c_part_value() + cpp_part_value());\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        return ws, pkg_id, app_id
+
+    def test_standalone_amalgamation_splits_c_and_cpp_sources(self) -> None:
+        ws, pkg_id, _ = self.write_mixed_language_standalone_workspace(
+            "mixed_lang")
+
+        # Without the C/C++ split the package's C source would be compiled as
+        # C++ and fail; the app builds and runs only when they are separated.
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("sum=42", self.strip_ansi(output))
+
+        deps_dir = ws / "app" / "deps"
+        self.assertTrue(
+            (deps_dir / f"{pkg_id}.c").exists(),
+            f"Expected C amalgamation at {deps_dir / f'{pkg_id}.c'}")
+        self.assertTrue(
+            (deps_dir / f"{pkg_id}.cpp").exists(),
+            f"Expected C++ amalgamation at {deps_dir / f'{pkg_id}.cpp'}")
+
+        # The C source's body must live in the .c file, not the .cpp file.
+        self.assertIn("c_part_value", (deps_dir / f"{pkg_id}.c").read_text())
+        self.assertIn("cpp_part_value", (deps_dir / f"{pkg_id}.cpp").read_text())
+
     def test_header_mtime_triggers_rebuild(self) -> None:
         stamp = int(time.time() * 1_000_000)
         project_dir = self.repo_root / "test" / "tmp" / f"header_mtime_{stamp}"
