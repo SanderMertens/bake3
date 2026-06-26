@@ -885,6 +885,62 @@ class BakeTests(unittest.TestCase):
         self.assertIn("c_part_value", (deps_dir / f"{pkg_id}.c").read_text())
         self.assertIn("cpp_part_value", (deps_dir / f"{pkg_id}.cpp").read_text())
 
+    def test_standalone_propagates_dependency_defines(self) -> None:
+        """A standalone app compiles its dependency's amalgamated source into
+        its own binary. Defines the dependency declares in its project.json
+        (like flecs_engine's GLFW_EXPOSE_NATIVE_COCOA) must reach that source,
+        even though it is built with the app's compile flags.
+        """
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"define_dep_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        pkg_id = f"define_pkg_{stamp}"
+        app_id = f"define_app_{stamp}"
+        flag = f"NEED_FLAG_{stamp}"
+
+        pkg_include = ws / "pkg" / "include"
+        pkg_src = ws / "pkg" / "src"
+        app_src = ws / "app" / "src"
+        pkg_include.mkdir(parents=True)
+        pkg_src.mkdir(parents=True)
+        app_src.mkdir(parents=True)
+
+        (ws / "pkg" / "project.json").write_text(
+            f'{{"id": "{pkg_id}", "type": "package", '
+            f'"lang.c": {{"defines": ["{flag}"]}}}}\n'
+        )
+        guard = f"{pkg_id.upper()}_H"
+        (pkg_include / f"{pkg_id}.h").write_text(
+            f"#ifndef {guard}\n#define {guard}\n"
+            "int dep_value(void);\n#endif\n"
+        )
+        # Only compiles when the package's own define is in effect.
+        (pkg_src / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            f"#ifndef {flag}\n"
+            f'#error "{flag} not defined"\n'
+            "#endif\n"
+            "int dep_value(void) {\n"
+            "    return 42;\n"
+            "}\n"
+        )
+
+        (ws / "app" / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            f'"value": {{"use": ["{pkg_id}"], "standalone": true}}}}\n'
+        )
+        (app_src / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("value=%d\\n", dep_value());\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("value=42", self.strip_ansi(output))
+
     def test_header_mtime_triggers_rebuild(self) -> None:
         stamp = int(time.time() * 1_000_000)
         project_dir = self.repo_root / "test" / "tmp" / f"header_mtime_{stamp}"

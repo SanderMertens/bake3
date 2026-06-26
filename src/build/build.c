@@ -341,6 +341,43 @@ cleanup:
     return rc;
 }
 
+/* A standalone build compiles each dependency's amalgamated source into the
+ * application's own binary, using the application's compile flags. A dependency
+ * may rely on defines from its own project.json (e.g. GLFW_EXPOSE_NATIVE_COCOA)
+ * that are normally applied only when the dependency is built on its own. Carry
+ * those defines onto the standalone compile so the amalgamated source sees the
+ * same macros it would during a regular build. */
+static void bake_apply_standalone_dep_defines(
+    bake_context_t *ctx,
+    ecs_entity_t project_entity,
+    bake_lang_cfg_t *c_lang,
+    bake_lang_cfg_t *cpp_lang)
+{
+    const BakeResolvedDeps *resolved =
+        ecs_get(ctx->world, project_entity, BakeResolvedDeps);
+    int32_t dep_count = resolved ? resolved->dep_count : 0;
+
+    for (int32_t i = 0; i < dep_count; i++) {
+        const BakeProject *dep_project =
+            ecs_get(ctx->world, resolved->deps[i], BakeProject);
+        if (!dep_project || !dep_project->cfg) {
+            continue;
+        }
+
+        const bake_project_cfg_t *dep_cfg = dep_project->cfg;
+        if (dep_cfg->kind == BAKE_PROJECT_CONFIG ||
+            dep_cfg->kind == BAKE_PROJECT_TEMPLATE)
+        {
+            continue;
+        }
+
+        bake_strlist_merge_unique(&c_lang->defines, &dep_cfg->c_lang.defines);
+        bake_strlist_merge_unique(&c_lang->defines, &dep_cfg->cpp_lang.defines);
+        bake_strlist_merge_unique(&cpp_lang->defines, &dep_cfg->c_lang.defines);
+        bake_strlist_merge_unique(&cpp_lang->defines, &dep_cfg->cpp_lang.defines);
+    }
+}
+
 static void bake_fingerprint_append_list(
     ecs_strbuf_t *buf,
     const char *key,
@@ -520,6 +557,8 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         bake_strlist_append_unique(&c_lang.include_paths, deps_dir);
         bake_strlist_append_unique(&cpp_lang.include_paths, deps_dir);
         ecs_os_free(deps_dir);
+
+        bake_apply_standalone_dep_defines(ctx, project_entity, &c_lang, &cpp_lang);
     }
 
     /* Link uses a single language config: fold the C++ link inputs into the C
