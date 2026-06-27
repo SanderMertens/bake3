@@ -941,6 +941,75 @@ class BakeTests(unittest.TestCase):
         output = self.bake(["run", "app"], cwd=ws)
         self.assertIn("value=42", self.strip_ansi(output))
 
+    def test_standalone_amalgamation_dedups_unconditional_includes(self) -> None:
+        """Multiple source files in an amalgamated unit that each include the
+        same external header would otherwise repeat it -- harmless for guarded
+        headers but fatal for single-header libraries whose implementation macro
+        leaks across the merged unit (e.g. stb_image.h via STB_IMAGE_IMPLEMENTATION).
+        A top-level repeat is dropped; a repeat guarded by #if is preserved,
+        since the guard may be selecting between alternatives.
+        """
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"dedup_inc_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        pkg_id = f"dedup_pkg_{stamp}"
+        app_id = f"dedup_app_{stamp}"
+        guard = f"DEDUP_GUARD_{stamp}"
+
+        pkg_include = ws / "pkg" / "include"
+        pkg_src = ws / "pkg" / "src"
+        app_src = ws / "app" / "src"
+        pkg_include.mkdir(parents=True)
+        pkg_src.mkdir(parents=True)
+        app_src.mkdir(parents=True)
+
+        (ws / "pkg" / "project.json").write_text(
+            f'{{"id": "{pkg_id}", "type": "package"}}\n'
+        )
+        hguard = f"{pkg_id.upper()}_H"
+        (pkg_include / f"{pkg_id}.h").write_text(
+            f"#ifndef {hguard}\n#define {hguard}\n"
+            "int a_val(void);\nint b_val(void);\n#endif\n"
+        )
+        (pkg_src / "a.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#include <stdio.h>\n"
+            "int a_val(void) {\n    return 1;\n}\n"
+        )
+        # Second top-level <stdio.h> is a duplicate (dropped); the one guarded by
+        # #ifdef is kept.
+        (pkg_src / "b.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#include <stdio.h>\n"
+            f"#ifdef {guard}\n"
+            "#include <stdio.h>\n"
+            "#endif\n"
+            "int b_val(void) {\n    return 2;\n}\n"
+        )
+
+        (ws / "app" / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            f'"value": {{"use": ["{pkg_id}"], "standalone": true}}}}\n'
+        )
+        (app_src / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("sum=%d\\n", a_val() + b_val());\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("sum=3", self.strip_ansi(output))
+
+        amalg = (ws / "app" / "deps" / f"{pkg_id}.c").read_text()
+        # One top-level include survives plus the #ifdef-guarded one: two total.
+        self.assertEqual(
+            amalg.count("#include <stdio.h>"), 2,
+            f"expected the top-level duplicate dropped and the guarded one kept:\n{amalg}")
+        self.assertIn(f"#ifdef {guard}", amalg)
+
     def test_header_mtime_triggers_rebuild(self) -> None:
         stamp = int(time.time() * 1_000_000)
         project_dir = self.repo_root / "test" / "tmp" / f"header_mtime_{stamp}"

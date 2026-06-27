@@ -329,6 +329,31 @@ static bool bake_cond_eval_managed(
     return false;
 }
 
+/* Records a verbatim (non-inlined) include and reports whether it should be
+ * emitted. Duplicate includes are dropped only at the top level of a
+ * translation unit (if_depth 0); includes guarded by #if are always kept since
+ * the guard may select between alternatives. emitted is NULL for outputs that
+ * are not deduplicated (e.g. the amalgamated header). */
+static bool bake_mark_verbatim_include(
+    bake_strlist_t *emitted,
+    int32_t if_depth,
+    const char *include,
+    bool relative)
+{
+    if (!emitted || if_depth != 0) {
+        return true;
+    }
+
+    char *key = flecs_asprintf("%c%s", relative ? '"' : '<', include);
+    if (bake_strlist_contains(emitted, key)) {
+        ecs_os_free(key);
+        return false;
+    }
+
+    bake_strlist_append_owned(emitted, key);
+    return true;
+}
+
 static int bake_amalgamate_file(
     const bake_amalgamate_ctx_t *ctx,
     FILE *out,
@@ -337,7 +362,9 @@ static int bake_amalgamate_file(
     const char *src_file,
     int32_t src_line,
     bake_strlist_t *parsed,
-    bool *main_included)
+    bool *main_included,
+    bake_strlist_t *emitted_includes,
+    int32_t if_depth_in)
 {
     if (!bake_path_mark_parsed(parsed, file)) {
         return 0;
@@ -364,6 +391,7 @@ static int bake_amalgamate_file(
     bake_cond_frame_t cond_stack[BAKE_AMALG_MAX_COND];
     int32_t cond_depth = 0;
     int32_t suppressed = 0;
+    int32_t if_depth = if_depth_in;
     while (fgets(line, BAKE_AMALG_MAX_LINE, in)) {
         line_count++;
 
@@ -406,6 +434,22 @@ static int bake_amalgamate_file(
                 continue;
             }
             scan++;
+        }
+
+        /* Track preprocessor conditional nesting so verbatim includes can be
+         * deduplicated only when they sit at the top level of the unit. */
+        if (!line_in_block_comment_at_start) {
+            const char *depth_arg = NULL;
+            bake_cpp_directive_kind_t depth_dir =
+                bake_parse_cpp_directive(line, &depth_arg);
+            if (depth_dir == BAKE_CPP_IF ||
+                depth_dir == BAKE_CPP_IFDEF ||
+                depth_dir == BAKE_CPP_IFNDEF)
+            {
+                if_depth++;
+            } else if (depth_dir == BAKE_CPP_ENDIF && if_depth > 0) {
+                if_depth--;
+            }
         }
 
         if (has_disable && !line_in_block_comment_at_start) {
@@ -589,7 +633,9 @@ static int bake_amalgamate_file(
                 file,
                 line_count,
                 parsed,
-                main_included) != 0)
+                main_included,
+                emitted_includes,
+                if_depth) != 0)
             {
                 ecs_os_free(include_path);
                 ecs_os_free(include);
@@ -597,7 +643,9 @@ static int bake_amalgamate_file(
                 fclose(in);
                 return -1;
             }
-        } else {
+        } else if (bake_mark_verbatim_include(
+            emitted_includes, if_depth, include, include_relative))
+        {
             fprintf(out, "%s", line);
         }
 
@@ -874,12 +922,14 @@ static int bake_amalgamate_source_group(
     bake_strlist_t parsed = {0};
     bake_strlist_init(&parsed);
     bake_strlist_copy(&parsed, base_parsed);
+    bake_strlist_t emitted = {0};
+    bake_strlist_init(&emitted);
     bool main_included = false;
     int rc = -1;
 
     if (main_in_group && bake_amalgamate_file(
         ctx, fp, false, main_src, "(main source)", 0,
-        &parsed, &main_included) != 0)
+        &parsed, &main_included, &emitted, 0) != 0)
     {
         goto done;
     }
@@ -893,7 +943,7 @@ static int bake_amalgamate_source_group(
         }
         if (bake_amalgamate_file(
             ctx, fp, false, sources->items[i], "(source)", 0,
-            &parsed, &main_included) != 0)
+            &parsed, &main_included, &emitted, 0) != 0)
         {
             goto done;
         }
@@ -907,6 +957,7 @@ static int bake_amalgamate_source_group(
 done:
     fclose(fp);
     bake_strlist_fini(&parsed);
+    bake_strlist_fini(&emitted);
     if (rc == 0) {
         *created = true;
     }
@@ -941,6 +992,7 @@ static int bake_generate_amalgamation_to_dir(
     bool objc_created = false;
     bake_strlist_t parsed = {0};
     bake_strlist_t objc_parsed = {0};
+    bake_strlist_t objc_emitted = {0};
     bake_strlist_t sources = {0};
     bake_strlist_t objc_sources = {0};
 
@@ -975,7 +1027,7 @@ static int bake_generate_amalgamation_to_dir(
     fprintf(include_fp, "#define %s_STATIC\n", project_id);
     if (bake_amalgamate_file(
         &ctx, include_fp, true, main_header, "(main header)", 0,
-        &parsed, NULL) != 0)
+        &parsed, NULL, NULL, 0) != 0)
     {
         goto cleanup;
     }
@@ -1023,10 +1075,11 @@ static int bake_generate_amalgamation_to_dir(
          * output produced before C and C++ were split into separate units. */
         main_included = c_created || cpp_created;
         bake_strlist_init(&objc_parsed);
+        bake_strlist_init(&objc_emitted);
         for (int32_t i = 0; i < objc_sources.count; i++) {
             if (bake_amalgamate_file(
                 &ctx, objc_fp, false, objc_sources.items[i], "(obj-C source)",
-                0, &objc_parsed, &main_included) != 0)
+                0, &objc_parsed, &main_included, &objc_emitted, 0) != 0)
             {
                 goto cleanup;
             }
@@ -1077,6 +1130,7 @@ cleanup:
     bake_strlist_fini(&objc_sources);
     bake_strlist_fini(&parsed);
     bake_strlist_fini(&objc_parsed);
+    bake_strlist_fini(&objc_emitted);
     ecs_os_free(include_out);
     ecs_os_free(include_tmp);
     ecs_os_free(c_out);
