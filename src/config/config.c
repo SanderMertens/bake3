@@ -191,6 +191,7 @@ void bake_bundle_list_fini(bake_bundle_list_t *list) {
         ecs_os_free(items[i].subdir);
         ecs_os_free(items[i].library);
         ecs_os_free(items[i].build_system);
+        ecs_os_free(items[i].profile);
         bake_strlist_fini(&items[i].includes);
         bake_strlist_fini(&items[i].sources);
         bake_strlist_fini(&items[i].cmake_args);
@@ -795,6 +796,7 @@ static int bake_parse_bundle_entry(
     if (bake_json_get_string_alias(object, "subdir", "path", &bundle->subdir) < 0) return -1;
     if (bake_json_get_string(object, "library", &bundle->library) < 0) return -1;
     if (bake_json_get_string_alias(object, "build-system", "build_system", &bundle->build_system) < 0) return -1;
+    if (bake_json_get_string(object, "profile", &bundle->profile) < 0) return -1;
 
     if (bake_json_get_bool_alias(object, "header-only", "header_only", &bundle->header_only) < 0) return -1;
     if (bake_json_get_array_alias(object, "include", "includes", &bundle->includes) < 0) return -1;

@@ -37,6 +37,7 @@ typedef struct bake_bundle_t {
     char *subdir;
     char *library;
     char *build_system;
+    char *profile;
     bool header_only;
     bake_strlist_t includes;
     bake_strlist_t sources;

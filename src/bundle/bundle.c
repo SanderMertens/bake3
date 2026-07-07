@@ -62,6 +62,8 @@ static char* bake_bundle_fingerprint(const bake_bundle_t *bundle) {
     ecs_strbuf_t buf = ECS_STRBUF_INIT;
     ecs_strbuf_append(&buf, "build_system=%s\n",
         bundle->build_system ? bundle->build_system : "");
+    ecs_strbuf_append(&buf, "profile=%s\n",
+        bundle->profile ? bundle->profile : "");
     ecs_strbuf_append(&buf, "subdir=%s\n", bundle->subdir ? bundle->subdir : "");
     ecs_strbuf_append(&buf, "library=%s\n", bundle->library ? bundle->library : "");
     ecs_strbuf_append(&buf, "header_only=%d\n", bundle->header_only ? 1 : 0);
@@ -374,6 +376,12 @@ static int bake_bundle_prepare_one(
         return -1;
     }
 
+    /* A bundle can pin its build profile (e.g. "release") so debug builds
+     * of the consuming project still link an optimized dependency. */
+    const char *mode = (bundle->profile && bundle->profile[0])
+        ? bundle->profile
+        : ctx->opts.mode;
+
     int rc = -1;
     char *triplet = bake_host_triplet(ctx->opts.mode);
     char *root_dir = bake_bundle_root_dir(cfg, bundle);
@@ -458,8 +466,8 @@ static int bake_bundle_prepare_one(
 
             ecs_trace("#[green][#[normal] bundle#[green]]#[normal] building %s", bundle->id);
             int build_rc = uses_cargo
-                ? bake_bundle_run_cargo(bundle, bundle_src_dir, install_dir, ctx->opts.mode)
-                : bake_bundle_run_cmake(bundle, bundle_src_dir, build_dir, install_dir, ctx->opts.mode);
+                ? bake_bundle_run_cargo(bundle, bundle_src_dir, install_dir, mode)
+                : bake_bundle_run_cmake(bundle, bundle_src_dir, build_dir, install_dir, mode);
             if (build_rc != 0) {
                 ecs_err("failed to build bundle '%s'", bundle->id);
                 ecs_os_free(fingerprint);
@@ -474,7 +482,7 @@ static int bake_bundle_prepare_one(
         ecs_os_free(fingerprint);
     }
 
-    if (bake_bundle_apply_to_project(cfg, bundle, bundle_src_dir, install_dir, ctx->opts.mode) != 0) {
+    if (bake_bundle_apply_to_project(cfg, bundle, bundle_src_dir, install_dir, mode) != 0) {
         goto cleanup;
     }
 
