@@ -12,6 +12,11 @@
 
 extern char **environ;
 
+#if defined(__APPLE__) || \
+    (defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 29)))
+#define BAKE_SPAWN_HAS_CHDIR
+#endif
+
 /* posix_spawn instead of fork/exec: bake spawns compilers from worker
  * threads, and code between fork and exec in a multithreaded process is
  * limited to async-signal-safe calls. */
@@ -36,7 +41,13 @@ int bake_proc_run(
 
     int err = 0;
     if (stdio_cfg) {
-        if (stdio_cfg->stdin_path && stdio_cfg->stdin_path[0]) {
+#ifdef BAKE_SPAWN_HAS_CHDIR
+        if (stdio_cfg->cwd && stdio_cfg->cwd[0]) {
+            err = posix_spawn_file_actions_addchdir_np(&fa, stdio_cfg->cwd);
+        }
+#endif
+
+        if (!err && stdio_cfg->stdin_path && stdio_cfg->stdin_path[0]) {
             err = posix_spawn_file_actions_addopen(
                 &fa, STDIN_FILENO, stdio_cfg->stdin_path, O_RDONLY, 0);
         }
@@ -71,9 +82,29 @@ int bake_proc_run(
         err = posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGDEF);
     }
 
+    char *prev_cwd = NULL;
+#ifndef BAKE_SPAWN_HAS_CHDIR
+    if (!err && stdio_cfg && stdio_cfg->cwd && stdio_cfg->cwd[0]) {
+        prev_cwd = bake_os_getcwd();
+        if (!prev_cwd || chdir(stdio_cfg->cwd) != 0) {
+            bake_log_errno_last("change directory", stdio_cfg->cwd);
+            ecs_os_free(prev_cwd);
+            prev_cwd = NULL;
+            err = EINVAL;
+        }
+    }
+#endif
+
     pid_t pid = 0;
     if (!err) {
         err = posix_spawnp(&pid, argv[0], &fa, &attr, (char *const*)argv, environ);
+    }
+
+    if (prev_cwd) {
+        if (chdir(prev_cwd) != 0) {
+            bake_log_errno_last("change directory", prev_cwd);
+        }
+        ecs_os_free(prev_cwd);
     }
 
     posix_spawn_file_actions_destroy(&fa);

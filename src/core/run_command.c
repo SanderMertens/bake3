@@ -290,7 +290,7 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
     return 0;
 }
 
-int bake_run_command(const char *cmd, bool log_command) {
+int bake_run_command_in_dir(const char *cmd, bool log_command, const char *cwd) {
     if (!cmd || !cmd[0]) {
         return -1;
     }
@@ -300,6 +300,8 @@ int bake_run_command(const char *cmd, bool log_command) {
         ecs_err("invalid command line: %s", cmd);
         return -1;
     }
+
+    parsed.stdio_cfg.cwd = cwd;
 
     if (log_command) {
         ecs_trace("$ %s", cmd);
@@ -336,4 +338,8 @@ int bake_run_command(const char *cmd, bool log_command) {
 
     bake_cmd_line_fini(&parsed);
     return 0;
+}
+
+int bake_run_command(const char *cmd, bool log_command) {
+    return bake_run_command_in_dir(cmd, log_command, NULL);
 }

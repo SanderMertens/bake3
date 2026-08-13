@@ -66,6 +66,9 @@ bake run my_app
 bake run projects/my_app
 ```
 
+The project is run with its own directory as working directory, so a project can
+load files relative to its own location.
+
 Pass arguments to project:
 ```
 bake run -- --key=value

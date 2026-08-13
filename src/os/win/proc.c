@@ -224,6 +224,11 @@ int bake_proc_run(
         inherit_handles = TRUE;
     }
 
+    const char *cwd = NULL;
+    if (stdio_cfg && stdio_cfg->cwd && stdio_cfg->cwd[0]) {
+        cwd = stdio_cfg->cwd;
+    }
+
     BOOL ok = CreateProcessA(
         NULL,
         cmd_line,
@@ -232,7 +237,7 @@ int bake_proc_run(
         inherit_handles,
         0,
         NULL,
-        NULL,
+        cwd,
         &si,
         &pi);
     ecs_os_free(cmd_line);

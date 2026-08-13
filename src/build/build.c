@@ -975,19 +975,24 @@ int bake_build_run(bake_context_t *ctx) {
     }
 
     if (!strcmp(ctx->opts.command, "run")) {
+        char *exe_path = bake_path_resolve(result->artefact);
+        char *run_dir = bake_project_run_dir(project->cfg);
+
         ecs_strbuf_t cmd = ECS_STRBUF_INIT;
         if (ctx->opts.run_prefix) {
             ecs_strbuf_append(&cmd, "%s ", ctx->opts.run_prefix);
         }
 
-        ecs_strbuf_append(&cmd, "\"%s\"", result->artefact);
+        ecs_strbuf_append(&cmd, "\"%s\"", exe_path ? exe_path : result->artefact);
         for (int i = 0; i < ctx->opts.run_argc; i++) {
             ecs_strbuf_append(&cmd, " \"%s\"", ctx->opts.run_argv[i]);
         }
 
         char *cmd_str = ecs_strbuf_get(&cmd);
-        rc = bake_run_command(cmd_str, true);
+        rc = bake_run_command_in_dir(cmd_str, true, run_dir);
         ecs_os_free(cmd_str);
+        ecs_os_free(exe_path);
+        ecs_os_free(run_dir);
         goto cleanup;
     }
 

@@ -127,6 +127,20 @@ bool bake_project_kind_has_artefact(bake_project_kind_t kind) {
         kind == BAKE_PROJECT_TEST;
 }
 
+char* bake_project_run_dir(const bake_project_cfg_t *cfg) {
+    if (!cfg || !cfg->path || !cfg->path[0]) {
+        return NULL;
+    }
+
+    char *resolved = bake_path_resolve(cfg->path);
+    if (resolved && !bake_path_is_dir(resolved)) {
+        ecs_os_free(resolved);
+        return NULL;
+    }
+
+    return resolved;
+}
+
 char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg) {
     if (!cfg || !cfg->output_name || !bake_project_kind_has_artefact(cfg->kind)) {
         return NULL;

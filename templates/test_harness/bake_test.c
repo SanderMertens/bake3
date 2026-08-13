@@ -27,8 +27,27 @@ static bake_test_case *g_current_case = NULL;
 static bool g_expect_abort = false;
 static bool g_failed = false;
 static bool g_flaky = false;
+static bool g_trace = false;
 static const char *g_cli_params[BAKE_TEST_PARAM_MAX];
 static int g_cli_param_count = 0;
+static char **g_failed_tests = NULL;
+static int g_failed_test_count = 0;
+static int g_failed_test_cap = 0;
+#if !defined(_WIN32)
+static pthread_mutex_t g_failed_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+static void bake_failed_lock(void) {
+#if !defined(_WIN32)
+    pthread_mutex_lock(&g_failed_lock);
+#endif
+}
+
+static void bake_failed_unlock(void) {
+#if !defined(_WIN32)
+    pthread_mutex_unlock(&g_failed_lock);
+#endif
+}
 
 static bool bake_use_colors(void) {
     static int initialized = 0;
@@ -127,6 +146,57 @@ static void bake_print_debug_command(const char *exec, bake_test_suite *suite, b
         printf(" --param %s=%s", param->name, param->values[param->value_cur]);
     }
     printf("\n\n");
+}
+
+static void bake_record_failure(const char *suite_id, const char *case_id, const char *param_str) {
+    char name[1024];
+    snprintf(name, sizeof(name), "%s.%s%s", suite_id, case_id, param_str ? param_str : "");
+
+    size_t len = strlen(name) + 1;
+    char *copy = malloc(len);
+    if (!copy) {
+        return;
+    }
+    memcpy(copy, name, len);
+
+    bake_failed_lock();
+    if (g_failed_test_count == g_failed_test_cap) {
+        int cap = g_failed_test_cap ? (g_failed_test_cap * 2) : 16;
+        char **tmp = realloc(g_failed_tests, (size_t)cap * sizeof(char*));
+        if (!tmp) {
+            bake_failed_unlock();
+            free(copy);
+            return;
+        }
+        g_failed_tests = tmp;
+        g_failed_test_cap = cap;
+    }
+    g_failed_tests[g_failed_test_count ++] = copy;
+    bake_failed_unlock();
+}
+
+static void bake_print_failed_tests(void) {
+    if (!g_failed_test_count) {
+        return;
+    }
+
+    printf("\n");
+    bake_print_status("FAIL", BAKE_COLOR_RED);
+    printf(": %d test case%s failed:\n", g_failed_test_count, g_failed_test_count == 1 ? "" : "s");
+    for (int i = 0; i < g_failed_test_count; i++) {
+        printf(" - %s\n", g_failed_tests[i]);
+        free(g_failed_tests[i]);
+    }
+
+    free(g_failed_tests);
+    g_failed_tests = NULL;
+    g_failed_test_count = 0;
+    g_failed_test_cap = 0;
+}
+
+static void bake_print_trace(const char *suite_id, const char *case_id, const char *param_str) {
+    printf("RUN %s.%s%s\n", suite_id, case_id, param_str ? param_str : "");
+    fflush(stdout);
 }
 
 static void bake_print_report(const char *test_id, const char *suite_id, const char *param_str, int pass, int fail, int empty) {
@@ -580,12 +650,20 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
     int pass = 0;
     int fail = 0;
     int empty = 0;
+    char param_str[512] = {0};
+    bake_append_suite_params(param_str, sizeof(param_str), suite);
+
     for (uint32_t i = 0; i < suite->testcase_count; i++) {
+        if (g_trace) {
+            bake_print_trace(suite->id, suite->testcases[i].id, param_str);
+        }
+
         char cmd[4096];
         int written = snprintf(cmd, sizeof(cmd), "\"%s\" \"%s.%s\"", exec, suite->id, suite->testcases[i].id);
         if (written < 0 || (size_t)written >= sizeof(cmd)) {
             fail ++;
             rc = -1;
+            bake_record_failure(suite->id, suite->testcases[i].id, param_str);
             continue;
         }
 
@@ -637,11 +715,10 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
 
         fail ++;
         rc = -1;
+        bake_record_failure(suite->id, suite->testcases[i].id, param_str);
         bake_print_debug_command(exec, suite, &suite->testcases[i]);
     }
 
-    char param_str[512] = {0};
-    bake_append_suite_params(param_str, sizeof(param_str), suite);
     bake_print_report(test_id, suite->id, param_str, pass, fail, empty);
     if (fail || empty) {
         printf("\n");
@@ -855,6 +932,10 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
             bake_list_commands(argv[0], suites, suite_count);
             return 0;
         }
+        if (!strcmp(arg, "--trace")) {
+            g_trace = true;
+            continue;
+        }
         if (!strcmp(arg, "--param")) {
             if ((i + 1) < argc && strchr(argv[i + 1], '=')) {
                 if (g_cli_param_count < BAKE_TEST_PARAM_MAX) {
@@ -905,6 +986,7 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
         if (suite_rc != 0) {
             rc = -1;
         }
+        bake_print_failed_tests();
     } else {
 #if !defined(_WIN32)
         int parallel_rc = bake_run_suites_parallel(test_id, argv[0], suites, suite_count, job_count, &pass, &fail, &empty);
@@ -923,6 +1005,7 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
         }
         printf("-----------------------------\n");
         bake_print_report(test_id, "all", "", pass, fail, empty);
+        bake_print_failed_tests();
     }
 
     return rc;

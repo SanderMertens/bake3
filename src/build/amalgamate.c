@@ -1104,6 +1104,16 @@ static int bake_generate_amalgamation_to_dir(
         goto cleanup;
     }
 
+    if (!c_created) {
+        remove(c_out);
+    }
+    if (!cpp_created) {
+        remove(cpp_out);
+    }
+    if (!objc_created) {
+        remove(objc_out);
+    }
+
     rc = 0;
 cleanup:
     if (include_fp) {

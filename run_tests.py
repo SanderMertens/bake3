@@ -885,6 +885,80 @@ class BakeTests(unittest.TestCase):
         self.assertIn("c_part_value", (deps_dir / f"{pkg_id}.c").read_text())
         self.assertIn("cpp_part_value", (deps_dir / f"{pkg_id}.cpp").read_text())
 
+    def test_standalone_amalgamation_removes_stale_language_output(self) -> None:
+        """A C-only dependency amalgamates to <base>.c only. A leftover
+        <base>.cpp from an older bake (which duplicated the C body into a .cpp)
+        must be removed on regeneration, otherwise it is compiled as C++ and
+        breaks the build.
+        """
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"stale_cpp_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        pkg_id = f"stale_pkg_{stamp}"
+        app_id = f"stale_app_{stamp}"
+
+        pkg_include = ws / "pkg" / "include"
+        pkg_src = ws / "pkg" / "src"
+        app_src = ws / "app" / "src"
+        pkg_include.mkdir(parents=True)
+        pkg_src.mkdir(parents=True)
+        app_src.mkdir(parents=True)
+
+        (ws / "pkg" / "project.json").write_text(
+            f'{{"id": "{pkg_id}", "type": "package"}}\n'
+        )
+        guard = f"{pkg_id.upper()}_H"
+        (pkg_include / f"{pkg_id}.h").write_text(
+            f"#ifndef {guard}\n#define {guard}\n"
+            "int dep_value(void);\n#endif\n"
+        )
+        # C-only idiom that fails when compiled as C++, so a stale .cpp copy of
+        # this body would not build.
+        (pkg_src / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "int dep_value(void) {\n"
+            "    void *v = 0;\n"
+            "    int *p = v;\n"
+            "    (void)p;\n"
+            "    return 42;\n"
+            "}\n"
+        )
+
+        (ws / "app" / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            f'"value": {{"use": ["{pkg_id}"], "standalone": true}}}}\n'
+        )
+        (app_src / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("value=%d\\n", dep_value());\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("value=42", self.strip_ansi(output))
+
+        deps_dir = ws / "app" / "deps"
+        c_out = deps_dir / f"{pkg_id}.c"
+        cpp_out = deps_dir / f"{pkg_id}.cpp"
+        self.assertTrue(c_out.exists())
+        self.assertFalse(cpp_out.exists())
+
+        # Simulate the leftover .cpp an older bake produced, then force the
+        # dependency to regenerate by changing its source.
+        cpp_out.write_text(c_out.read_text())
+        (pkg_src / "main.c").write_text(
+            (pkg_src / "main.c").read_text().replace("return 42;", "return 43;")
+        )
+
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("value=43", self.strip_ansi(output))
+        self.assertFalse(
+            cpp_out.exists(),
+            f"Stale C++ amalgamation was not removed: {cpp_out}")
+
     def test_standalone_propagates_dependency_defines(self) -> None:
         """A standalone app compiles its dependency's amalgamated source into
         its own binary. Defines the dependency declares in its project.json
@@ -2120,6 +2194,33 @@ class BakeTests(unittest.TestCase):
         self.assertIn(marker, output)
         self.assertIn("run_prefix app output", output)
 
+    def test_run_uses_project_dir_as_cwd(self) -> None:
+        project_dir, _ = self.write_simple_app_project(
+            "run_cwd",
+            "#include <stdio.h>\n"
+            "#if defined(_WIN32)\n"
+            "#include <direct.h>\n"
+            "#define getcwd _getcwd\n"
+            "#else\n"
+            "#include <unistd.h>\n"
+            "#endif\n"
+            "int main(void) {\n"
+            "    char buf[4096];\n"
+            "    if (!getcwd(buf, sizeof(buf))) {\n"
+            "        return 1;\n"
+            "    }\n"
+            '    printf("run_cwd=%s\\n", buf);\n'
+            "    return 0;\n"
+            "}\n",
+        )
+
+        relative_target = project_dir.relative_to(self.repo_root)
+        output = self.strip_ansi(self.bake(["run", str(relative_target)]))
+
+        expected = Path(os.path.realpath(project_dir))
+        self.assertIn(f"run_cwd={expected}", output)
+        self.assertNotIn(f"run_cwd={Path(os.path.realpath(self.repo_root))}\n", output)
+
     @staticmethod
     def emsdk_available() -> bool:
         if shutil.which("emcc"):
@@ -2581,6 +2682,101 @@ class BakeTests(unittest.TestCase):
         try:
             output = self.bake(["--local-env", "run", "mathapp"], cwd=root)
             self.assertIn("compute=42", self.strip_ansi(output))
+        finally:
+            self._rm_tree(root)
+
+    def test_cmake_bundle_rebuilds_when_source_changes(self) -> None:
+        if shutil.which("cmake") is None:
+            self.skipTest("cmake not available on PATH")
+        if shutil.which("git") is None:
+            self.skipTest("git not available on PATH")
+
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"cmake_bundle_rebuild_{stamp}"
+        bundle_repo = root / "calc_repo"
+        pkg = root / "mathpkg"
+        app = root / "mathapp"
+        pkg_id = f"tmp.mathpkg.{stamp}"
+        app_id = f"tmp.mathapp.{stamp}"
+
+        (bundle_repo / "src").mkdir(parents=True, exist_ok=True)
+        (bundle_repo / "include").mkdir(parents=True, exist_ok=True)
+        (bundle_repo / "CMakeLists.txt").write_text(
+            "cmake_minimum_required(VERSION 3.10)\n"
+            "project(calc C)\n"
+            "add_library(calc STATIC src/calc.c)\n"
+            "target_include_directories(calc PUBLIC\n"
+            "    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>\n"
+            "    $<INSTALL_INTERFACE:include>)\n"
+            "include(GNUInstallDirs)\n"
+            "install(TARGETS calc\n"
+            "    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}\n"
+            "    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})\n"
+            "install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})\n"
+        )
+        (bundle_repo / "include" / "calc.h").write_text(
+            "#ifndef CALC_H\n#define CALC_H\nint calc_value(void);\n#endif\n"
+        )
+        (bundle_repo / "src" / "calc.c").write_text(
+            "#include \"calc.h\"\nint calc_value(void) { return 42; }\n"
+        )
+        self._git_init_repo(bundle_repo)
+
+        (pkg / "src").mkdir(parents=True, exist_ok=True)
+        (pkg / "include").mkdir(parents=True, exist_ok=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{pkg_id}\",\n"
+            "    \"type\": \"package\",\n"
+            "    \"bundle\": {\n"
+            "        \"calc\": {\n"
+            f"            \"repository\": \"{bundle_repo.as_posix()}\",\n"
+            "            \"library\": \"calc\"\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+        )
+        (pkg / "include" / "mathpkg.h").write_text(
+            "#ifndef MATHPKG_H\n#define MATHPKG_H\nint mathpkg_compute(void);\n#endif\n"
+        )
+        (pkg / "src" / "mathpkg.c").write_text(
+            "#include \"mathpkg.h\"\n"
+            "#include \"calc.h\"\n"
+            "int mathpkg_compute(void) { return calc_value(); }\n"
+        )
+
+        (app / "src").mkdir(parents=True, exist_ok=True)
+        (app / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{app_id}\",\n"
+            "    \"type\": \"application\",\n"
+            f"    \"value\": {{ \"use\": [\"{pkg_id}\"] }}\n"
+            "}\n"
+        )
+        (app / "src" / "main.c").write_text(
+            "#include \"mathpkg.h\"\n"
+            "#include <stdio.h>\n"
+            "int main(void) { printf(\"value=%d\\n\", mathpkg_compute()); return 0; }\n"
+        )
+        try:
+            output = self.bake(["--local-env", "run", "mathapp"], cwd=root)
+            self.assertIn("value=42", self.strip_ansi(output))
+
+            checkouts = list(pkg.glob(".bake/bundles/**/src/src/calc.c"))
+            self.assertEqual(
+                len(checkouts), 1,
+                f"expected one checked-out bundle calc.c, found {checkouts}")
+            checkouts[0].write_text(
+                "#include \"calc.h\"\nint calc_value(void) { return 43; }\n")
+
+            self.bake(["--local-env", "rebuild", "mathapp"], cwd=root)
+            output = self.bake(["--local-env", "run", "mathapp"], cwd=root)
+            self.assertIn(
+                "value=43", self.strip_ansi(output),
+                "bundle library was not rebuilt after its checked-out source "
+                "changed; consumer still links the stale library. The "
+                "'already built' marker is keyed on the bundle's project.json "
+                "config only, never on its source state.")
         finally:
             self._rm_tree(root)
 

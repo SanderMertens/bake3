@@ -16,6 +16,7 @@ typedef struct bake_process_result_t {
 } bake_process_result_t;
 
 typedef struct bake_process_stdio_t {
+    const char *cwd;
     const char *stdin_path;
     const char *stdout_path;
     bool stdout_append;

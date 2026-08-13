@@ -125,8 +125,6 @@ int bake_test_generate_builtin_api(
 }
 
 int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, const char *exe_path) {
-    BAKE_UNUSED(cfg);
-
     char *old_threads = NULL;
     const char *old_env = getenv("BAKE_TEST_THREADS");
     if (old_env) {
@@ -143,9 +141,11 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
     if (ctx && ctx->opts.run_prefix) {
         ecs_strbuf_append(&cmd, "%s ", ctx->opts.run_prefix);
     }
-    char *quoted_exe = bake_shell_quote_arg(exe_path);
+    char *abs_exe = bake_path_resolve(exe_path);
+    char *quoted_exe = bake_shell_quote_arg(abs_exe ? abs_exe : exe_path);
     ecs_strbuf_appendstr(&cmd, quoted_exe);
     ecs_os_free(quoted_exe);
+    ecs_os_free(abs_exe);
     if (ctx && ctx->opts.jobs > 0) {
         ecs_strbuf_append(&cmd, " -j %d", ctx->opts.jobs);
     }
@@ -156,7 +156,9 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
     }
 
     char *cmd_str = ecs_strbuf_get(&cmd);
-    int rc = bake_run_command(cmd_str, false);
+    char *run_dir = bake_project_run_dir(cfg);
+    int rc = bake_run_command_in_dir(cmd_str, false, run_dir);
+    ecs_os_free(run_dir);
     ecs_os_free(cmd_str);
 
     if (ctx && ctx->opts.jobs > 0) {
