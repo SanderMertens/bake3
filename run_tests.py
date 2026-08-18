@@ -2222,6 +2222,172 @@ class BakeTests(unittest.TestCase):
             "Expected release and debug builds to have distinct command fingerprints",
         )
 
+    def test_help_lists_commands_and_options(self) -> None:
+        for flag in ("-h", "--help"):
+            output = self.strip_ansi(self.bake([flag]))
+            self.assertIn("Usage: bake", output, flag)
+            self.assertIn("build [target]", output, flag)
+            self.assertIn("--local-env", output, flag)
+            self.assertIn("-j <count>", output, flag)
+
+    def test_cleanup_removes_projects_whose_source_is_gone(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        pkg_id = f"cleanup_pkg_{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"cleanup_{stamp}"
+        (project_dir / "src").mkdir(parents=True)
+        (project_dir / "project.json").write_text(
+            f'{{"id": "{pkg_id}", "type": "package"}}\n'
+        )
+        (project_dir / "src" / "a.c").write_text("int cleanup_probe(void) { return 1; }\n")
+
+        self.bake(["build", str(project_dir)])
+        self.assertIn(pkg_id, self.list_state().package_names)
+
+        self._rm_tree(project_dir)
+
+        output = self.strip_ansi(self.bake(["cleanup"]))
+        self.assertIn("removed 1 stale project", output)
+        self.assertNotIn(pkg_id, self.list_state().package_names)
+
+    def test_cleanup_keeps_projects_whose_source_still_exists(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        pkg_id = f"cleanup_keep_{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"cleanup_keep_{stamp}"
+        (project_dir / "src").mkdir(parents=True)
+        (project_dir / "project.json").write_text(
+            f'{{"id": "{pkg_id}", "type": "package"}}\n'
+        )
+        (project_dir / "src" / "a.c").write_text("int cleanup_keep(void) { return 1; }\n")
+
+        self.bake(["build", str(project_dir)])
+        output = self.strip_ansi(self.bake(["cleanup"]))
+
+        self.assertIn("removed 0 stale project", output)
+        self.assertIn(pkg_id, self.list_state().package_names)
+
+    @unittest.skipIf(platform.system() == "Windows", "overrides gcc-style compilers; bake defaults to MSVC on Windows")
+    def test_cc_option_overrides_c_compiler(self) -> None:
+        compiler = shutil.which("clang") or shutil.which("gcc")
+        if not compiler:
+            self.skipTest("no alternative C compiler on PATH")
+        name = Path(compiler).name
+
+        project_dir, _ = self.write_simple_app_project(
+            "cc_override", "int main(void) { return 0; }\n"
+        )
+        output = self.strip_ansi(
+            self.bake(["--trace", "--cc", name, "build", str(project_dir)])
+        )
+
+        self.assertIn(f"{name} -c", output)
+
+    @unittest.skipIf(platform.system() == "Windows", "overrides gcc-style compilers; bake defaults to MSVC on Windows")
+    def test_cxx_option_overrides_cpp_compiler(self) -> None:
+        compiler = shutil.which("clang++") or shutil.which("g++")
+        if not compiler:
+            self.skipTest("no alternative C++ compiler on PATH")
+        name = Path(compiler).name
+
+        stamp = int(time.time() * 1_000_000)
+        project_dir = self.repo_root / "test" / "tmp" / f"cxx_override_{stamp}"
+        (project_dir / "src").mkdir(parents=True)
+        (project_dir / "project.json").write_text(
+            f'{{"id": "cxx_override_{stamp}", "type": "application", '
+            '"value": {"language": "cpp"}}\n'
+        )
+        (project_dir / "src" / "main.cpp").write_text("int main() { return 0; }\n")
+
+        output = self.strip_ansi(
+            self.bake(["--trace", "--cxx", name, "build", str(project_dir)])
+        )
+
+        self.assertIn(f"{name} -c", output)
+
+    def test_standalone_option_amalgamates_without_project_json_opt_in(self) -> None:
+        """--standalone turns on amalgamated deps for a project that does not
+        request it in project.json."""
+        self.bake(["build", "test/projects/c/pkg_helloworld"])
+
+        stamp = int(time.time() * 1_000_000)
+        app_id = f"standalone_opt_{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"standalone_opt_{stamp}"
+        (project_dir / "src").mkdir(parents=True)
+        (project_dir / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            '"value": {"use": ["examples.c.pkg_helloworld"]}}\n'
+        )
+        (project_dir / "src" / "main.c").write_text(
+            "#include <examples_c_pkg_helloworld.h>\n"
+            "int main(void) { pkg_helloworld(); return 0; }\n"
+        )
+
+        deps_dir = project_dir / "deps"
+        self.bake(["build", str(project_dir)])
+        self.assertFalse(
+            deps_dir.exists(),
+            "a plain build must not amalgamate dependencies")
+
+        output = self.strip_ansi(self.bake(["--standalone", "run", str(project_dir)]))
+        self.assertIn("Hello world", output)
+        self.assertTrue(
+            (deps_dir / "examples_c_pkg_helloworld.c").is_file(),
+            f"--standalone did not amalgamate the dependency into {deps_dir}")
+
+    def test_parallel_jobs_option_builds_every_source(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        app_id = f"jobs_{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"jobs_{stamp}"
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True)
+        (project_dir / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application"}}\n'
+        )
+
+        unit_count = 12
+        for i in range(unit_count):
+            (src_dir / f"unit{i}.c").write_text(f"int unit{i}(void) {{ return {i}; }}\n")
+        calls = " + ".join(f"unit{i}()" for i in range(unit_count))
+        externs = "".join(f"int unit{i}(void);\n" for i in range(unit_count))
+        (src_dir / "main.c").write_text(
+            "#include <stdio.h>\n"
+            f"{externs}"
+            "int main(void) {\n"
+            f'    printf("sum=%d\\n", {calls});\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.strip_ansi(self.bake(["-j", "4", "run", str(project_dir)]))
+        self.assertIn(f"sum={sum(range(unit_count))}", output)
+
+        obj_dir = (
+            project_dir / ".bake" /
+            f"{self.host_arch()}-{platform.system()}-debug" / "obj" / "src"
+        )
+        objects = sorted(p.name for p in obj_dir.glob("*.o") if p.is_file())
+        self.assertEqual(
+            len(objects), unit_count + 1,
+            f"expected {unit_count + 1} objects from the parallel build, got {objects}")
+
+    def test_cfg_sanitize_and_profile_build_separate_triplets(self) -> None:
+        project_dir, app_id = self.write_simple_app_project(
+            "cfg_extra",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("cfg_extra ok\\n");\n'
+            "    return 0;\n"
+            "}\n",
+        )
+
+        triplet_base = f"{self.host_arch()}-{platform.system()}"
+        for mode in ("sanitize", "profile"):
+            self.bake(["--cfg", mode, "build", str(project_dir)])
+            artefact = project_dir / ".bake" / f"{triplet_base}-{mode}" / f"{app_id}{EXE_SUFFIX}"
+            self.assertTrue(
+                artefact.is_file(),
+                f"Expected {mode} artefact at {artefact}")
+            self.assertIn("cfg_extra ok", self.run_cmd([str(artefact)]))
+
     def test_conditional_os_and_cfg_blocks_apply(self) -> None:
         host_os = platform.system()
         other_os = "Linux" if host_os == "Darwin" else "Darwin"
