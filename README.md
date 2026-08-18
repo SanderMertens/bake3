@@ -354,3 +354,14 @@ Then run this command to initialize the bake environment:
 
 ## Testing
 To test bake, run `python3 run_tests.py` in the root folder of the project.
+
+Each test removes the workspace it created under `test/tmp`. Set
+`BAKE_TEST_KEEP_TMP=1` to keep those trees for debugging.
+
+The suite also builds and runs the C unit tests that cover bake's path, string
+and list helpers. To run them on their own:
+
+```
+make unit
+./build/bake_unit_tests
+```
