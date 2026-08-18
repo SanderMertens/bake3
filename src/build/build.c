@@ -1,4 +1,5 @@
 #include "build_internal.h"
+#include "bake/bundle.h"
 #include "bake/environment.h"
 #include "bake/test_harness.h"
 #include "bake/os.h"
@@ -719,6 +720,67 @@ static int bake_validate_build_graph_dependencies(const ecs_world_t *world, ecs_
     return 0;
 }
 
+static int bake_prepare_bundles_recursive(
+    bake_context_t *ctx,
+    ecs_entity_t entity,
+    ecs_map_t *visited)
+{
+    if (ecs_map_get(visited, (ecs_map_key_t)entity)) {
+        return 0;
+    }
+    ecs_map_insert(visited, (ecs_map_key_t)entity, 0);
+
+    const BakeProject *project = ecs_get(ctx->world, entity, BakeProject);
+    if (!project || !project->cfg) {
+        return 0;
+    }
+
+    if (bake_bundle_prepare_for_project(ctx, project->cfg) != 0) {
+        return -1;
+    }
+
+    for (int32_t i = 0;; i++) {
+        ecs_entity_t dep = ecs_get_target(ctx->world, entity, BakeDependsOn, i);
+        if (!dep) {
+            break;
+        }
+        if (bake_prepare_bundles_recursive(ctx, dep, visited) != 0) {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+static int bake_prepare_build_graph_bundles(
+    bake_context_t *ctx,
+    const ecs_entity_t *order,
+    int32_t count)
+{
+    if (!ctx->prepare_bundles) {
+        return 0;
+    }
+
+    ecs_map_t visited = {0};
+    ecs_map_init(&visited, NULL);
+
+    int rc = 0;
+    for (int32_t i = 0; i < count; i++) {
+        if (bake_prepare_bundles_recursive(ctx, order[i], &visited) != 0) {
+            rc = -1;
+            break;
+        }
+    }
+
+    ecs_map_fini(&visited);
+
+    if (rc == 0 && bake_model_refresh_resolved_deps(ctx->world, ctx->opts.mode) != 0) {
+        rc = -1;
+    }
+
+    return rc;
+}
+
 static int bake_execute_build_graph(bake_context_t *ctx, const char *target, bool recursive, bool standalone) {
     bake_model_mark_build_targets(ctx->world, target, ctx->opts.mode, recursive, standalone);
 
@@ -731,6 +793,8 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
         ecs_err("target not found: %s", target);
         goto cleanup;
     }
+
+    if (bake_prepare_build_graph_bundles(ctx, order, count) != 0) goto cleanup;
 
     if (bake_validate_build_graph_dependencies(ctx->world, order, count) != 0) goto cleanup;
 

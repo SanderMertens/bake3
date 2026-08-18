@@ -1,5 +1,4 @@
 #include "bake/discovery.h"
-#include "bake/bundle.h"
 #include "bake/environment.h"
 #include "bake/os.h"
 
@@ -36,12 +35,6 @@ static int bake_discovery_add_project_file(
         ecs_os_free(cfg);
         ecs_err("failed to parse %s", project_json_path);
         return 0;
-    }
-
-    if (bake_bundle_prepare_for_project(ctx, cfg) != 0) {
-        bake_project_cfg_fini(cfg);
-        ecs_os_free(cfg);
-        return -1;
     }
 
     if (!bake_model_add_project(ctx->world, cfg, false)) {

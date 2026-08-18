@@ -2403,6 +2403,171 @@ class BakeTests(unittest.TestCase):
             _rmtree(bundle_repo)
             _rmtree(bake_dir)
 
+    def test_cwd_project_is_not_built_for_other_target(self) -> None:
+        # A project.json in the current working directory must be discovered
+        # (so it can be resolved as a dependency) but must not be built when
+        # the command targets an unrelated project. The cwd project declares a
+        # bundle with a bogus repository: preparing it is part of building it,
+        # so an eager prepare fails the unrelated build.
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"cwd_not_built_{stamp}"
+        cwd_id = f"tmp.cwd_not_built.{stamp}.cwd_app"
+        target_id = f"tmp.cwd_not_built.{stamp}.target_app"
+
+        (root / "src").mkdir(parents=True, exist_ok=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{cwd_id}\",\n"
+            "    \"type\": \"application\",\n"
+            "    \"value\": {\n"
+            "        \"use\": [\"cwd_bundle_lib\"]\n"
+            "    },\n"
+            "    \"bundle\": {\n"
+            "        \"cwd_bundle_lib\": {\n"
+            f"            \"repository\": \"{(root / 'missing_repo').as_posix()}\",\n"
+            "            \"library\": \"cwd_bundle_lib\"\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+        )
+        (root / "src" / "main.c").write_text(
+            "#include <stdio.h>\n"
+            "int main(void) { printf(\"cwd_app_ran\\n\"); return 0; }\n"
+        )
+
+        target_dir = root / "sub" / "target_app"
+        (target_dir / "src").mkdir(parents=True, exist_ok=True)
+        (target_dir / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{target_id}\",\n"
+            "    \"type\": \"application\"\n"
+            "}\n"
+        )
+        (target_dir / "src" / "main.c").write_text(
+            "#include <stdio.h>\n"
+            "int main(void) { printf(\"target_app_ran\\n\"); return 0; }\n"
+        )
+
+        try:
+            output = self.strip_ansi(
+                self.bake(["--local-env", "run", "sub/target_app"], cwd=root)
+            )
+            self.assertIn("target_app_ran", output)
+            self.assertNotIn("cwd_app_ran", output)
+            self.assertNotIn(cwd_id, output)
+            self.assertFalse(
+                (root / ".bake" / "bundles").exists(),
+                "Bundles of the cwd project were prepared for an unrelated target",
+            )
+            self.assertFalse(
+                (root / ".bake" / "local_env" / "build" / cwd_id).exists(),
+                "The cwd project was built while targeting an unrelated project",
+            )
+        finally:
+            self._rm_tree(root)
+
+    def test_cwd_project_is_built_when_target_depends_on_it(self) -> None:
+        # The mirror of test_cwd_project_is_not_built_for_other_target: when
+        # the target does depend on the project in the current working
+        # directory, that project (including its bundles) must be built.
+        if shutil.which("cmake") is None:
+            self.skipTest("cmake not available on PATH")
+        if shutil.which("git") is None:
+            self.skipTest("git not available on PATH")
+
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"cwd_is_dep_{stamp}"
+        cwd_id = f"tmp.cwd_is_dep.{stamp}.cwd_pkg"
+        target_id = f"tmp.cwd_is_dep.{stamp}.target_app"
+        bundle_repo = root / "bundle_repo"
+
+        (bundle_repo / "src").mkdir(parents=True, exist_ok=True)
+        (bundle_repo / "include").mkdir(parents=True, exist_ok=True)
+        (bundle_repo / "CMakeLists.txt").write_text(
+            "cmake_minimum_required(VERSION 3.10)\n"
+            "project(cwd_bundle_lib C)\n"
+            "add_library(cwd_bundle_lib STATIC src/cwd_bundle_lib.c)\n"
+            "target_include_directories(cwd_bundle_lib PUBLIC\n"
+            "    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>\n"
+            "    $<INSTALL_INTERFACE:include>)\n"
+            "include(GNUInstallDirs)\n"
+            "install(TARGETS cwd_bundle_lib\n"
+            "    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}\n"
+            "    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})\n"
+            "install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})\n"
+        )
+        (bundle_repo / "include" / "cwd_bundle_lib.h").write_text(
+            "#ifndef CWD_BUNDLE_LIB_H\n"
+            "#define CWD_BUNDLE_LIB_H\n"
+            "int cwd_bundle_lib_answer(void);\n"
+            "#endif\n"
+        )
+        (bundle_repo / "src" / "cwd_bundle_lib.c").write_text(
+            "#include \"cwd_bundle_lib.h\"\n"
+            "int cwd_bundle_lib_answer(void) { return 42; }\n"
+        )
+
+        (root / "src").mkdir(parents=True, exist_ok=True)
+        (root / "include").mkdir(parents=True, exist_ok=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{cwd_id}\",\n"
+            "    \"type\": \"package\",\n"
+            "    \"value\": {\n"
+            "        \"use\": [\"cwd_bundle_lib\"]\n"
+            "    },\n"
+            "    \"bundle\": {\n"
+            "        \"cwd_bundle_lib\": {\n"
+            f"            \"repository\": \"{bundle_repo.as_posix()}\",\n"
+            "            \"library\": \"cwd_bundle_lib\"\n"
+            "        }\n"
+            "    }\n"
+            "}\n"
+        )
+        (root / "include" / "cwd_pkg_api.h").write_text("int cwd_pkg_answer(void);\n")
+        (root / "src" / "cwd_pkg.c").write_text(
+            "#include <cwd_pkg_api.h>\n"
+            "#include <cwd_bundle_lib.h>\n"
+            "int cwd_pkg_answer(void) { return cwd_bundle_lib_answer(); }\n"
+        )
+
+        target_dir = root / "sub" / "target_app"
+        (target_dir / "src").mkdir(parents=True, exist_ok=True)
+        (target_dir / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{target_id}\",\n"
+            "    \"type\": \"application\",\n"
+            "    \"value\": {\n"
+            f"        \"use\": [\"{cwd_id}\"]\n"
+            "    }\n"
+            "}\n"
+        )
+        (target_dir / "src" / "main.c").write_text(
+            "#include <stdio.h>\n"
+            "#include <cwd_pkg_api.h>\n"
+            "int main(void) { printf(\"answer=%d\\n\", cwd_pkg_answer()); return 0; }\n"
+        )
+
+        try:
+            self._git_init_repo(bundle_repo)
+            output = self.strip_ansi(
+                self.bake(["--local-env", "run", "sub/target_app"], cwd=root)
+            )
+            self.assertIn("answer=42", output)
+            self.assertIn(cwd_id, output)
+
+            install_root = root / ".bake" / "bundles" / "cwd_bundle_lib" / "default" / "install"
+            self.assertTrue(
+                install_root.exists() and any(install_root.iterdir()),
+                f"Expected bundle install tree under {install_root}",
+            )
+            self.assertTrue(
+                (root / ".bake" / "local_env" / "build" / cwd_id).exists(),
+                "The cwd project was not built even though the target depends on it",
+            )
+        finally:
+            self._rm_tree(root)
+
     @staticmethod
     def _rm_tree(path: Path) -> None:
         def _force_writable(target: Path) -> None:
