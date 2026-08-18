@@ -569,6 +569,37 @@ class BakeTests(unittest.TestCase):
         self.assertIn(" -lm", output)
         self.assertIn(f"-Wl,-rpath,{rpath}", output)
 
+    def test_relative_include_path_resolves_against_the_project(self) -> None:
+        """A relative 'include' path is relative to the project directory.
+
+        The compiler runs with bake's working directory, not the project's, so
+        a path passed through verbatim resolves against whatever directory
+        bake happened to be started from.
+        """
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"rel_include_{stamp}"
+        (root / "src").mkdir(parents=True)
+        (root / "vendor").mkdir(parents=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f'    "id": "rel_include_{stamp}",\n'
+            '    "type": "application",\n'
+            '    "lang.c": {"include": ["vendor"]}\n'
+            "}\n"
+        )
+        (root / "vendor" / "vendored.h").write_text("#define VENDORED_VALUE 5\n")
+        (root / "src" / "main.c").write_text(
+            "#include <vendored.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("value=%d\\n", VENDORED_VALUE);\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.strip_ansi(self.bake(["run", str(root)], cwd=self.repo_root))
+        self.assertIn("value=5", output)
+
     @unittest.skipIf(platform.system() == "Windows", "checks gcc-style flags; bake defaults to MSVC on Windows")
     def test_lang_cpp_flag_keys_reach_the_cpp_compiler(self) -> None:
         stamp = int(time.time() * 1_000_000)

@@ -971,6 +971,20 @@ static int bake_parse_rules(const JSON_Array *rules, bake_rule_list_t *rules_out
     return 0;
 }
 
+static void bake_lang_resolve_include_paths(
+    bake_lang_cfg_t *lang,
+    const char *base)
+{
+    for (int32_t i = 0; i < lang->include_paths.count; i++) {
+        char *path = lang->include_paths.items[i];
+        if (!path || !path[0] || bake_path_is_abs(path)) {
+            continue;
+        }
+        lang->include_paths.items[i] = bake_path_join(base, path);
+        ecs_os_free(path);
+    }
+}
+
 static void bake_project_cfg_finalize_defaults(const char *project_json_path, bake_project_cfg_t *cfg) {
     if (cfg->kind == BAKE_PROJECT_TEST) {
         cfg->public_project = false;
@@ -979,6 +993,9 @@ static void bake_project_cfg_finalize_defaults(const char *project_json_path, ba
     if (!cfg->path) {
         cfg->path = bake_path_dirname(project_json_path);
     }
+
+    bake_lang_resolve_include_paths(&cfg->c_lang, cfg->path);
+    bake_lang_resolve_include_paths(&cfg->cpp_lang, cfg->path);
 
     if (!cfg->id) {
         cfg->id = ecs_os_strdup(cfg->path);
