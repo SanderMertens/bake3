@@ -519,6 +519,200 @@ class BakeTests(unittest.TestCase):
         self.assertIn("-D_POSIX_C_SOURCE=200809L", output)
         self.assertNotIn("-D_DEFAULT_SOURCE", output)
 
+    @unittest.skipIf(platform.system() == "Windows", "checks gcc-style flags; bake defaults to MSVC on Windows")
+    def test_lang_c_flag_keys_reach_the_compiler_and_linker(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"lang_keys_{stamp}"
+        (root / "src").mkdir(parents=True)
+        (root / "extra").mkdir(parents=True)
+        rpath = (root / "rpath").as_posix()
+        (root / "project.json").write_text(
+            "{\n"
+            f'    "id": "lang_keys_{stamp}",\n'
+            '    "type": "application",\n'
+            '    "lang.c": {\n'
+            '        "cflags": ["-DFROM_CFLAGS"],\n'
+            '        "defines": ["FROM_DEFINES"],\n'
+            '        "c-standard": "c11",\n'
+            f'        "include": ["{(root / "extra").as_posix()}"],\n'
+            f'        "libpath": ["{(root / "extra").as_posix()}"],\n'
+            '        "lib": ["m"],\n'
+            f'        "ldflags": ["-Wl,-rpath,{rpath}"]\n'
+            "    }\n"
+            "}\n"
+        )
+        (root / "extra" / "extra.h").write_text("#define EXTRA_VALUE 7\n")
+        (root / "src" / "main.c").write_text(
+            "#include <extra.h>\n"
+            "#include <math.h>\n"
+            "#include <stdio.h>\n"
+            "#ifndef FROM_CFLAGS\n"
+            '#error "cflags did not reach the compiler"\n'
+            "#endif\n"
+            "#ifndef FROM_DEFINES\n"
+            '#error "defines did not reach the compiler"\n'
+            "#endif\n"
+            "int main(void) {\n"
+            '    printf("value=%d\\n", EXTRA_VALUE + (int)sqrt(4.0));\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.strip_ansi(self.bake(["--trace", "run", str(root)]))
+
+        self.assertIn("value=9", output)
+        self.assertIn("-DFROM_CFLAGS", output)
+        self.assertIn("-DFROM_DEFINES", output)
+        self.assertIn("-std=c11", output)
+        self.assertIn(f'-I"{(root / "extra").as_posix()}"', output)
+        self.assertIn(f'-L"{(root / "extra").as_posix()}"', output)
+        self.assertIn(" -lm", output)
+        self.assertIn(f"-Wl,-rpath,{rpath}", output)
+
+    @unittest.skipIf(platform.system() == "Windows", "checks gcc-style flags; bake defaults to MSVC on Windows")
+    def test_lang_cpp_flag_keys_reach_the_cpp_compiler(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"lang_cpp_keys_{stamp}"
+        (root / "src").mkdir(parents=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f'    "id": "lang_cpp_keys_{stamp}",\n'
+            '    "type": "application",\n'
+            '    "value": {"language": "cpp"},\n'
+            '    "lang.cpp": {\n'
+            '        "cxxflags": ["-DFROM_CXXFLAGS"],\n'
+            '        "cpp-standard": "c++17"\n'
+            "    }\n"
+            "}\n"
+        )
+        (root / "src" / "main.cpp").write_text(
+            "#include <cstdio>\n"
+            "#ifndef FROM_CXXFLAGS\n"
+            '#error "cxxflags did not reach the compiler"\n'
+            "#endif\n"
+            "int main() {\n"
+            '    std::printf("cpp_keys ok\\n");\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.strip_ansi(self.bake(["--trace", "run", str(root)]))
+
+        self.assertIn("cpp_keys ok", output)
+        self.assertIn("-DFROM_CXXFLAGS", output)
+        self.assertIn("-std=c++17", output)
+
+    def test_every_lang_key_is_accepted_without_a_suggestion(self) -> None:
+        """Each documented lang key parses and is recognized.
+
+        A key dropped from the parser's key table starts producing a
+        'did you mean' warning, which this catches even for keys whose value
+        bake does not act on yet.
+        """
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"lang_all_{stamp}"
+        (root / "src").mkdir(parents=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f'    "id": "lang_all_{stamp}",\n'
+            '    "type": "application",\n'
+            '    "lang.c": {\n'
+            '        "cflags": [],\n'
+            '        "cxxflags": [],\n'
+            '        "defines": [],\n'
+            '        "ldflags": [],\n'
+            '        "lib": [],\n'
+            '        "static-lib": [],\n'
+            '        "libpath": [],\n'
+            '        "link": [],\n'
+            '        "include": [],\n'
+            '        "embed": [],\n'
+            '        "static": false,\n'
+            '        "export-symbols": false,\n'
+            '        "precompile-header": false,\n'
+            '        "c-standard": "c99",\n'
+            '        "cpp-standard": "c++17"\n'
+            "    }\n"
+            "}\n"
+        )
+        (root / "src" / "main.c").write_text("int main(void) { return 0; }\n")
+
+        output = self.strip_ansi(self.bake(["build", str(root)]))
+
+        self.assertNotIn("did you mean", output)
+        self.assertNotIn("unknown", output)
+
+    def test_public_false_keeps_project_out_of_the_environment(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"private_project_{stamp}"
+        public_id = f"public_pkg_{stamp}"
+        hidden_id = f"hidden_pkg_{stamp}"
+
+        for pkg_id, public in ((public_id, True), (hidden_id, False)):
+            pkg = root / pkg_id
+            (pkg / "src").mkdir(parents=True)
+            (pkg / "project.json").write_text(
+                f'{{"id": "{pkg_id}", "type": "package", '
+                f'"value": {{"public": {"true" if public else "false"}}}}}\n'
+            )
+            (pkg / "src" / "a.c").write_text(f"int {pkg_id}_value(void) {{ return 1; }}\n")
+
+        self.bake(["build", str(root)])
+
+        state = self.list_state()
+        self.assertIn(public_id, state.package_names)
+        self.assertNotIn(
+            hidden_id, state.package_names,
+            '"public": false must keep a project out of the bake environment')
+
+    def test_arch_conditional_applies_for_the_host_architecture(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"arch_cond_{stamp}"
+        (root / "src").mkdir(parents=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f'    "id": "arch_cond_{stamp}",\n'
+            '    "type": "application",\n'
+            '    "lang.c": {\n'
+            f'        "${{arch {self.host_arch()}}}": {{"defines": ["ARCH_MATCHED"]}},\n'
+            '        "${arch nonexistent}": {"defines": ["ARCH_MISMATCHED"]}\n'
+            "    }\n"
+            "}\n"
+        )
+        (root / "src" / "main.c").write_text(
+            "#ifndef ARCH_MATCHED\n"
+            '#error "matching ${arch} conditional was not applied"\n'
+            "#endif\n"
+            "#ifdef ARCH_MISMATCHED\n"
+            '#error "non-matching ${arch} conditional was applied"\n'
+            "#endif\n"
+            "int main(void) { return 0; }\n"
+        )
+
+        self.bake(["build", str(root)])
+
+    def test_target_conditional_is_inert_without_a_target(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"target_cond_{stamp}"
+        (root / "src").mkdir(parents=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f'    "id": "target_cond_{stamp}",\n'
+            '    "type": "application",\n'
+            '    "lang.c": {\n'
+            '        "${target em}": {"defines": ["TARGET_EM"]}\n'
+            "    }\n"
+            "}\n"
+        )
+        (root / "src" / "main.c").write_text(
+            "#ifdef TARGET_EM\n"
+            '#error "${target em} was applied to a native build"\n'
+            "#endif\n"
+            "int main(void) { return 0; }\n"
+        )
+
+        self.bake(["build", str(root)])
+
     def test_build_integration_target(self) -> None:
         self.bake(["build", "test/integration"])
         state = self.list_state()
@@ -2058,6 +2252,140 @@ class BakeTests(unittest.TestCase):
             0,
             f"bake terminated by signal on circular dependency: rc={proc.returncode}",
         )
+
+    @unittest.skipIf(platform.system() == "Windows", "checks gcc-style flags; bake defaults to MSVC on Windows")
+    def test_removed_key_aliases_have_no_effect(self) -> None:
+        """The dropped alias spellings are inert, not silently honored."""
+        stamp = int(time.time() * 1_000_000)
+        app_id = f"alias_gone_{stamp}"
+        root = self.repo_root / "test" / "tmp" / f"alias_gone_{stamp}"
+        (root / "src").mkdir(parents=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f'    "id": "{app_id}",\n'
+            '    "type": "application",\n'
+            '    "value": {\n'
+            '        "artefact": "renamed_by_alias"\n'
+            "    },\n"
+            '    "lang.c": {\n'
+            '        "libs": ["m"],\n'
+            '        "libpaths": ["/nonexistent"]\n'
+            "    }\n"
+            "}\n"
+        )
+        (root / "src" / "main.c").write_text("int main(void) { return 0; }\n")
+
+        output = self.strip_ansi(self.bake(["--trace", "build", str(root)]))
+
+        self.assertNotIn(" -lm", output, "'libs' must no longer feed the linker")
+        self.assertNotIn("/nonexistent", output, "'libpaths' must no longer feed the linker")
+
+        triplet_dir = root / ".bake" / f"{self.host_arch()}-{platform.system()}-debug"
+        self.assertTrue(
+            (triplet_dir / f"{app_id}{EXE_SUFFIX}").is_file(),
+            f"artefact should keep the project id name in {triplet_dir}")
+        self.assertFalse(
+            (triplet_dir / f"renamed_by_alias{EXE_SUFFIX}").exists(),
+            "'artefact' must no longer rename the output")
+
+    def test_similar_keys_suggest_the_supported_spelling(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"suggest_{stamp}"
+        (root / "src").mkdir(parents=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f'    "id": "suggest_{stamp}",\n'
+            '    "type": "application",\n'
+            '    "value": {\n'
+            '        "libs": [],\n'
+            '        "use_private": []\n'
+            "    },\n"
+            '    "lang.c": {\n'
+            '        "includes": [],\n'
+            '        "static_lib": []\n'
+            "    }\n"
+            "}\n"
+        )
+        (root / "src" / "main.c").write_text("int main(void) { return 0; }\n")
+
+        output = self.strip_ansi(self.bake(["build", str(root)]))
+
+        self.assertIn("unknown project key 'libs', did you mean 'lib'?", output)
+        self.assertIn(
+            "unknown project key 'use_private', did you mean 'use-private'?", output)
+        self.assertIn(
+            "unknown language config key 'includes', did you mean 'include'?", output)
+        self.assertIn(
+            "unknown language config key 'static_lib', did you mean 'static-lib'?",
+            output)
+
+    def test_similar_bundle_and_amalgamate_keys_are_reported(self) -> None:
+        """A misspelled bundle key is ignored, so the build fails on the
+        default cmake path -- which is exactly what the suggestion warns
+        about."""
+        if shutil.which("git") is None:
+            self.skipTest("git not available on PATH")
+
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"suggest_bundle_{stamp}"
+        repo = root / "hdr_repo"
+        (repo / "inc").mkdir(parents=True)
+        (repo / "inc" / "hdr.h").write_text("#define HDR_VALUE 1\n")
+        self._git_init_repo(repo)
+
+        pkg = root / "pkg"
+        (pkg / "src").mkdir(parents=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f'    "id": "suggest_pkg_{stamp}",\n'
+            '    "type": "package",\n'
+            '    "bundle": {\n'
+            f'        "hdr": {{ "repository": "{repo.as_posix()}", '
+            '"header_only": true, "cmake_args": [] }\n'
+            "    },\n"
+            '    "value": {\n'
+            '        "amalgamate": { "path": "distr", "disable_flags": [] }\n'
+            "    }\n"
+            "}\n"
+        )
+        (pkg / "src" / "a.c").write_text("int suggest_pkg(void) { return 1; }\n")
+
+        output = self.strip_ansi(self.bake_expect_failure(["build", str(pkg)]))
+
+        self.assertIn(
+            "unknown bundle key 'header_only', did you mean 'header-only'?", output)
+        self.assertIn(
+            "unknown bundle key 'cmake_args', did you mean 'cmake-args'?", output)
+        self.assertIn(
+            "unknown amalgamate key 'disable_flags', did you mean 'disable-flags'?",
+            output)
+
+    def test_unrelated_unknown_keys_are_not_reported(self) -> None:
+        """Project metadata bake does not consume must stay silent.
+
+        Warning on every unrecognized key would bury the useful suggestions
+        under one line per description/author field in the tree.
+        """
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"quiet_keys_{stamp}"
+        (root / "src").mkdir(parents=True)
+        (root / "project.json").write_text(
+            "{\n"
+            f'    "id": "quiet_keys_{stamp}",\n'
+            '    "type": "application",\n'
+            '    "value": {\n'
+            '        "author": "someone",\n'
+            '        "description": "a project",\n'
+            '        "license": "MIT",\n'
+            '        "keywords": ["build"]\n'
+            "    }\n"
+            "}\n"
+        )
+        (root / "src" / "main.c").write_text("int main(void) { return 0; }\n")
+
+        output = self.strip_ansi(self.bake(["build", str(root)]))
+
+        self.assertNotIn("did you mean", output)
 
     def test_duplicate_project_id_reports_error(self) -> None:
         stamp = int(time.time() * 1_000_000)
