@@ -292,6 +292,18 @@ class BakeTests(unittest.TestCase):
         self.assertIn("examples.c.app_clib", state.application_names)
         self.assertIn("examples.c.pkg_helloworld", state.package_names)
 
+    def test_unit_helpers(self) -> None:
+        """Run the C unit tests over bake's pure helpers.
+
+        Path, string and list helpers are only reached indirectly by the
+        end-to-end tests, which report their edge cases as unrelated build
+        failures.
+        """
+        self.run_cmd(["make", "unit"])
+        unit_bin = self.repo_root / "build" / f"bake_unit_tests{EXE_SUFFIX}"
+        output = self.run_cmd([str(unit_bin)])
+        self.assertIn("0 failures", output, output)
+
     def test_amalgamate_list_format_supports_prefix_and_disable_flags(self) -> None:
         target = "test/projects/c/pkg_amalgamate_disable"
         distr = self.repo_root / target / "distr"
