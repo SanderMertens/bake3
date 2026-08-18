@@ -982,6 +982,21 @@ class BakeTests(unittest.TestCase):
         for cmd in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "init"]):
             subprocess.run(["git", *cmd], cwd=path, check=True, env=git_env)
 
+    @classmethod
+    def git_commit_all(cls, path: Path, message: str) -> None:
+        git_args = [
+            "git",
+            "-c", "commit.gpgsign=false",
+            "-c", "user.email=bundle@test",
+            "-c", "user.name=bundle test",
+        ]
+        cls.run_cmd([*git_args, "add", "-A"], cwd=path)
+        cls.run_cmd([*git_args, "commit", "-q", "-m", message], cwd=path)
+
+    @classmethod
+    def git_tag(cls, path: Path, tag: str) -> None:
+        cls.run_cmd(["git", "tag", tag], cwd=path)
+
     def write_bundle_consumer_workspace(self, name: str) -> tuple[Path, Path, Path]:
         """Create a package that re-exports a bundle header through its public
         header, plus a separate application that consumes the package.
@@ -3531,6 +3546,320 @@ class BakeTests(unittest.TestCase):
                 "config only, never on its source state.")
         finally:
             self._rm_tree(root)
+
+    def write_cmake_bundle_source(self, base: Path, value: int) -> None:
+        """Write a cmake static library whose calc_value() returns `value`."""
+        (base / "src").mkdir(parents=True, exist_ok=True)
+        (base / "include").mkdir(parents=True, exist_ok=True)
+        (base / "CMakeLists.txt").write_text(
+            "cmake_minimum_required(VERSION 3.10)\n"
+            "project(calc C)\n"
+            "add_library(calc STATIC src/calc.c)\n"
+            "target_include_directories(calc PUBLIC\n"
+            "    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>\n"
+            "    $<INSTALL_INTERFACE:include>)\n"
+            "include(GNUInstallDirs)\n"
+            "install(TARGETS calc\n"
+            "    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}\n"
+            "    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})\n"
+            "install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})\n"
+        )
+        (base / "include" / "calc.h").write_text(
+            "#ifndef CALC_H\n#define CALC_H\nint calc_value(void);\n#endif\n"
+        )
+        (base / "src" / "calc.c").write_text(
+            f'#include "calc.h"\nint calc_value(void) {{ return {value}; }}\n'
+        )
+
+    def write_cmake_bundle_consumer(
+        self, root: Path, stamp: int, bundle_body: str
+    ) -> str:
+        """Write a package carrying `bundle_body` plus an app that prints the
+        bundle's calc_value(). Returns the app id."""
+        pkg = root / "mathpkg"
+        app = root / "mathapp"
+        pkg_id = f"tmp.mathpkg.{stamp}"
+        app_id = f"tmp.mathapp.{stamp}"
+
+        (pkg / "src").mkdir(parents=True, exist_ok=True)
+        (pkg / "include").mkdir(parents=True, exist_ok=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f'    "id": "{pkg_id}",\n'
+            '    "type": "package",\n'
+            '    "bundle": {\n'
+            f'        "calc": {bundle_body}\n'
+            "    }\n"
+            "}\n"
+        )
+        (pkg / "include" / "mathpkg.h").write_text(
+            "#ifndef MATHPKG_H\n#define MATHPKG_H\nint mathpkg_compute(void);\n#endif\n"
+        )
+        (pkg / "src" / "mathpkg.c").write_text(
+            '#include "mathpkg.h"\n'
+            '#include "calc.h"\n'
+            "int mathpkg_compute(void) { return calc_value(); }\n"
+        )
+
+        (app / "src").mkdir(parents=True, exist_ok=True)
+        (app / "project.json").write_text(
+            "{\n"
+            f'    "id": "{app_id}",\n'
+            '    "type": "application",\n'
+            f'    "value": {{ "use": ["{pkg_id}"] }}\n'
+            "}\n"
+        )
+        (app / "src" / "main.c").write_text(
+            '#include "mathpkg.h"\n'
+            "#include <stdio.h>\n"
+            'int main(void) { printf("value=%d\\n", mathpkg_compute()); return 0; }\n'
+        )
+        return app_id
+
+    def require_cmake_bundle_tools(self) -> None:
+        if shutil.which("cmake") is None:
+            self.skipTest("cmake not available on PATH")
+        if shutil.which("git") is None:
+            self.skipTest("git not available on PATH")
+
+    def test_bundle_subdir_builds_the_nested_cmake_project(self) -> None:
+        self.require_cmake_bundle_tools()
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"bundle_subdir_{stamp}"
+        repo = root / "calc_repo"
+
+        self.write_cmake_bundle_source(repo / "libs" / "calc", 21)
+        (repo / "README.md").write_text("root of the repository, not a cmake project\n")
+        self._git_init_repo(repo)
+
+        self.write_cmake_bundle_consumer(
+            root, stamp,
+            f'{{ "repository": "{repo.as_posix()}", '
+            '"subdir": "libs/calc", "library": "calc" }')
+
+        output = self.strip_ansi(self.bake(["--local-env", "run", "mathapp"], cwd=root))
+        self.assertIn("value=21", output)
+
+    def test_bundle_profile_pins_the_cmake_build_type(self) -> None:
+        self.require_cmake_bundle_tools()
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"bundle_profile_{stamp}"
+        repo = root / "calc_repo"
+
+        self.write_cmake_bundle_source(repo, 5)
+        self._git_init_repo(repo)
+
+        self.write_cmake_bundle_consumer(
+            root, stamp,
+            f'{{ "repository": "{repo.as_posix()}", '
+            '"library": "calc", "profile": "release" }')
+
+        output = self.strip_ansi(
+            self.bake(["--local-env", "--trace", "run", "mathapp"], cwd=root))
+
+        self.assertIn("value=5", output)
+        self.assertIn("-DCMAKE_BUILD_TYPE=Release", output)
+        self.assertNotIn("-DCMAKE_BUILD_TYPE=Debug", output)
+
+    def test_bundle_cmake_args_reach_the_configure_command(self) -> None:
+        self.require_cmake_bundle_tools()
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"bundle_cmake_args_{stamp}"
+        repo = root / "calc_repo"
+
+        self.write_cmake_bundle_source(repo, 6)
+        (repo / "CMakeLists.txt").write_text(
+            (repo / "CMakeLists.txt").read_text() +
+            "if(NOT CALC_OPTION)\n"
+            '    message(FATAL_ERROR "CALC_OPTION was not passed to cmake")\n'
+            "endif()\n"
+        )
+        self._git_init_repo(repo)
+
+        self.write_cmake_bundle_consumer(
+            root, stamp,
+            f'{{ "repository": "{repo.as_posix()}", "library": "calc", '
+            '"cmake-args": ["-DCALC_OPTION=ON"] }')
+
+        output = self.strip_ansi(
+            self.bake(["--local-env", "--trace", "run", "mathapp"], cwd=root))
+
+        self.assertIn("value=6", output)
+        self.assertIn("-DCALC_OPTION=ON", output)
+
+    def test_bundle_tag_selects_the_tagged_revision(self) -> None:
+        self.require_cmake_bundle_tools()
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"bundle_tag_{stamp}"
+        repo = root / "calc_repo"
+
+        self.write_cmake_bundle_source(repo, 1)
+        self._git_init_repo(repo)
+        self.git_tag(repo, "v1")
+        self.write_cmake_bundle_source(repo, 2)
+        self.git_commit_all(repo, "bump to 2")
+
+        self.write_cmake_bundle_consumer(
+            root, stamp,
+            f'{{ "repository": "{repo.as_posix()}", "library": "calc", "tag": "v1" }}')
+
+        output = self.strip_ansi(self.bake(["--local-env", "run", "mathapp"], cwd=root))
+        self.assertIn("value=1", output)
+
+    def test_bundle_commit_selects_the_pinned_revision(self) -> None:
+        self.require_cmake_bundle_tools()
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"bundle_commit_{stamp}"
+        repo = root / "calc_repo"
+
+        self.write_cmake_bundle_source(repo, 11)
+        self._git_init_repo(repo)
+        pinned = self.run_cmd(["git", "rev-parse", "HEAD"], cwd=repo).strip()
+        self.write_cmake_bundle_source(repo, 12)
+        self.git_commit_all(repo, "bump to 12")
+
+        self.write_cmake_bundle_consumer(
+            root, stamp,
+            f'{{ "repository": "{repo.as_posix()}", "library": "calc", '
+            f'"commit": "{pinned}" }}')
+
+        output = self.strip_ansi(self.bake(["--local-env", "run", "mathapp"], cwd=root))
+        self.assertIn("value=11", output)
+
+    def test_bundle_branch_selects_the_named_branch(self) -> None:
+        self.require_cmake_bundle_tools()
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"bundle_branch_{stamp}"
+        repo = root / "calc_repo"
+
+        self.write_cmake_bundle_source(repo, 3)
+        self._git_init_repo(repo)
+        self.run_cmd(["git", "checkout", "-q", "-b", "side"], cwd=repo)
+        self.write_cmake_bundle_source(repo, 4)
+        self.git_commit_all(repo, "side branch value")
+
+        self.write_cmake_bundle_consumer(
+            root, stamp,
+            f'{{ "repository": "{repo.as_posix()}", "library": "calc", '
+            '"branch": "side" }')
+
+        output = self.strip_ansi(self.bake(["--local-env", "run", "mathapp"], cwd=root))
+        self.assertIn("value=4", output)
+
+    def test_bundle_build_system_cargo_builds_a_rust_dependency(self) -> None:
+        self.require_cmake_bundle_tools()
+        if shutil.which("cargo") is None:
+            self.skipTest("cargo not available on PATH")
+
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"bundle_cargo_{stamp}"
+        repo = root / "calc_repo"
+        (repo / "src").mkdir(parents=True)
+        (repo / "Cargo.toml").write_text(
+            "[package]\n"
+            'name = "calc"\n'
+            'version = "0.1.0"\n'
+            'edition = "2021"\n'
+            "\n"
+            "[lib]\n"
+            'name = "calc"\n'
+            'crate-type = ["staticlib"]\n'
+        )
+        (repo / "src" / "lib.rs").write_text(
+            "#[no_mangle]\n"
+            "pub extern \"C\" fn calc_value() -> i32 { 33 }\n"
+        )
+        self._git_init_repo(repo)
+
+        pkg = root / "mathpkg"
+        app = root / "mathapp"
+        pkg_id = f"tmp.cargopkg.{stamp}"
+        app_id = f"tmp.cargoapp.{stamp}"
+        (pkg / "src").mkdir(parents=True)
+        (pkg / "include").mkdir(parents=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f'    "id": "{pkg_id}",\n'
+            '    "type": "package",\n'
+            '    "bundle": {\n'
+            f'        "calc": {{ "repository": "{repo.as_posix()}", '
+            '"build-system": "cargo", "library": "calc" }\n'
+            "    }\n"
+            "}\n"
+        )
+        (pkg / "include" / "cargopkg.h").write_text(
+            "#ifndef CARGOPKG_H\n#define CARGOPKG_H\nint pkg_value(void);\n#endif\n"
+        )
+        (pkg / "src" / "pkg.c").write_text(
+            '#include "cargopkg.h"\n'
+            "int calc_value(void);\n"
+            "int pkg_value(void) { return calc_value(); }\n"
+        )
+        (app / "src").mkdir(parents=True)
+        (app / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            f'"value": {{"use": ["{pkg_id}"]}}}}\n'
+        )
+        (app / "src" / "main.c").write_text(
+            '#include "cargopkg.h"\n'
+            "#include <stdio.h>\n"
+            'int main(void) { printf("value=%d\\n", pkg_value()); return 0; }\n'
+        )
+
+        output = self.strip_ansi(self.bake(["--local-env", "run", "mathapp"], cwd=root))
+        self.assertIn("value=33", output)
+
+    def test_bundle_sources_are_compiled_into_the_consumer(self) -> None:
+        self.require_cmake_bundle_tools()
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"bundle_sources_{stamp}"
+        repo = root / "calc_repo"
+
+        (repo / "extra").mkdir(parents=True)
+        (repo / "extra" / "extra.c").write_text("int extra_value(void) { return 9; }\n")
+        (repo / "extra" / "extra.h").write_text(
+            "#ifndef EXTRA_H\n#define EXTRA_H\nint extra_value(void);\n#endif\n"
+        )
+        self._git_init_repo(repo)
+
+        pkg = root / "mathpkg"
+        app = root / "mathapp"
+        pkg_id = f"tmp.srcpkg.{stamp}"
+        app_id = f"tmp.srcapp.{stamp}"
+        (pkg / "src").mkdir(parents=True)
+        (pkg / "include").mkdir(parents=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f'    "id": "{pkg_id}",\n'
+            '    "type": "package",\n'
+            '    "bundle": {\n'
+            f'        "extra": {{ "repository": "{repo.as_posix()}", '
+            '"header-only": true, "include": ["extra"], '
+            '"sources": ["extra/extra.c"] }\n'
+            "    }\n"
+            "}\n"
+        )
+        (pkg / "include" / "srcpkg.h").write_text(
+            "#ifndef SRCPKG_H\n#define SRCPKG_H\nint pkg_value(void);\n#endif\n"
+        )
+        (pkg / "src" / "pkg.c").write_text(
+            '#include "srcpkg.h"\n'
+            '#include "extra.h"\n'
+            "int pkg_value(void) { return extra_value(); }\n"
+        )
+        (app / "src").mkdir(parents=True)
+        (app / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            f'"value": {{"use": ["{pkg_id}"]}}}}\n'
+        )
+        (app / "src" / "main.c").write_text(
+            '#include "srcpkg.h"\n'
+            "#include <stdio.h>\n"
+            'int main(void) { printf("value=%d\\n", pkg_value()); return 0; }\n'
+        )
+
+        output = self.strip_ansi(self.bake(["--local-env", "run", "mathapp"], cwd=root))
+        self.assertIn("value=9", output)
 
     def test_discovery_skips_build_directories(self) -> None:
         # project.json files inside a build/ directory (e.g. nested CMake
