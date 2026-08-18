@@ -14,6 +14,7 @@ from typing import Iterable
 
 
 EXE_SUFFIX = ".exe" if platform.system() == "Windows" else ""
+OBJ_SUFFIX = ".obj" if platform.system() == "Windows" else ".o"
 
 ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 SUMMARY_RE = re.compile(
@@ -2729,29 +2730,35 @@ class BakeTests(unittest.TestCase):
             project_dir / ".bake" /
             f"{self.host_arch()}-{platform.system()}-debug" / "obj" / "src"
         )
-        objects = sorted(p.name for p in obj_dir.glob("*.o") if p.is_file())
+        objects = sorted(
+            p.name for p in obj_dir.glob(f"*{OBJ_SUFFIX}") if p.is_file())
         self.assertEqual(
             len(objects), unit_count + 1,
             f"expected {unit_count + 1} objects from the parallel build, got {objects}")
 
-    def test_cfg_sanitize_and_profile_build_separate_triplets(self) -> None:
+    def assert_cfg_mode_builds(self, name: str, mode: str) -> None:
         project_dir, app_id = self.write_simple_app_project(
-            "cfg_extra",
+            name,
             "#include <stdio.h>\n"
             "int main(void) {\n"
-            '    printf("cfg_extra ok\\n");\n'
+            f'    printf("{name} ok\\n");\n'
             "    return 0;\n"
             "}\n",
         )
 
-        triplet_base = f"{self.host_arch()}-{platform.system()}"
-        for mode in ("sanitize", "profile"):
-            self.bake(["--cfg", mode, "build", str(project_dir)])
-            artefact = project_dir / ".bake" / f"{triplet_base}-{mode}" / f"{app_id}{EXE_SUFFIX}"
-            self.assertTrue(
-                artefact.is_file(),
-                f"Expected {mode} artefact at {artefact}")
-            self.assertIn("cfg_extra ok", self.run_cmd([str(artefact)]))
+        self.bake(["--cfg", mode, "build", str(project_dir)])
+
+        triplet = f"{self.host_arch()}-{platform.system()}-{mode}"
+        artefact = project_dir / ".bake" / triplet / f"{app_id}{EXE_SUFFIX}"
+        self.assertTrue(artefact.is_file(), f"Expected {mode} artefact at {artefact}")
+        self.assertIn(f"{name} ok", self.run_cmd([str(artefact)]))
+
+    def test_cfg_profile_builds_separate_triplet(self) -> None:
+        self.assert_cfg_mode_builds("cfg_profile", "profile")
+
+    @unittest.skipIf(platform.system() == "Windows", "mingw-w64 ships no asan/ubsan runtime")
+    def test_cfg_sanitize_builds_separate_triplet(self) -> None:
+        self.assert_cfg_mode_builds("cfg_sanitize", "sanitize")
 
     def test_conditional_os_and_cfg_blocks_apply(self) -> None:
         host_os = platform.system()
