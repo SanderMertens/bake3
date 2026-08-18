@@ -36,6 +36,10 @@ OBJ += build/parson.o
 DEP := $(OBJ:.o=.d)
 
 BIN := build/bake$(EXE)
+UNIT_BIN := build/bake_unit_tests$(EXE)
+UNIT_OBJ := build/test/unit/unit_tests.o
+UNIT_LIB_OBJ := $(filter-out build/src/main.o,$(OBJ))
+DEP += $(UNIT_OBJ:.o=.d)
 ifeq ($(UNAME_S),Linux)
   LDFLAGS += -pthread -lm
 endif
@@ -67,9 +71,15 @@ $(BIN): $(OBJ)
 	@mkdir -p $(dir $@)
 	$(CC) $(OBJ) $(LDFLAGS) -o $@
 
+unit: $(UNIT_BIN)
+
+$(UNIT_BIN): $(UNIT_OBJ) $(UNIT_LIB_OBJ)
+	@mkdir -p $(dir $@)
+	$(CC) $(UNIT_OBJ) $(UNIT_LIB_OBJ) $(LDFLAGS) -o $@
+
 clean:
 	rm -rf build
 
 -include $(DEP)
 
-.PHONY: all clean
+.PHONY: all clean unit

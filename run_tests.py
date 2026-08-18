@@ -2292,9 +2292,15 @@ class BakeTests(unittest.TestCase):
         relative_target = project_dir.relative_to(self.repo_root)
         output = self.strip_ansi(self.bake(["run", str(relative_target)]))
 
-        expected = Path(os.path.realpath(project_dir))
-        self.assertIn(f"run_cwd={expected}", output)
-        self.assertNotIn(f"run_cwd={Path(os.path.realpath(self.repo_root))}\n", output)
+        def norm(value: object) -> str:
+            return str(value).replace("\\", "/")
+
+        normalized = norm(output)
+        expected = norm(Path(os.path.realpath(project_dir)))
+        self.assertIn(f"run_cwd={expected}", normalized)
+        self.assertNotIn(
+            f"run_cwd={norm(Path(os.path.realpath(self.repo_root)))}\n",
+            normalized)
 
     @staticmethod
     def emsdk_available() -> bool:
