@@ -73,9 +73,34 @@ class BakeTests(unittest.TestCase):
                     shutil.rmtree(bake_dir)
 
     def setUp(self) -> None:
+        self.tmp_root = self.repo_root / "test" / "tmp"
+        self.tmp_root.mkdir(parents=True, exist_ok=True)
+        self._tmp_entries_before = {entry.name for entry in self.tmp_root.iterdir()}
         self.bake(["clean", "test"])
         self.bake(["reset"])
         self.assert_empty_list_state()
+
+    def tearDown(self) -> None:
+        """Remove everything the test created under test/tmp.
+
+        A local checkout otherwise accumulates one workspace per test per run,
+        and diverges from the empty test/tmp that CI starts every job with.
+        Set BAKE_TEST_KEEP_TMP=1 to keep the trees for debugging.
+        """
+        if os.environ.get("BAKE_TEST_KEEP_TMP"):
+            return
+
+        before = getattr(self, "_tmp_entries_before", None)
+        if before is None or not self.tmp_root.is_dir():
+            return
+
+        for entry in self.tmp_root.iterdir():
+            if entry.name in before:
+                continue
+            if entry.is_dir():
+                self._rm_tree(entry)
+            else:
+                entry.unlink(missing_ok=True)
 
     @classmethod
     def _require_supported_os(cls) -> None:
