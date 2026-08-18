@@ -2,6 +2,8 @@
 #include "compile_internal.h"
 #include "bake/os.h"
 
+#include <string.h>
+
 static void bake_strbuf_append_quoted_path(
     ecs_strbuf_t *cmd, const char *prefix, const char *path)
 {
@@ -16,6 +18,53 @@ static void bake_strbuf_append_quoted_path(
     ecs_strbuf_appendstr(cmd, "\"");
 }
 
+static bool bake_lang_sets_feature_macro(const bake_lang_cfg_t *lang, bool cpp) {
+    static const char *macros[] = {
+        "_GNU_SOURCE", "_DEFAULT_SOURCE", "_BSD_SOURCE", "_SVID_SOURCE",
+        "_POSIX_C_SOURCE", "_XOPEN_SOURCE", "_ANSI_SOURCE", NULL
+    };
+
+    const bake_strlist_t *lists[3];
+    int32_t list_count = 0;
+    lists[list_count ++] = &lang->defines;
+    lists[list_count ++] = &lang->cflags;
+    if (cpp) {
+        lists[list_count ++] = &lang->cxxflags;
+    }
+
+    for (int32_t l = 0; l < list_count; l ++) {
+        for (int32_t i = 0; i < lists[l]->count; i ++) {
+            const char *item = lists[l]->items[i];
+            if (!item) {
+                continue;
+            }
+            if (item[0] == '-' && item[1] == 'D') {
+                item += 2;
+            }
+            for (int32_t m = 0; macros[m]; m ++) {
+                size_t len = strlen(macros[m]);
+                if (!strncmp(item, macros[m], len) &&
+                    (item[len] == '\0' || item[len] == '='))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
+static bool bake_needs_default_source(const char *std, const bake_lang_cfg_t *lang, bool cpp) {
+    if (!std || !strncmp(std, "gnu", 3)) {
+        return false;
+    }
+    if (strcmp(bake_target_os(), "Linux")) {
+        return false;
+    }
+    return !bake_lang_sets_feature_macro(lang, cpp);
+}
+
 int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_strbuf_t *cmd) {
     const char *compiler = ctx->unit->cpp
         ? (ctx->ctx->opts.cxx ? ctx->ctx->opts.cxx : "c++")
@@ -26,10 +75,15 @@ int bake_compose_compile_command_posix(const bake_compile_cmd_ctx_t *ctx, ecs_st
         ecs_strbuf_append(cmd, " %s", ctx->mode_flags->items[i]);
     }
 
-    if (!ctx->unit->cpp && ctx->lang->c_standard) {
-        ecs_strbuf_append(cmd, " -std=%s", ctx->lang->c_standard);
-    } else if (ctx->unit->cpp && ctx->lang->cpp_standard) {
-        ecs_strbuf_append(cmd, " -std=%s", ctx->lang->cpp_standard);
+    const char *std = ctx->unit->cpp
+        ? ctx->lang->cpp_standard
+        : ctx->lang->c_standard;
+    if (std) {
+        ecs_strbuf_append(cmd, " -std=%s", std);
+    }
+
+    if (bake_needs_default_source(std, ctx->lang, ctx->unit->cpp)) {
+        ecs_strbuf_appendstr(cmd, " -D_DEFAULT_SOURCE");
     }
 
     bake_list_append_fmt(cmd, &ctx->lang->cflags, "");

@@ -432,6 +432,56 @@ class BakeTests(unittest.TestCase):
         self.assertIn(self.strict_link_warning_flag(), output)
         self.assertNotIn(" -lenvmath -lenvmath", output)
 
+    @unittest.skipIf(platform.system() == "Windows", "checks gcc-style flags; bake defaults to MSVC on Windows")
+    def test_default_c_standard_keeps_posix_declarations_visible(self) -> None:
+        """POSIX APIs stay declared under bake's default C standard.
+
+        glibc suppresses everything outside the C standard when a strict
+        -std=cNN defines __STRICT_ANSI__, which silently removes
+        clock_gettime and the NI_* constants from an otherwise ordinary
+        build.
+        """
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"posix_vis_{stamp}"
+        (root / "src").mkdir(parents=True, exist_ok=True)
+        (root / "project.json").write_text(
+            f'{{"id": "posix_vis_{stamp}", "type": "application"}}\n'
+        )
+        (root / "src" / "main.c").write_text(
+            "#include <netdb.h>\n"
+            "#include <time.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            "    struct timespec ts;\n"
+            "    clock_gettime(CLOCK_MONOTONIC, &ts);\n"
+            "    printf(\"flags=%d\\n\", NI_NUMERICHOST | NI_NUMERICSERV);\n"
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.strip_ansi(self.bake(["run", str(root)]))
+        self.assertIn("flags=", output)
+
+    @unittest.skipIf(platform.system() != "Linux", "_DEFAULT_SOURCE only applies to glibc")
+    def test_explicit_feature_test_macro_is_not_widened(self) -> None:
+        """A project that selects its own glibc feature test macro keeps it.
+
+        Adding _DEFAULT_SOURCE on top of an explicit _POSIX_C_SOURCE would
+        expose BSD and SVID declarations the project deliberately excluded.
+        """
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"feature_macro_{stamp}"
+        (root / "src").mkdir(parents=True, exist_ok=True)
+        (root / "project.json").write_text(
+            f'{{"id": "feature_macro_{stamp}", "type": "application", '
+            '"lang.c": {"defines": ["_POSIX_C_SOURCE=200809L"]}}\n'
+        )
+        (root / "src" / "main.c").write_text("int main(void) { return 0; }\n")
+
+        output = self.strip_ansi(self.bake(["--trace", "build", str(root)]))
+        self.assertIn("-D_POSIX_C_SOURCE=200809L", output)
+        self.assertNotIn("-D_DEFAULT_SOURCE", output)
+
     def test_build_integration_target(self) -> None:
         self.bake(["build", "test/integration"])
         state = self.list_state()
