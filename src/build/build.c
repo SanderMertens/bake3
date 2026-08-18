@@ -135,43 +135,22 @@ static int bake_cleanup_standalone_outputs(
     return rc;
 }
 
-typedef struct bake_tree_mtime_ctx_t {
-    int64_t newest;
-} bake_tree_mtime_ctx_t;
-
-static int bake_tree_mtime_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
-    bake_tree_mtime_ctx_t *ctx = ctx_ptr;
-    if (entry->is_dir) {
-        if (bake_is_dot_dir(entry->name) || entry->name[0] == '.') {
-            return 1;
-        }
-        return 0;
-    }
-
-    int64_t mtime = bake_os_file_mtime(entry->path);
-    if (mtime > ctx->newest) {
-        ctx->newest = mtime;
-    }
-    return 0;
-}
-
 static int64_t bake_standalone_dep_fingerprint(const bake_project_cfg_t *cfg) {
-    bake_tree_mtime_ctx_t mtime_ctx = {0};
-
     char *project_json = bake_path_join(cfg->path, "project.json");
-    mtime_ctx.newest = bake_os_file_mtime(project_json);
+    int64_t newest = bake_os_file_mtime(project_json);
     ecs_os_free(project_json);
 
     static const char *dirs[] = {"include", "src"};
     for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) {
         char *dir = bake_path_join(cfg->path, dirs[i]);
-        if (bake_path_exists(dir)) {
-            bake_dir_walk_recursive(dir, bake_tree_mtime_visit, &mtime_ctx);
+        int64_t mtime = bake_os_tree_newest_mtime(dir);
+        if (mtime > newest) {
+            newest = mtime;
         }
         ecs_os_free(dir);
     }
 
-    return mtime_ctx.newest;
+    return newest;
 }
 
 static char* bake_standalone_marker_value(const char *marker, const char *dep_id) {

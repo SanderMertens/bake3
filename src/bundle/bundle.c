@@ -58,7 +58,10 @@ static char* bake_bundle_install_marker(const char *install_dir) {
     return bake_path_join(install_dir, ".bake_bundle_built");
 }
 
-static char* bake_bundle_fingerprint(const bake_bundle_t *bundle) {
+static char* bake_bundle_fingerprint(
+    const bake_bundle_t *bundle,
+    const char *bundle_src_dir)
+{
     ecs_strbuf_t buf = ECS_STRBUF_INIT;
     ecs_strbuf_append(&buf, "build_system=%s\n",
         bundle->build_system ? bundle->build_system : "");
@@ -70,6 +73,8 @@ static char* bake_bundle_fingerprint(const bake_bundle_t *bundle) {
     for (int32_t i = 0; i < bundle->cmake_args.count; i++) {
         ecs_strbuf_append(&buf, "cmake_arg=%s\n", bundle->cmake_args.items[i]);
     }
+    ecs_strbuf_append(&buf, "source_mtime=%lld\n",
+        (long long)bake_os_tree_newest_mtime(bundle_src_dir));
     return ecs_strbuf_get(&buf);
 }
 
@@ -452,13 +457,23 @@ static int bake_bundle_prepare_one(
             }
         }
 
-        char *fingerprint = bake_bundle_fingerprint(bundle);
+        char *fingerprint = bake_bundle_fingerprint(bundle, bundle_src_dir);
 
         char *built = bake_file_read(marker, NULL);
         bool up_to_date = built && !strcmp(built, fingerprint);
+        bool was_built = built != NULL;
         ecs_os_free(built);
 
         if (!up_to_date) {
+            if (was_built) {
+                if (bake_os_rmtree(build_dir) != 0 ||
+                    bake_os_rmtree(install_dir) != 0)
+                {
+                    ecs_os_free(fingerprint);
+                    goto cleanup;
+                }
+            }
+
             if (bake_os_mkdirs(build_dir) != 0 || bake_os_mkdirs(install_dir) != 0) {
                 ecs_os_free(fingerprint);
                 goto cleanup;

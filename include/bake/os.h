@@ -76,6 +76,7 @@ const char* bake_target_exe_ext(void);
 int bake_emsdk_ensure_env(void);
 
 int64_t bake_os_file_mtime(const char *path);
+int64_t bake_os_tree_newest_mtime(const char *root);
 int64_t bake_os_file_size(const char *path); /* nanoseconds since unix epoch, -1 on error */
 int bake_os_mkdir(const char *path);
 char* bake_os_getcwd(void);

@@ -70,6 +70,35 @@ int bake_dir_walk_recursive(const char *root, bake_dir_walk_cb cb, void *ctx) {
     return bake_dir_walk_recurse(root, &walk, 0);
 }
 
+typedef struct bake_tree_mtime_ctx_t {
+    int64_t newest;
+} bake_tree_mtime_ctx_t;
+
+static int bake_tree_mtime_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
+    bake_tree_mtime_ctx_t *ctx = ctx_ptr;
+    if (entry->is_dir) {
+        if (bake_is_dot_dir(entry->name) || entry->name[0] == '.') {
+            return 1;
+        }
+        return 0;
+    }
+
+    int64_t mtime = bake_os_file_mtime(entry->path);
+    if (mtime > ctx->newest) {
+        ctx->newest = mtime;
+    }
+    return 0;
+}
+
+int64_t bake_os_tree_newest_mtime(const char *root) {
+    bake_tree_mtime_ctx_t ctx = {0};
+    if (!root || !bake_path_exists(root)) {
+        return 0;
+    }
+    bake_dir_walk_recursive(root, bake_tree_mtime_visit, &ctx);
+    return ctx.newest;
+}
+
 static int bake_os_mkdir_component(const char *full_path, const char *component) {
 #if defined(_WIN32)
     /* Drive roots like "D:" cannot be created and do not stat reliably. */
