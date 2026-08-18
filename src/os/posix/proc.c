@@ -12,9 +12,14 @@
 
 extern char **environ;
 
-#if defined(__APPLE__) || \
+#if defined(__APPLE__) && defined(__MAC_OS_X_VERSION_MIN_REQUIRED) && \
+    __MAC_OS_X_VERSION_MIN_REQUIRED >= 260000
+#define BAKE_SPAWN_HAS_CHDIR
+#define bake_spawn_addchdir posix_spawn_file_actions_addchdir
+#elif defined(__APPLE__) || \
     (defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 29)))
 #define BAKE_SPAWN_HAS_CHDIR
+#define bake_spawn_addchdir posix_spawn_file_actions_addchdir_np
 #endif
 
 /* posix_spawn instead of fork/exec: bake spawns compilers from worker
@@ -43,7 +48,7 @@ int bake_proc_run(
     if (stdio_cfg) {
 #ifdef BAKE_SPAWN_HAS_CHDIR
         if (stdio_cfg->cwd && stdio_cfg->cwd[0]) {
-            err = posix_spawn_file_actions_addchdir_np(&fa, stdio_cfg->cwd);
+            err = bake_spawn_addchdir(&fa, stdio_cfg->cwd);
         }
 #endif
 
