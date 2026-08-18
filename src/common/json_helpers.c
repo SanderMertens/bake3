@@ -89,18 +89,6 @@ int bake_json_get_bool(const JSON_Object *object, const char *key, bool *out) {
     return 0;
 }
 
-int bake_json_get_bool_alias(
-    const JSON_Object *object,
-    const char *key,
-    const char *alias,
-    bool *out)
-{
-    int rc = bake_json_get_bool(object, key, out);
-    if (rc == 1 && alias) {
-        rc = bake_json_get_bool(object, alias, out);
-    }
-    return rc;
-}
 
 int bake_json_get_array(const JSON_Object *object, const char *key, bake_strlist_t *out) {
     JSON_Value *value = json_object_get_value(object, key);
@@ -115,31 +103,7 @@ int bake_json_get_array(const JSON_Object *object, const char *key, bake_strlist
     return bake_json_parse_strlist(json_value_get_array(value), out);
 }
 
-int bake_json_get_array_alias(
-    const JSON_Object *object,
-    const char *key,
-    const char *alias,
-    bake_strlist_t *out)
-{
-    int rc = bake_json_get_array(object, key, out);
-    if (rc == 1 && alias) {
-        rc = bake_json_get_array(object, alias, out);
-    }
-    return rc;
-}
 
-int bake_json_get_string_alias(
-    const JSON_Object *object,
-    const char *key,
-    const char *alias,
-    char **out)
-{
-    int rc = bake_json_get_string(object, key, out);
-    if (rc == 1 && alias) {
-        rc = bake_json_get_string(object, alias, out);
-    }
-    return rc;
-}
 
 int bake_json_get_object_optional(
     const JSON_Object *object,

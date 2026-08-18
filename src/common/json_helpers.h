@@ -14,25 +14,10 @@ int bake_json_get_string(const JSON_Object *object, const char *key, char **out)
 
 int bake_json_get_bool(const JSON_Object *object, const char *key, bool *out);
 
-int bake_json_get_bool_alias(
-    const JSON_Object *object,
-    const char *key,
-    const char *alias,
-    bool *out);
 
 int bake_json_get_array(const JSON_Object *object, const char *key, bake_strlist_t *out);
 
-int bake_json_get_array_alias(
-    const JSON_Object *object,
-    const char *key,
-    const char *alias,
-    bake_strlist_t *out);
 
-int bake_json_get_string_alias(
-    const JSON_Object *object,
-    const char *key,
-    const char *alias,
-    char **out);
 
 int bake_json_get_object_optional(
     const JSON_Object *object,

@@ -406,29 +406,154 @@ void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
 /* Single source of truth for the language config keys; consumed by both the
  * lang.c/lang.cpp section parser and the project-level parser. */
 #define BAKE_LANG_ARRAY_KEYS(X) \
-    X("cflags", NULL, cflags) \
-    X("cxxflags", NULL, cxxflags) \
-    X("defines", NULL, defines) \
-    X("ldflags", NULL, ldflags) \
-    X("lib", "libs", libs) \
-    X("static-lib", "static_lib", static_libs) \
-    X("libpath", "libpaths", libpaths) \
-    X("link", "links", links) \
-    X("include", NULL, include_paths) \
-    X("embed", NULL, embed)
+    X("cflags", cflags) \
+    X("cxxflags", cxxflags) \
+    X("defines", defines) \
+    X("ldflags", ldflags) \
+    X("lib", libs) \
+    X("static-lib", static_libs) \
+    X("libpath", libpaths) \
+    X("link", links) \
+    X("include", include_paths) \
+    X("embed", embed)
 
 #define BAKE_LANG_BOOL_KEYS(X) \
     X("static", static_lib) \
     X("export-symbols", export_symbols) \
     X("precompile-header", precompile_header)
 
+#define BAKE_PROJECT_META_KEYS(X) \
+    X("id") X("type") X("value") X("test") X("rules") X("bundle") \
+    X("dependee") X("lang") X("lang.c") X("lang.cpp")
+
+#define BAKE_PROJECT_VALUE_KEYS(X) \
+    X("language") X("output") X("private") X("public") X("standalone") \
+    X("amalgamate") X("amalgamate-path") X("use") X("use-private") \
+    X("c-standard") X("cpp-standard")
+
+#define BAKE_KEY(key) key,
+#define BAKE_KEY_ARR(key, field) key,
+#define BAKE_KEY_BOOL(key, field) key,
+
+static const char *bake_project_object_keys[] = {
+    BAKE_PROJECT_META_KEYS(BAKE_KEY)
+    BAKE_PROJECT_VALUE_KEYS(BAKE_KEY)
+    BAKE_LANG_ARRAY_KEYS(BAKE_KEY_ARR)
+    BAKE_LANG_BOOL_KEYS(BAKE_KEY_BOOL)
+    NULL
+};
+
+static const char *bake_lang_object_keys[] = {
+    BAKE_LANG_ARRAY_KEYS(BAKE_KEY_ARR)
+    BAKE_LANG_BOOL_KEYS(BAKE_KEY_BOOL)
+    "c-standard", "cpp-standard",
+    NULL
+};
+
+static const char *bake_bundle_object_keys[] = {
+    "repository", "branch", "tag", "commit", "subdir", "library",
+    "build-system", "profile", "header-only", "include", "sources",
+    "cmake-args", "lib", "ldflags",
+    NULL
+};
+
+static const char *bake_amalgamate_object_keys[] = {
+    "path", "prefix", "disable-flags",
+    NULL
+};
+
+#undef BAKE_KEY
+#undef BAKE_KEY_ARR
+#undef BAKE_KEY_BOOL
+
+static bool bake_json_key_is_conditional(const char *key) {
+    size_t len = key ? strlen(key) : 0;
+    return len >= 4 && key[0] == '$' && key[1] == '{' && key[len - 1] == '}';
+}
+
+static void bake_key_normalize(const char *key, char *out, size_t size) {
+    size_t w = 0;
+    for (const char *p = key; *p && w + 1 < size; p++) {
+        if (*p == '-' || *p == '_') {
+            continue;
+        }
+        out[w++] = (char)tolower((unsigned char)*p);
+    }
+    out[w] = '\0';
+}
+
+static const char* bake_key_find_similar(const char *key, const char **known) {
+    char norm_key[128];
+    char norm_known[128];
+    bake_key_normalize(key, norm_key, sizeof(norm_key));
+    if (strlen(norm_key) < 3) {
+        return NULL;
+    }
+
+    for (int32_t i = 0; known[i]; i++) {
+        bake_key_normalize(known[i], norm_known, sizeof(norm_known));
+        if (!strcmp(norm_key, norm_known)) {
+            return known[i];
+        }
+    }
+
+    for (int32_t i = 0; known[i]; i++) {
+        bake_key_normalize(known[i], norm_known, sizeof(norm_known));
+        if (strlen(norm_known) < 3) {
+            continue;
+        }
+        if (strstr(norm_key, norm_known) || strstr(norm_known, norm_key)) {
+            return known[i];
+        }
+    }
+
+    return NULL;
+}
+
+static void bake_warn_similar_keys(
+    const JSON_Object *object,
+    const char **known,
+    const char *context)
+{
+    if (!object) {
+        return;
+    }
+
+    size_t key_count = json_object_get_count(object);
+    for (size_t i = 0; i < key_count; i++) {
+        const char *key = json_object_get_name(object, i);
+        if (!key || bake_json_key_is_conditional(key)) {
+            continue;
+        }
+
+        bool known_key = false;
+        for (int32_t k = 0; known[k]; k++) {
+            if (!strcmp(key, known[k])) {
+                known_key = true;
+                break;
+            }
+        }
+        if (known_key) {
+            continue;
+        }
+
+        const char *similar = bake_key_find_similar(key, known);
+        if (similar) {
+            ecs_warn("unknown %s key '%s', did you mean '%s'?",
+                context, key, similar);
+        }
+    }
+}
+
 static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) {
     if (!object) {
         return 0;
     }
 
-#define G(key, alias, field) \
-    if (bake_json_get_array_alias(object, key, alias, &cfg->field) < 0) return -1;
+    bake_warn_similar_keys(object, bake_lang_object_keys, "language config");
+
+#define G(key, field) \
+    if (bake_json_get_array(object, key, &cfg->field) < 0) return -1;
     BAKE_LANG_ARRAY_KEYS(G)
 #undef G
 
@@ -459,9 +584,10 @@ static int bake_parse_amalgamate_item(
     const JSON_Object *item,
     bake_amalgamate_cfg_t *amalg)
 {
+    bake_warn_similar_keys(item, bake_amalgamate_object_keys, "amalgamate");
     if (bake_json_get_string(item, "path", &amalg->path) < 0) return -1;
     if (bake_json_get_string(item, "prefix", &amalg->prefix) < 0) return -1;
-    if (bake_json_get_array_alias(item, "disable-flags", "disable_flags", &amalg->disable_flags) < 0) return -1;
+    if (bake_json_get_array(item, "disable-flags", &amalg->disable_flags) < 0) return -1;
     return 0;
 }
 
@@ -479,7 +605,7 @@ static int bake_parse_amalgamate(
     if (type == JSONBoolean) {
         if (json_value_get_boolean(value)) {
             bake_amalgamate_cfg_t *amalg = bake_amalgamate_list_append(&cfg->amalgamate);
-            if (bake_json_get_string_alias(object, "amalgamate-path", "amalgamate_path", &amalg->path) < 0) return -1;
+            if (bake_json_get_string(object, "amalgamate-path", &amalg->path) < 0) return -1;
         }
         return 0;
     }
@@ -517,19 +643,19 @@ static int bake_parse_project_value_cfg(
     }
 
     if (bake_json_get_string(object, "language", &cfg->language) < 0) return -1;
-    if (bake_json_get_string_alias(object, "output", "artefact", &cfg->output_name) < 0) return -1;
+    if (bake_json_get_string(object, "output", &cfg->output_name) < 0) return -1;
 
     if (bake_json_get_bool(object, "private", &cfg->private_project) < 0) return -1;
     if (bake_json_get_bool(object, "public", &cfg->public_project) < 0) return -1;
     if (bake_json_get_bool(object, "standalone", &cfg->standalone) < 0) return -1;
     if (bake_parse_amalgamate(object, cfg) < 0) return -1;
 
-    if (bake_json_get_array_alias(object, "use", NULL, &cfg->use) < 0) return -1;
-    if (bake_json_get_array_alias(object, "use-private", "use_private", &cfg->use_private) < 0) return -1;
+    if (bake_json_get_array(object, "use", &cfg->use) < 0) return -1;
+    if (bake_json_get_array(object, "use-private", &cfg->use_private) < 0) return -1;
 
-#define ARR(key, alias, field) \
-    if (bake_json_get_array_alias(object, key, alias, &cfg->c_lang.field) < 0) return -1; \
-    if (bake_json_get_array_alias(object, key, alias, &cfg->cpp_lang.field) < 0) return -1;
+#define ARR(key, field) \
+    if (bake_json_get_array(object, key, &cfg->c_lang.field) < 0) return -1; \
+    if (bake_json_get_array(object, key, &cfg->cpp_lang.field) < 0) return -1;
     BAKE_LANG_ARRAY_KEYS(ARR)
 #undef ARR
 
@@ -615,14 +741,13 @@ static int bake_parse_project_cfg_object(
         return 0;
     }
 
+    bake_warn_similar_keys(object, bake_project_object_keys, "project");
+
     {
         const JSON_Object *bundles_obj = NULL;
         if (bake_json_get_object_optional(object, "bundle", &bundles_obj) != 0) return -1;
         if (bake_parse_bundles_object(bundles_obj, &cfg->bundles) != 0) return -1;
 
-        const JSON_Object *bundles_alias = NULL;
-        if (bake_json_get_object_optional(object, "bundles", &bundles_alias) != 0) return -1;
-        if (bake_parse_bundles_object(bundles_alias, &cfg->bundles) != 0) return -1;
     }
 
     if (parse_meta) {
@@ -659,6 +784,7 @@ static int bake_parse_project_cfg_object(
 
     const JSON_Object *value_obj = NULL;
     if (bake_json_get_object_optional(object, "value", &value_obj) != 0) return -1;
+    bake_warn_similar_keys(value_obj, bake_project_object_keys, "project");
     if (bake_parse_project_value_cfg(value_obj, cfg) != 0) return -1;
 
     if (bake_parse_project_lang_cfg(object, cfg) != 0) return -1;
@@ -800,23 +926,25 @@ static int bake_parse_bundle_entry(
         return 0;
     }
 
+    bake_warn_similar_keys(object, bake_bundle_object_keys, "bundle");
+
     bake_bundle_t *bundle = bake_bundle_list_append(bundles);
     bundle->id = ecs_os_strdup(id);
 
-    if (bake_json_get_string_alias(object, "repository", "repo", &bundle->repository) < 0) return -1;
+    if (bake_json_get_string(object, "repository", &bundle->repository) < 0) return -1;
     if (bake_json_get_string(object, "branch", &bundle->branch) < 0) return -1;
     if (bake_json_get_string(object, "tag", &bundle->tag) < 0) return -1;
     if (bake_json_get_string(object, "commit", &bundle->commit) < 0) return -1;
-    if (bake_json_get_string_alias(object, "subdir", "path", &bundle->subdir) < 0) return -1;
+    if (bake_json_get_string(object, "subdir", &bundle->subdir) < 0) return -1;
     if (bake_json_get_string(object, "library", &bundle->library) < 0) return -1;
-    if (bake_json_get_string_alias(object, "build-system", "build_system", &bundle->build_system) < 0) return -1;
+    if (bake_json_get_string(object, "build-system", &bundle->build_system) < 0) return -1;
     if (bake_json_get_string(object, "profile", &bundle->profile) < 0) return -1;
 
-    if (bake_json_get_bool_alias(object, "header-only", "header_only", &bundle->header_only) < 0) return -1;
-    if (bake_json_get_array_alias(object, "include", "includes", &bundle->includes) < 0) return -1;
+    if (bake_json_get_bool(object, "header-only", &bundle->header_only) < 0) return -1;
+    if (bake_json_get_array(object, "include", &bundle->includes) < 0) return -1;
     if (bake_json_get_array(object, "sources", &bundle->sources) < 0) return -1;
-    if (bake_json_get_array_alias(object, "cmake-args", "cmake_args", &bundle->cmake_args) < 0) return -1;
-    if (bake_json_get_array_alias(object, "lib", "libs", &bundle->libs) < 0) return -1;
+    if (bake_json_get_array(object, "cmake-args", &bundle->cmake_args) < 0) return -1;
+    if (bake_json_get_array(object, "lib", &bundle->libs) < 0) return -1;
     if (bake_json_get_array(object, "ldflags", &bundle->ldflags) < 0) return -1;
 
     return 0;

@@ -167,6 +167,7 @@ The following options are supported:
 - `public`: When false, the project will not be copied to the bake environment (see below). Default is true.
 - `amalgamate`: Specify whether the project should amalgamated the source files.
 - `amalgamate-path`: Destination path for the output of the amalgamation process.
+- `output`: Name of the build artefact. Defaults to the project id.
 - `standalone`: When true, this will copy all amalgamated sources from dependencies to a `deps` folder in the project, and include those in the project build rather than relying on linking with dependency binaries. This allows for the project to be easily shared, without having to also share the dependencies. The sources in `deps` are refreshed automatically when a dependency changes. When the dependency sources are not available (for example on a machine that only has the standalone project), the existing sources in `deps` are used as is.
 
 ## Language configuration
@@ -193,9 +194,20 @@ The following configuration options are available:
 - `lib`: list libraries to link with
 - `libpath`: list of paths to use for resolving  libraries
 - `defines`: list of preprocessor defines to add to the compiler
+- `include`: list of additional include paths
 - `c-standard`: Specify the C standard to use for C files
 - `cpp-standard`: Specify the C++ standard to use for C++ files
 - `export-symbols`: Export symbols if true (default is false)
+
+Each configuration key has a single supported spelling. When bake finds an
+unknown key that resembles a supported one, it says so instead of ignoring it:
+
+```
+[warning] unknown project key 'libs', did you mean 'lib'?
+```
+
+Keys that resemble nothing bake knows (`author`, `description`) stay silent, so
+project metadata does not produce warnings.
 
 ## Dependee configuration
 Projects may add a `dependee` section to their project configuration which contains configuration that will be applied to dependee projects. The structure of a dependee object mirrors that of the project configuration. The following example makes sure that any project that uses `my_library` will also have `flecs` as a dependency and link with `libm`.
