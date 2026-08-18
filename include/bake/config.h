@@ -73,16 +73,11 @@ typedef struct bake_lang_cfg_t {
     bake_strlist_t defines;
     bake_strlist_t ldflags;
     bake_strlist_t libs;
-    bake_strlist_t static_libs;
     bake_strlist_t libpaths;
-    bake_strlist_t links;
     bake_strlist_t include_paths;
     bake_strlist_t embed;
     char *c_standard;
     char *cpp_standard;
-    bool static_lib;
-    bool export_symbols;
-    bool precompile_header;
 } bake_lang_cfg_t;
 
 struct bake_project_cfg_t {

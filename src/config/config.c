@@ -287,13 +287,10 @@ bake_amalgamate_cfg_t* bake_amalgamate_list_get(const bake_amalgamate_list_t *li
 static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults) {
 #define F(n) bake_strlist_init(&cfg->n)
     F(cflags); F(cxxflags); F(defines); F(ldflags); F(libs);
-    F(static_libs); F(libpaths); F(links); F(include_paths); F(embed);
+    F(libpaths); F(include_paths); F(embed);
 #undef F
     cfg->c_standard = set_defaults ? ecs_os_strdup("c99") : NULL;
     cfg->cpp_standard = set_defaults ? ecs_os_strdup("c++17") : NULL;
-    cfg->static_lib = false;
-    cfg->export_symbols = false;
-    cfg->precompile_header = set_defaults;
 }
 
 void bake_lang_cfg_init(bake_lang_cfg_t *cfg) {
@@ -305,20 +302,17 @@ void bake_lang_cfg_copy(bake_lang_cfg_t *dst, const bake_lang_cfg_t *src) {
 
     dst->c_standard = ecs_os_strdup(src->c_standard);
     dst->cpp_standard = ecs_os_strdup(src->cpp_standard);
-    dst->static_lib = src->static_lib;
-    dst->export_symbols = src->export_symbols;
-    dst->precompile_header = src->precompile_header;
 
 #define CP(f) bake_strlist_copy(&dst->f, &src->f)
     CP(cflags); CP(cxxflags); CP(defines); CP(ldflags); CP(libs);
-    CP(static_libs); CP(libpaths); CP(links); CP(include_paths); CP(embed);
+    CP(libpaths); CP(include_paths); CP(embed);
 #undef CP
 }
 
 void bake_lang_cfg_fini(bake_lang_cfg_t *cfg) {
 #define F(n) bake_strlist_fini(&cfg->n)
     F(cflags); F(cxxflags); F(defines); F(ldflags); F(libs);
-    F(static_libs); F(libpaths); F(links); F(include_paths); F(embed);
+    F(libpaths); F(include_paths); F(embed);
 #undef F
     ecs_os_free(cfg->c_standard);
     ecs_os_free(cfg->cpp_standard);
@@ -411,16 +405,9 @@ void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
     X("defines", defines) \
     X("ldflags", ldflags) \
     X("lib", libs) \
-    X("static-lib", static_libs) \
     X("libpath", libpaths) \
-    X("link", links) \
     X("include", include_paths) \
     X("embed", embed)
-
-#define BAKE_LANG_BOOL_KEYS(X) \
-    X("static", static_lib) \
-    X("export-symbols", export_symbols) \
-    X("precompile-header", precompile_header)
 
 #define BAKE_PROJECT_META_KEYS(X) \
     X("id") X("type") X("value") X("test") X("rules") X("bundle") \
@@ -433,19 +420,16 @@ void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
 
 #define BAKE_KEY(key) key,
 #define BAKE_KEY_ARR(key, field) key,
-#define BAKE_KEY_BOOL(key, field) key,
 
 static const char *bake_project_object_keys[] = {
     BAKE_PROJECT_META_KEYS(BAKE_KEY)
     BAKE_PROJECT_VALUE_KEYS(BAKE_KEY)
     BAKE_LANG_ARRAY_KEYS(BAKE_KEY_ARR)
-    BAKE_LANG_BOOL_KEYS(BAKE_KEY_BOOL)
     NULL
 };
 
 static const char *bake_lang_object_keys[] = {
     BAKE_LANG_ARRAY_KEYS(BAKE_KEY_ARR)
-    BAKE_LANG_BOOL_KEYS(BAKE_KEY_BOOL)
     "c-standard", "cpp-standard",
     NULL
 };
@@ -464,7 +448,6 @@ static const char *bake_amalgamate_object_keys[] = {
 
 #undef BAKE_KEY
 #undef BAKE_KEY_ARR
-#undef BAKE_KEY_BOOL
 
 static bool bake_json_key_is_conditional(const char *key) {
     size_t len = key ? strlen(key) : 0;
@@ -559,11 +542,6 @@ static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) 
 
     if (bake_json_get_string(object, "c-standard", &cfg->c_standard) < 0) return -1;
     if (bake_json_get_string(object, "cpp-standard", &cfg->cpp_standard) < 0) return -1;
-
-#define B(key, field) \
-    if (bake_json_get_bool(object, key, &cfg->field) < 0) return -1;
-    BAKE_LANG_BOOL_KEYS(B)
-#undef B
 
     size_t key_count = json_object_get_count(object);
     for (size_t i = 0; i < key_count; i++) {
@@ -661,14 +639,6 @@ static int bake_parse_project_value_cfg(
 
     if (bake_json_get_string(object, "c-standard", &cfg->c_lang.c_standard) < 0) return -1;
     if (bake_json_get_string(object, "cpp-standard", &cfg->cpp_lang.cpp_standard) < 0) return -1;
-
-#define LBOOL(key, field) { \
-    bool _v = false; int _rc = bake_json_get_bool(object, key, &_v); \
-    if (_rc < 0) return -1; \
-    if (_rc == 0) { cfg->c_lang.field = _v; cfg->cpp_lang.field = _v; } \
-}
-    BAKE_LANG_BOOL_KEYS(LBOOL)
-#undef LBOOL
 
     return 0;
 }

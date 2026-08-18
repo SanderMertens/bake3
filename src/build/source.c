@@ -496,9 +496,7 @@ static void bake_merge_lang_cfg_unique(
     bake_strlist_merge_unique(&dst->defines, &src->defines);
     bake_strlist_merge_unique(&dst->ldflags, &src->ldflags);
     bake_strlist_merge_unique(&dst->libs, &src->libs);
-    bake_strlist_merge_unique(&dst->static_libs, &src->static_libs);
     bake_strlist_merge_unique(&dst->libpaths, &src->libpaths);
-    bake_strlist_merge_unique(&dst->links, &src->links);
     bake_strlist_merge_unique(&dst->include_paths, &src->include_paths);
 }
 

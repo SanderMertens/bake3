@@ -622,14 +622,9 @@ class BakeTests(unittest.TestCase):
             '        "defines": [],\n'
             '        "ldflags": [],\n'
             '        "lib": [],\n'
-            '        "static-lib": [],\n'
             '        "libpath": [],\n'
-            '        "link": [],\n'
             '        "include": [],\n'
             '        "embed": [],\n'
-            '        "static": false,\n'
-            '        "export-symbols": false,\n'
-            '        "precompile-header": false,\n'
             '        "c-standard": "c99",\n'
             '        "cpp-standard": "c++17"\n'
             "    }\n"
@@ -2316,8 +2311,7 @@ class BakeTests(unittest.TestCase):
             '        "use_private": []\n'
             "    },\n"
             '    "lang.c": {\n'
-            '        "includes": [],\n'
-            '        "static_lib": []\n'
+            '        "includes": []\n'
             "    }\n"
             "}\n"
         )
@@ -2330,9 +2324,6 @@ class BakeTests(unittest.TestCase):
             "unknown project key 'use_private', did you mean 'use-private'?", output)
         self.assertIn(
             "unknown language config key 'includes', did you mean 'include'?", output)
-        self.assertIn(
-            "unknown language config key 'static_lib', did you mean 'static-lib'?",
-            output)
 
     def test_similar_bundle_and_amalgamate_keys_are_reported(self) -> None:
         """A misspelled bundle key is ignored, so the build fails on the

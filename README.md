@@ -197,7 +197,6 @@ The following configuration options are available:
 - `include`: list of additional include paths
 - `c-standard`: Specify the C standard to use for C files
 - `cpp-standard`: Specify the C++ standard to use for C++ files
-- `export-symbols`: Export symbols if true (default is false)
 
 Each configuration key has a single supported spelling. When bake finds an
 unknown key that resembles a supported one, it says so instead of ignoring it:

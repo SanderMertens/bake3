@@ -378,14 +378,9 @@ static void bake_fingerprint_append_lang(
     ecs_strbuf_append(buf, "%s.std=%s/%s\n", prefix,
         lang->c_standard ? lang->c_standard : "",
         lang->cpp_standard ? lang->cpp_standard : "");
-    ecs_strbuf_append(buf, "%s.bools=%d%d%d\n", prefix,
-        lang->static_lib ? 1 : 0,
-        lang->export_symbols ? 1 : 0,
-        lang->precompile_header ? 1 : 0);
-
 #define L(f) bake_fingerprint_append_list(buf, prefix, &lang->f)
     L(cflags); L(cxxflags); L(defines); L(ldflags); L(libs);
-    L(static_libs); L(libpaths); L(links); L(include_paths); L(embed);
+    L(libpaths); L(include_paths); L(embed);
 #undef L
 }
 
