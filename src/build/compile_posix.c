@@ -183,8 +183,16 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
         ecs_os_free(export_name_alloc);
 
         for (int32_t i = 0; i < ctx->lang->embed.count; i++) {
-            bake_strbuf_append_quoted_path(
-                cmd, " --embed-file ", ctx->lang->embed.items[i]);
+            const char *entry = ctx->lang->embed.items[i];
+            if (bake_path_is_abs(entry) || strchr(entry, '@')) {
+                bake_strbuf_append_quoted_path(cmd, " --embed-file ", entry);
+            } else {
+                char *src = bake_path_join(ctx->cfg->path, entry);
+                char *mapped = flecs_asprintf("%s@%s", src, entry);
+                bake_strbuf_append_quoted_path(cmd, " --embed-file ", mapped);
+                ecs_os_free(mapped);
+                ecs_os_free(src);
+            }
         }
     }
 
