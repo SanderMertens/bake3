@@ -971,6 +971,78 @@ int bake_build_rebuild(bake_context_t *ctx) {
     return rc;
 }
 
+/* A wasm artefact is not an executable, it is a page a browser has to fetch
+ * over http. Serve the directory it was linked into and open it. */
+static const char *bake_em_serve_script =
+    "import functools, http.server, socketserver, sys, threading, webbrowser\n"
+    "directory, first_port, page = sys.argv[1], int(sys.argv[2]), sys.argv[3]\n"
+    "handler = functools.partial(\n"
+    "    http.server.SimpleHTTPRequestHandler, directory=directory)\n"
+    "socketserver.TCPServer.allow_reuse_address = True\n"
+    "server = None\n"
+    "for port in range(first_port, first_port + 32):\n"
+    "    try:\n"
+    "        server = socketserver.TCPServer(('127.0.0.1', port), handler)\n"
+    "        break\n"
+    "    except OSError:\n"
+    "        continue\n"
+    "if server is None:\n"
+    "    sys.exit('no free port in range')\n"
+    "url = 'http://localhost:%d/%s' % (server.server_address[1], page)\n"
+    "print('serving %s at %s (ctrl-c to stop)' % (directory, url), flush=True)\n"
+    "threading.Timer(0.3, webbrowser.open, [url]).start()\n"
+    "try:\n"
+    "    server.serve_forever()\n"
+    "except KeyboardInterrupt:\n"
+    "    pass\n";
+
+#define BAKE_EM_SERVE_PORT 8080
+
+static int bake_run_em_artefact(const char *artefact) {
+    char *dir = bake_path_dirname(artefact);
+    char *page = bake_path_basename(artefact);
+
+    /* emcc only emits a page when a shell file is configured. Fall back to a
+     * hand written index.html, and to the directory listing otherwise. */
+    size_t page_len = strlen(page);
+    if (page_len < 5 || strcmp(page + page_len - 5, ".html")) {
+        char *index = bake_path_join(dir, "index.html");
+        bool has_index = bake_path_exists(index) != 0;
+        ecs_os_free(index);
+
+        if (has_index) {
+            ecs_os_free(page);
+            page = ecs_os_strdup("index.html");
+        } else {
+            ecs_warn("no html page next to %s: set \"shell\" in the language "
+                "config or add an index.html that loads %s", artefact, page);
+            ecs_os_free(page);
+            page = ecs_os_strdup("");
+        }
+    }
+
+    char port[16];
+    ecs_os_snprintf(port, sizeof(port), "%d", BAKE_EM_SERVE_PORT);
+
+    ecs_trace("#[green][#[normal]    run#[green]]#[normal] "
+        "python3 -m http.server %s -d %s", port, dir);
+
+    const char *argv[] = {
+        "python3", "-c", bake_em_serve_script, dir, port, page, NULL
+    };
+
+    bake_process_result_t result = {0};
+    int rc = bake_proc_run_argv(argv, &result);
+    if (rc != 0) {
+        ecs_err("failed to start a web server for %s, serve it with: "
+            "python3 -m http.server %s -d %s", artefact, port, dir);
+    }
+
+    ecs_os_free(page);
+    ecs_os_free(dir);
+    return rc;
+}
+
 int bake_build_run(bake_context_t *ctx) {
     int rc = 0;
 
@@ -1013,6 +1085,11 @@ int bake_build_run(bake_context_t *ctx) {
     }
 
     if (!strcmp(ctx->opts.command, "run")) {
+        if (bake_target_is_emscripten()) {
+            rc = bake_run_em_artefact(result->artefact);
+            goto cleanup;
+        }
+
         char *exe_path = bake_path_resolve(result->artefact);
         char *run_dir = bake_project_run_dir(project->cfg);
 

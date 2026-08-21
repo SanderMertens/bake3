@@ -8,6 +8,7 @@ import stat
 import subprocess
 import time
 import unittest
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -2922,6 +2923,61 @@ class BakeTests(unittest.TestCase):
             override_at,
             "Project ldflags must be emitted after bake's emscripten defaults",
         )
+
+    @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
+    def test_target_em_run_serves_the_build_dir(self) -> None:
+        if not self.emsdk_available():
+            self.skipTest("emscripten SDK not available")
+
+        project_dir, app_id = self.write_simple_app_project(
+            "em_serve",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("hello wasm\\n");\n'
+            "    return 0;\n"
+            "}\n",
+            lang_c='{"${target em}": {"shell": "etc/shell.html"}}',
+        )
+        shell = project_dir / "etc" / "shell.html"
+        shell.parent.mkdir(parents=True, exist_ok=True)
+        shell.write_text("<!doctype html><body>{{{ SCRIPT }}}</body>\n")
+
+        env = self.env.copy()
+        env["BROWSER"] = "true"  # webbrowser.open must not raise a window
+
+        proc = subprocess.Popen(
+            [str(self.bake_bin), "--target", "em", "run", str(project_dir)],
+            cwd=str(self.repo_root),
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        self.addCleanup(proc.stdout.close)
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.terminate)
+
+        url = None
+        deadline = time.time() + 60
+        while time.time() < deadline:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            match = re.search(r"at (http://localhost:\d+/\S+)", self.strip_ansi(line))
+            if match:
+                url = match.group(1)
+                break
+
+        self.assertIsNotNone(url, "bake run did not report a served url")
+        self.assertTrue(url.endswith(f"{app_id}.html"), url)
+
+        with urllib.request.urlopen(url, timeout=10) as response:
+            self.assertEqual(response.status, 200)
+            self.assertIn(f"{app_id}.js", response.read().decode())
+
+        wasm_url = url[: -len(".html")] + ".wasm"
+        with urllib.request.urlopen(wasm_url, timeout=10) as response:
+            self.assertEqual(response.status, 200)
 
     @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
     def test_target_em_syncs_sibling_wasm_into_env(self) -> None:
