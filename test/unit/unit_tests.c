@@ -1,4 +1,5 @@
 #include "bake/os.h"
+#include "bake/bundle.h"
 #include "bake/strlist.h"
 #include "bake/common.h"
 #include "common/strutil.h"
@@ -181,6 +182,51 @@ static void test_strlist(void) {
     bake_strlist_fini(&list);
 }
 
+static void test_bundle_cargo_native_paths(void) {
+    bake_set_build_target(NULL);
+
+    char *command = bake_bundle_cargo_command(
+        "source dir", "build dir", "debug");
+    char *manifest = bake_path_join("source dir", "Cargo.toml");
+    char *expected = flecs_asprintf(
+        "cargo build --manifest-path \"%s\" --target-dir \"build dir\"",
+        manifest);
+    CHECK_STR(command, expected);
+    ecs_os_free(expected);
+    ecs_os_free(manifest);
+    ecs_os_free(command);
+
+    char *profile = bake_bundle_cargo_profile_dir("debug");
+    CHECK_STR(profile, "debug");
+    ecs_os_free(profile);
+}
+
+static void test_bundle_cargo_emscripten_paths(void) {
+    bake_set_build_target("em");
+
+    char *command = bake_bundle_cargo_command(
+        "source dir", "build dir", "profile");
+    char *manifest = bake_path_join("source dir", "Cargo.toml");
+    char *expected_command = flecs_asprintf(
+        "cargo rustc --release --target wasm32-unknown-emscripten "
+        "--crate-type staticlib "
+        "--manifest-path \"%s\" --target-dir \"build dir\"",
+        manifest);
+    CHECK_STR(command, expected_command);
+    ecs_os_free(expected_command);
+    ecs_os_free(manifest);
+    ecs_os_free(command);
+
+    char *profile = bake_bundle_cargo_profile_dir("profile");
+    char *expected_profile = bake_path_join(
+        "wasm32-unknown-emscripten", "release");
+    CHECK_STR(profile, expected_profile);
+    ecs_os_free(expected_profile);
+    ecs_os_free(profile);
+
+    bake_set_build_target(NULL);
+}
+
 int main(void) {
     ecs_os_init();
 
@@ -191,6 +237,8 @@ int main(void) {
     test_project_id_as_macro();
     test_shell_quote();
     test_strlist();
+    test_bundle_cargo_native_paths();
+    test_bundle_cargo_emscripten_paths();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures != 0;

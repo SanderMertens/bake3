@@ -270,7 +270,7 @@ The following options are supported per bundle entry:
 - `commit`: Optional specific commit hash to check out (will fetch full history if needed).
 - `subdir`: Optional path inside the cloned repository where the build manifest lives.
 - `library`: Name of the library produced (without `lib` prefix or extension). Defaults to the bundle id.
-- `build-system`: `"cmake"` (default) or `"cargo"`. With `cargo`, bake runs `cargo build --release --target-dir <build>` instead of cmake; the artefact is looked up under `release/`.
+- `build-system`: `"cmake"` (default) or `"cargo"`. With `cargo`, bake runs `cargo build --release --target-dir <build>` instead of cmake; cross-compilation targets are forwarded to Cargo and the artefact is resolved from the corresponding target directory.
 - `header-only`: When `true`, skip the build step entirely and only expose the cloned source tree as include paths (useful for header-only libraries).
 - `include`: List of subdirectories of the bundle source to add to the consuming project's include path (in addition to the default `<install>/include` for built bundles or the bundle root for header-only bundles).
 - `sources`: List of source files (relative to the bundle source) to compile alongside the consuming project's own sources. Useful for "drop-in" `.c` files like miniz.
@@ -318,6 +318,7 @@ When `--target em` is used, bake:
 - defaults the compiler to `emcc` / `em++` (still overridable with `--cc` / `--cxx`),
 - archives static libraries with `emar`,
 - configures `bundle` dependencies with `emcmake cmake`,
+- builds Cargo bundles with `--target wasm32-unknown-emscripten`,
 - emits a `wasm32-Emscripten-<cfg>` triplet so wasm artefacts never clash with native ones,
 - gives application targets a `.js` artefact (emscripten also emits the sibling `.wasm` file next to it).
 

@@ -254,28 +254,61 @@ static bool bake_bundle_cargo_release(const char *mode) {
     return mode && (!strcmp(mode, "release") || !strcmp(mode, "profile"));
 }
 
-static int bake_bundle_run_cargo(
-    const bake_bundle_t *bundle,
+static const char* bake_bundle_cargo_target(void) {
+    return bake_target_is_emscripten()
+        ? "wasm32-unknown-emscripten"
+        : NULL;
+}
+
+char* bake_bundle_cargo_command(
     const char *src_dir,
     const char *build_dir,
     const char *mode)
 {
-    char *quoted_src = bake_shell_quote_arg(src_dir);
+    char *manifest = bake_path_join(src_dir, "Cargo.toml");
+    char *quoted_manifest = bake_shell_quote_arg(manifest);
     char *quoted_build = bake_shell_quote_arg(build_dir);
+    const char *target = bake_bundle_cargo_target();
 
     ecs_strbuf_t cmd = ECS_STRBUF_INIT;
-    ecs_strbuf_append(&cmd,
-        "cargo build%s --manifest-path %s/Cargo.toml --target-dir %s",
-        bake_bundle_cargo_release(mode) ? " --release" : "",
-        quoted_src, quoted_build);
+    ecs_strbuf_appendstr(&cmd,
+        bake_target_is_emscripten() ? "cargo rustc" : "cargo build");
+    if (bake_bundle_cargo_release(mode)) {
+        ecs_strbuf_appendstr(&cmd, " --release");
+    }
+    if (target) {
+        ecs_strbuf_append(&cmd, " --target %s", target);
+    }
+    if (bake_target_is_emscripten()) {
+        ecs_strbuf_appendstr(&cmd, " --crate-type staticlib");
+    }
+    ecs_strbuf_append(&cmd, " --manifest-path %s --target-dir %s",
+        quoted_manifest, quoted_build);
 
-    char *cmd_str = ecs_strbuf_get(&cmd);
+    ecs_os_free(manifest);
+    ecs_os_free(quoted_manifest);
+    ecs_os_free(quoted_build);
+    return ecs_strbuf_get(&cmd);
+}
+
+char* bake_bundle_cargo_profile_dir(const char *mode) {
+    const char *profile = bake_bundle_cargo_release(mode)
+        ? "release"
+        : "debug";
+    const char *target = bake_bundle_cargo_target();
+    return target
+        ? bake_path_join(target, profile)
+        : ecs_os_strdup(profile);
+}
+
+static int bake_bundle_run_cargo(
+    const char *src_dir,
+    const char *build_dir,
+    const char *mode)
+{
+    char *cmd_str = bake_bundle_cargo_command(src_dir, build_dir, mode);
     int rc = bake_run_command(cmd_str, true);
     ecs_os_free(cmd_str);
-    BAKE_UNUSED(bundle);
-
-    ecs_os_free(quoted_src);
-    ecs_os_free(quoted_build);
     return rc;
 }
 
@@ -329,30 +362,28 @@ static int bake_bundle_apply_to_project(
 
     if (!bundle->header_only) {
         static const char *cmake_libdirs[] = { "lib", "lib64", "lib32", NULL };
-        static const char *cargo_release_libdirs[] = { "release", NULL };
-        static const char *cargo_debug_libdirs[] = { "debug", NULL };
         const char *const *libdirs = cmake_libdirs;
+        const char *cargo_libdirs[2] = { NULL, NULL };
+        char *cargo_profile_dir = NULL;
         if (bake_bundle_uses_cargo(bundle)) {
-            libdirs = bake_bundle_cargo_release(mode)
-                ? cargo_release_libdirs
-                : cargo_debug_libdirs;
+            cargo_profile_dir = bake_bundle_cargo_profile_dir(mode);
+            cargo_libdirs[0] = cargo_profile_dir;
+            libdirs = cargo_libdirs;
         }
         const char *base = install_dir;
         char *libpath = NULL;
         if (bake_bundle_resolve_lib(bundle, base, libdirs, &libpath) != 0) {
             const char *libname = (bundle->library && bundle->library[0]) ? bundle->library : bundle->id;
             ecs_err("bundle '%s': could not locate library '%s' under %s", bundle->id, libname, base);
+            ecs_os_free(cargo_profile_dir);
             return -1;
         }
+        ecs_os_free(cargo_profile_dir);
 
         bake_strlist_append_unique(&cfg->bundle_libpaths, libpath);
 
 #if !defined(_WIN32)
-        /* Cargo builds typically produce a shared library next to the static
-         * one; embed an rpath so the resulting binary can locate it at run
-         * time. Windows uses different mechanisms (DLL search path) and is
-         * not handled here. */
-        if (bake_bundle_uses_cargo(bundle)) {
+        if (bake_bundle_uses_cargo(bundle) && !bake_target_is_emscripten()) {
             char *rpath = flecs_asprintf("-Wl,-rpath,%s", libpath);
             bake_strlist_append_unique(&cfg->bundle_ldflags, rpath);
             ecs_os_free(rpath);
@@ -481,7 +512,7 @@ static int bake_bundle_prepare_one(
 
             ecs_trace("#[green][#[normal] bundle#[green]]#[normal] building %s", bundle->id);
             int build_rc = uses_cargo
-                ? bake_bundle_run_cargo(bundle, bundle_src_dir, install_dir, mode)
+                ? bake_bundle_run_cargo(bundle_src_dir, install_dir, mode)
                 : bake_bundle_run_cmake(bundle, bundle_src_dir, build_dir, install_dir, mode);
             if (build_rc != 0) {
                 ecs_err("failed to build bundle '%s'", bundle->id);
