@@ -1,4 +1,5 @@
 #include "bake/os.h"
+#include "build/build_internal.h"
 #include "bake/bundle.h"
 #include "bake/strlist.h"
 #include "bake/common.h"
@@ -227,6 +228,77 @@ static void test_bundle_cargo_emscripten_paths(void) {
     bake_set_build_target(NULL);
 }
 
+static bool strlist_has(const bake_strlist_t *list, const char *value) {
+    for (int32_t i = 0; i < list->count; i++) {
+        if (!strcmp(list->items[i], value)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void mode_flags(
+    const char *mode,
+    bake_strlist_t *cflags,
+    bake_strlist_t *ldflags)
+{
+    bake_strlist_t cxxflags;
+    bake_strlist_init(cflags);
+    bake_strlist_init(&cxxflags);
+    bake_strlist_init(ldflags);
+    bake_add_mode_flags(mode, BAKE_COMPILER_CLANG, cflags, &cxxflags, ldflags);
+    bake_strlist_fini(&cxxflags);
+}
+
+static void test_mode_flags_native(void) {
+    bake_set_build_target(NULL);
+
+    bake_strlist_t cflags, ldflags;
+
+    mode_flags("release", &cflags, &ldflags);
+    CHECK(strlist_has(&ldflags, "-flto"));
+    CHECK(!strlist_has(&ldflags, "-O3"));
+    bake_strlist_fini(&cflags); bake_strlist_fini(&ldflags);
+
+    mode_flags("debug", &cflags, &ldflags);
+    CHECK(ldflags.count == 0);
+    bake_strlist_fini(&cflags); bake_strlist_fini(&ldflags);
+
+    mode_flags("profile", &cflags, &ldflags);
+    CHECK(strlist_has(&cflags, "-pg"));
+    CHECK(strlist_has(&ldflags, "-pg"));
+    bake_strlist_fini(&cflags); bake_strlist_fini(&ldflags);
+}
+
+static void test_mode_flags_emscripten(void) {
+    bake_set_build_target("em");
+
+    bake_strlist_t cflags, ldflags;
+
+    mode_flags("release", &cflags, &ldflags);
+    CHECK(strlist_has(&ldflags, "-O3"));
+    CHECK(strlist_has(&ldflags, "-flto"));
+    bake_strlist_fini(&cflags); bake_strlist_fini(&ldflags);
+
+    mode_flags("debug", &cflags, &ldflags);
+    CHECK(strlist_has(&ldflags, "-O0"));
+    CHECK(strlist_has(&ldflags, "-g"));
+    bake_strlist_fini(&cflags); bake_strlist_fini(&ldflags);
+
+    mode_flags("profile", &cflags, &ldflags);
+    CHECK(strlist_has(&cflags, "-O2"));
+    CHECK(!strlist_has(&cflags, "-pg"));
+    CHECK(strlist_has(&ldflags, "-O2"));
+    CHECK(!strlist_has(&ldflags, "-pg"));
+    bake_strlist_fini(&cflags); bake_strlist_fini(&ldflags);
+
+    mode_flags("sanitize", &cflags, &ldflags);
+    CHECK(strlist_has(&ldflags, "-O0"));
+    bake_strlist_fini(&cflags); bake_strlist_fini(&ldflags);
+
+    bake_set_build_target(NULL);
+}
+
 int main(void) {
     ecs_os_init();
 
@@ -239,6 +311,8 @@ int main(void) {
     test_strlist();
     test_bundle_cargo_native_paths();
     test_bundle_cargo_emscripten_paths();
+    test_mode_flags_native();
+    test_mode_flags_emscripten();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures != 0;

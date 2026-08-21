@@ -72,12 +72,28 @@ void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strli
         "-O0", "-g", "-fsanitize=address", "-fsanitize=undefined", NULL
     };
     static const char *gnu_sanitize_ld[] = {"-fsanitize=address", "-fsanitize=undefined", NULL};
+    static const char *em_profile[] = {"-O2", NULL};
+    static const char *em_debug_ld[] = {"-O0", "-g", NULL};
+    static const char *em_release_ld[] = {"-O3", "-flto", NULL};
+    static const char *em_profile_ld[] = {"-O2", NULL};
+    static const char *em_sanitize_ld[] = {
+        "-O0", "-g", "-fsanitize=address", "-fsanitize=undefined", NULL
+    };
+
+    /* For emcc the link-time optimization level is a semantic setting: it
+     * selects which variant of the system libraries is linked and drives the
+     * JS optimizer and wasm-opt. Without it a release build links the debug
+     * libc into an LTO image. */
+    bool is_em = bake_target_is_emscripten();
 
     if (!mode || !strcmp(mode, "debug")) {
         if (kind == BAKE_COMPILER_MSVC) {
             bake_append_lang_flags(cflags, cxxflags, msvc_debug);
         } else {
             bake_append_lang_flags(cflags, cxxflags, gnu_debug);
+            if (is_em) {
+                bake_append_flags(ldflags, em_debug_ld);
+            }
         }
         return;
     }
@@ -88,7 +104,7 @@ void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strli
             bake_append_flags(ldflags, msvc_release_ld);
         } else {
             bake_append_lang_flags(cflags, cxxflags, gnu_release);
-            bake_append_flags(ldflags, gnu_release_ld);
+            bake_append_flags(ldflags, is_em ? em_release_ld : gnu_release_ld);
         }
         return;
     }
@@ -96,6 +112,10 @@ void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strli
     if (!strcmp(mode, "profile")) {
         if (kind == BAKE_COMPILER_MSVC) {
             bake_append_lang_flags(cflags, cxxflags, msvc_profile);
+        } else if (is_em) {
+            /* emcc has no gprof instrumentation, -pg is rejected */
+            bake_append_lang_flags(cflags, cxxflags, em_profile);
+            bake_append_flags(ldflags, em_profile_ld);
         } else {
             bake_append_lang_flags(cflags, cxxflags, gnu_profile);
             bake_strlist_append(ldflags, "-pg");
@@ -108,7 +128,7 @@ void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strli
             bake_append_lang_flags(cflags, cxxflags, msvc_sanitize);
         } else {
             bake_append_lang_flags(cflags, cxxflags, gnu_sanitize);
-            bake_append_flags(ldflags, gnu_sanitize_ld);
+            bake_append_flags(ldflags, is_em ? em_sanitize_ld : gnu_sanitize_ld);
         }
     }
 }
