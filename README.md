@@ -195,6 +195,8 @@ The following configuration options are available:
 - `libpath`: list of paths to use for resolving  libraries
 - `defines`: list of preprocessor defines to add to the compiler
 - `include`: list of additional include paths
+- `embed`: list of files and directories to embed in the artefact (Emscripten only, see below)
+- `shell`: html page emcc uses as the template for the artefact (Emscripten only, see below)
 - `c-standard`: Specify the C standard to use for C files
 - `cpp-standard`: Specify the C++ standard to use for C++ files
 
@@ -278,7 +280,9 @@ The following options are supported per bundle entry:
 - `lib`: System libraries the bundle depends on at link time.
 - `ldflags`: Extra link flags to apply when linking the consuming project.
 
-Bundles are project-scoped: each project's bundles are fetched and built under that project's own `.bake/bundles/<id>/<ref>/{src,build/<triplet>,install/<triplet>}` tree, where `<ref>` is `commits/<hash>`, `tags/<tag>`, `branches/<branch>`, or `default` (when no ref is pinned). The most specific ref wins (`commit` > `tag` > `branch`). Two projects in the same workspace pinning different versions of the same bundle do not interfere with each other; bundles do not propagate transitively, so dependees that need the same library declare their own bundle. Bundles are only fetched and built once per ref-scoped path; subsequent builds reuse them.
+Bundles are project-scoped: each project's bundles are fetched and built under that project's own `.bake/bundles/<id>/<ref>/{src,build/<triplet>,install/<triplet>}` tree, where `<ref>` is `commits/<hash>`, `tags/<tag>`, `branches/<branch>`, or `default` (when no ref is pinned). The most specific ref wins (`commit` > `tag` > `branch`). Two projects in the same workspace pinning different versions of the same bundle do not interfere with each other. Bundles are only fetched and built once per ref-scoped path; subsequent builds reuse them.
+
+What a bundle contributes does propagate transitively: the include paths, library paths, libraries and `ldflags` a bundle adds to its own project are also applied to every project that uses it, so a dependee links against the bundle without redeclaring it. The exception is `sources`, which are compiled into the declaring project only.
 
 ## Conditional configuration
 Sometimes a project may want to apply a configuration only on a specific operating system or for a specific build target. This can be accomplished by surrounding the conditional configuration like so:
@@ -318,11 +322,56 @@ When `--target em` is used, bake:
 - defaults the compiler to `emcc` / `em++` (still overridable with `--cc` / `--cxx`),
 - archives static libraries with `emar`,
 - configures `bundle` dependencies with `emcmake cmake`,
-- builds Cargo bundles with `--target wasm32-unknown-emscripten`,
+- builds Cargo bundles with `--target wasm32-unknown-emscripten` and `--crate-type staticlib`,
 - emits a `wasm32-Emscripten-<cfg>` triplet so wasm artefacts never clash with native ones,
-- gives application targets a `.js` artefact (emscripten also emits the sibling `.wasm` file next to it).
+- gives application targets a `.js` artefact, or an `.html` one when a `shell` is configured (emscripten also emits the sibling `.wasm` file next to it),
+- passes the configuration's optimisation level to the link as well as the compile, because for emcc the link-time `-O` level selects which variant of the system libraries is linked,
+- omits `-pg` from `--cfg profile`, which emcc does not implement.
 
-Bake locates the Emscripten SDK automatically: if `emcc` is not already on `PATH`, it sources `emsdk_env.sh` from `$EMSDK`, `$EMSDK_DIR`, or `~/GitHub/emsdk` and imports the resulting `PATH` and `EM*` variables for the build. Use `${os Emscripten}` / `${target em}` conditionals in `project.json` to select target-specific dependencies and flags (for example, replacing native GLFW/WebGPU dependencies with `-sUSE_GLFW=3 -sUSE_WEBGPU=1`).
+### Finding the SDK
+If `emcc` is not already on `PATH`, bake sources `emsdk_env.sh` from the first of `$EMSDK`, `$EMSDK_DIR` and `~/GitHub/emsdk` that has one, and imports the resulting `PATH` and `EM*` variables for the build. Set `EMSDK` to use a specific installation:
+
+```sh
+EMSDK=~/GitHub/emsdk-latest bake build my_app --target em
+```
+
+### Target-specific flags
+Use `${os Emscripten}` / `${target em}` conditionals in `project.json` to select target-specific dependencies and flags:
+
+```json
+"lang.c": {
+    "${target em}": {
+        "cflags": ["--use-port=emdawnwebgpu"],
+        "ldflags": ["-sUSE_GLFW=3", "--use-port=emdawnwebgpu", "-sDEFAULT_TO_CXX", "-Wl,-u,ntohs"],
+        "embed": ["etc"],
+        "shell": "etc/index.html"
+    }
+}
+```
+
+Bake adds `-s ALLOW_MEMORY_GROWTH=1`, `-s EXPORTED_RUNTIME_METHODS=cwrap`, `-s MODULARIZE=1` and `-s EXPORT_NAME="<output>"` to the link. These are emitted *before* the project's own `ldflags`, so a project that wants different values simply sets them (`"ldflags": ["-sMODULARIZE=0"]`). With `MODULARIZE=1` the `.js` file defines a factory function named after the project output rather than starting the module, so the page has to call it.
+
+### Embedding assets
+`embed` entries become `--embed-file` arguments, which place the bytes in the wasm data segment. Relative entries are resolved against the project directory, and are mounted in MEMFS under the path as written, so the same relative path works on both targets:
+
+```json
+"lang.c": {
+    "${target em}": { "embed": ["etc"] }
+}
+```
+
+`<project>/etc` is embedded and `fopen("etc/config.json")` finds it, because emscripten's working directory is `/` and bake runs native builds from the project directory. Two escape hatches are passed through untouched: an absolute path, and an explicit `src@dst` mapping that names the MEMFS destination.
+
+### The page
+`shell` names an html file, relative to the project directory, that emcc uses as the template for the artefact (`--shell-file`). Setting it makes the artefact an `.html` file instead of a `.js` one; the `.js` and `.wasm` are still written next to it. The template must contain the `{{{ SCRIPT }}}` placeholder, which emcc replaces with a `<script>` tag for the `.js` file.
+
+`bake run --target em` cannot execute a wasm artefact, so instead it serves the directory the artefact was linked into over a local http server and opens the artefact (or an `index.html` next to it) in a browser. Set `BROWSER` to a command that does nothing (`BROWSER=true`) to keep it from opening a window. The equivalent by hand is:
+
+```sh
+python3 -m http.server 8080 -d <project>/.bake/wasm32-Emscripten-<cfg>
+```
+
+Syncing an emscripten artefact into the bake environment copies the sibling `.wasm`, `.data` and `.js` files along with it, so an installed artefact is loadable.
 
 ## Project discovery
 When bake is called on a directory, it will recursively discover all other bake projects in that directory. A bake project is identified as a project with a `project.json`. The command specified on the bake command line will then be executed for all discovered projects.
