@@ -56,6 +56,49 @@ static int bake_env_set_project_artefact_result(
     return 0;
 }
 
+static char* bake_env_replace_ext(const char *path, const char *ext) {
+    const char *base = strrchr(path, '/');
+#if defined(_WIN32)
+    const char *back = strrchr(path, '\\');
+    if (back > base) {
+        base = back;
+    }
+#endif
+    base = base ? base + 1 : path;
+
+    const char *dot = strrchr(base, '.');
+    size_t stem = dot ? (size_t)(dot - path) : strlen(path);
+    size_t len = stem + strlen(ext);
+    char *result = ecs_os_malloc((ecs_size_t)len + 1);
+    memcpy(result, path, stem);
+    memcpy(result + stem, ext, strlen(ext) + 1);
+    return result;
+}
+
+/* An emscripten artefact is a loader for files that sit next to it. Copying
+ * only the artefact leaves the module behind. */
+static int bake_env_copy_artefact_siblings(
+    const char *src_artefact,
+    const char *dst_path)
+{
+    static const char *exts[] = {".js", ".wasm", ".data", ".wasm.map", NULL};
+
+    int rc = 0;
+    for (int32_t i = 0; exts[i]; i++) {
+        char *src = bake_env_replace_ext(src_artefact, exts[i]);
+        if (strcmp(src, src_artefact) && bake_path_exists(src)) {
+            char *dst = bake_env_replace_ext(dst_path, exts[i]);
+            if (bake_os_file_copy(src, dst) != 0) {
+                rc = -1;
+            }
+            ecs_os_free(dst);
+        }
+        ecs_os_free(src);
+    }
+
+    return rc;
+}
+
 static int bake_env_copy_artefact_to_path(const char *src_artefact, const char *dst_path) {
     if (!src_artefact || !src_artefact[0] || !dst_path || !dst_path[0]) {
         return -1;
@@ -65,6 +108,10 @@ static int bake_env_copy_artefact_to_path(const char *src_artefact, const char *
     int rc = 0;
     if (bake_os_mkdirs(dst_dir) != 0 || bake_os_file_copy(src_artefact, dst_path) != 0) {
         rc = -1;
+    }
+
+    if (rc == 0 && bake_target_is_emscripten()) {
+        rc = bake_env_copy_artefact_siblings(src_artefact, dst_path);
     }
 
     ecs_os_free(dst_dir);

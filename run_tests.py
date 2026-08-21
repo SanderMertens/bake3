@@ -2924,6 +2924,31 @@ class BakeTests(unittest.TestCase):
         )
 
     @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
+    def test_target_em_syncs_sibling_wasm_into_env(self) -> None:
+        if not self.emsdk_available():
+            self.skipTest("emscripten SDK not available")
+
+        project_dir, app_id = self.write_simple_app_project(
+            "em_sync",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("hello wasm\\n");\n'
+            "    return 0;\n"
+            "}\n",
+        )
+
+        self.bake(["--target", "em", "build", str(project_dir)])
+
+        bin_dir = self.bake_home / "wasm32-Emscripten" / "debug" / "bin"
+        self.addCleanup(shutil.rmtree, bin_dir / app_id, ignore_errors=True)
+        js = bin_dir / f"{app_id}.js"
+        wasm = bin_dir / f"{app_id}.wasm"
+        self.addCleanup(js.unlink, missing_ok=True)
+        self.addCleanup(wasm.unlink, missing_ok=True)
+        self.assertTrue(js.is_file(), f"Expected .js in env at {js}")
+        self.assertTrue(wasm.is_file(), f"Expected sibling .wasm in env at {wasm}")
+
+    @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
     def test_target_em_shell_file_emits_html(self) -> None:
         if not self.emsdk_available():
             self.skipTest("emscripten SDK not available")
