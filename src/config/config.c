@@ -141,6 +141,19 @@ char* bake_project_run_dir(const bake_project_cfg_t *cfg) {
     return resolved;
 }
 
+const char* bake_project_cfg_shell(const bake_project_cfg_t *cfg) {
+    if (!cfg) {
+        return NULL;
+    }
+    if (cfg->c_lang.shell && cfg->c_lang.shell[0]) {
+        return cfg->c_lang.shell;
+    }
+    if (cfg->cpp_lang.shell && cfg->cpp_lang.shell[0]) {
+        return cfg->cpp_lang.shell;
+    }
+    return NULL;
+}
+
 char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg) {
     if (!cfg || !cfg->output_name || !bake_project_kind_has_artefact(cfg->kind)) {
         return NULL;
@@ -159,6 +172,11 @@ char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg) {
     const char *target_exe_ext = bake_target_exe_ext();
     if (target_exe_ext && target_exe_ext[0]) {
         exe_ext = target_exe_ext;
+    }
+
+    /* A shell file makes emcc emit a page that loads the module */
+    if (bake_target_is_emscripten() && bake_project_cfg_shell(cfg)) {
+        exe_ext = ".html";
     }
 
     if (cfg->kind == BAKE_PROJECT_PACKAGE) {
@@ -291,6 +309,7 @@ static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults) {
 #undef F
     cfg->c_standard = set_defaults ? ecs_os_strdup("c99") : NULL;
     cfg->cpp_standard = set_defaults ? ecs_os_strdup("c++17") : NULL;
+    cfg->shell = NULL;
 }
 
 void bake_lang_cfg_init(bake_lang_cfg_t *cfg) {
@@ -302,6 +321,7 @@ void bake_lang_cfg_copy(bake_lang_cfg_t *dst, const bake_lang_cfg_t *src) {
 
     dst->c_standard = ecs_os_strdup(src->c_standard);
     dst->cpp_standard = ecs_os_strdup(src->cpp_standard);
+    dst->shell = ecs_os_strdup(src->shell);
 
 #define CP(f) bake_strlist_copy(&dst->f, &src->f)
     CP(cflags); CP(cxxflags); CP(defines); CP(ldflags); CP(libs);
@@ -316,8 +336,10 @@ void bake_lang_cfg_fini(bake_lang_cfg_t *cfg) {
 #undef F
     ecs_os_free(cfg->c_standard);
     ecs_os_free(cfg->cpp_standard);
+    ecs_os_free(cfg->shell);
     cfg->c_standard = NULL;
     cfg->cpp_standard = NULL;
+    cfg->shell = NULL;
 }
 
 void bake_dependee_cfg_init(bake_dependee_cfg_t *cfg) {
@@ -430,7 +452,7 @@ static const char *bake_project_object_keys[] = {
 
 static const char *bake_lang_object_keys[] = {
     BAKE_LANG_ARRAY_KEYS(BAKE_KEY_ARR)
-    "c-standard", "cpp-standard",
+    "c-standard", "cpp-standard", "shell",
     NULL
 };
 
@@ -542,6 +564,7 @@ static int bake_parse_lang_cfg(const JSON_Object *object, bake_lang_cfg_t *cfg) 
 
     if (bake_json_get_string(object, "c-standard", &cfg->c_standard) < 0) return -1;
     if (bake_json_get_string(object, "cpp-standard", &cfg->cpp_standard) < 0) return -1;
+    if (bake_json_get_string(object, "shell", &cfg->shell) < 0) return -1;
 
     size_t key_count = json_object_get_count(object);
     for (size_t i = 0; i < key_count; i++) {

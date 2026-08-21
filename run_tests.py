@@ -2924,6 +2924,36 @@ class BakeTests(unittest.TestCase):
         )
 
     @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
+    def test_target_em_shell_file_emits_html(self) -> None:
+        if not self.emsdk_available():
+            self.skipTest("emscripten SDK not available")
+
+        project_dir, app_id = self.write_simple_app_project(
+            "em_shell",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("hello wasm\\n");\n'
+            "    return 0;\n"
+            "}\n",
+            lang_c='{"${target em}": {"shell": "etc/shell.html"}}',
+        )
+        shell = project_dir / "etc" / "shell.html"
+        shell.parent.mkdir(parents=True, exist_ok=True)
+        shell.write_text("<!doctype html><body>{{{ SCRIPT }}}</body>\n")
+
+        output = self.strip_ansi(
+            self.bake(["--target", "em", "--trace", "build", str(project_dir)]))
+        self.assertIn("--shell-file", output)
+        self.assertIn("shell.html", output)
+
+        triplet_dir = project_dir / ".bake" / "wasm32-Emscripten-debug"
+        html = triplet_dir / f"{app_id}.html"
+        self.assertTrue(html.is_file(), f"Expected .html artefact at {html}")
+        self.assertIn(f"{app_id}.js", html.read_text())
+        self.assertTrue((triplet_dir / f"{app_id}.js").is_file())
+        self.assertTrue((triplet_dir / f"{app_id}.wasm").is_file())
+
+    @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
     def test_target_em_release_passes_optimization_to_link(self) -> None:
         if not self.emsdk_available():
             self.skipTest("emscripten SDK not available")

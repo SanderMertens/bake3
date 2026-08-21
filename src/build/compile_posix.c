@@ -185,6 +185,17 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
     }
 
     if (bake_target_is_emscripten()) {
+        const char *shell = bake_project_cfg_shell(ctx->cfg);
+        if (shell) {
+            if (bake_path_is_abs(shell)) {
+                bake_strbuf_append_quoted_path(cmd, " --shell-file ", shell);
+            } else {
+                char *shell_path = bake_path_join(ctx->cfg->path, shell);
+                bake_strbuf_append_quoted_path(cmd, " --shell-file ", shell_path);
+                ecs_os_free(shell_path);
+            }
+        }
+
         for (int32_t i = 0; i < ctx->lang->embed.count; i++) {
             const char *entry = ctx->lang->embed.items[i];
             if (bake_path_is_abs(entry) || strchr(entry, '@')) {
