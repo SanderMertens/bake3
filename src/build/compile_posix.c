@@ -152,6 +152,22 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
         ecs_strbuf_appendstr(cmd, " -Wl,--end-group");
     }
 #endif
+    /* Emitted before the project flags so a project can override them */
+    if (bake_target_is_emscripten()) {
+        ecs_strbuf_appendstr(cmd, " -s ALLOW_MEMORY_GROWTH=1");
+        ecs_strbuf_appendstr(cmd, " -s EXPORTED_RUNTIME_METHODS=cwrap");
+        ecs_strbuf_appendstr(cmd, " -s MODULARIZE=1");
+
+        const char *export_name = ctx->cfg->output_name;
+        char *export_name_alloc = NULL;
+        if (!export_name || !export_name[0]) {
+            export_name_alloc = bake_project_id_as_macro(ctx->cfg->id);
+            export_name = export_name_alloc;
+        }
+        ecs_strbuf_append(cmd, " -s EXPORT_NAME=\"%s\"", export_name);
+        ecs_os_free(export_name_alloc);
+    }
+
     bake_list_append_fmt(cmd, ctx->mode_ldflags, "");
     bake_list_append_fmt(cmd, &ctx->lang->ldflags, "");
     bake_list_append_fmt(cmd, ctx->dep_ldflags, "");
@@ -169,19 +185,6 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
     }
 
     if (bake_target_is_emscripten()) {
-        ecs_strbuf_appendstr(cmd, " -s ALLOW_MEMORY_GROWTH=1");
-        ecs_strbuf_appendstr(cmd, " -s EXPORTED_RUNTIME_METHODS=cwrap");
-        ecs_strbuf_appendstr(cmd, " -s MODULARIZE=1");
-
-        const char *export_name = ctx->cfg->output_name;
-        char *export_name_alloc = NULL;
-        if (!export_name || !export_name[0]) {
-            export_name_alloc = bake_project_id_as_macro(ctx->cfg->id);
-            export_name = export_name_alloc;
-        }
-        ecs_strbuf_append(cmd, " -s EXPORT_NAME=\"%s\"", export_name);
-        ecs_os_free(export_name_alloc);
-
         for (int32_t i = 0; i < ctx->lang->embed.count; i++) {
             const char *entry = ctx->lang->embed.items[i];
             if (bake_path_is_abs(entry) || strchr(entry, '@')) {

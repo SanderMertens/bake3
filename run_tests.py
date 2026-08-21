@@ -2895,6 +2895,55 @@ class BakeTests(unittest.TestCase):
         self.assertTrue(js.is_file(), f"Expected .js artefact at {js}")
         self.assertTrue(wasm.is_file(), f"Expected sibling .wasm at {wasm}")
 
+    @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
+    def test_target_em_project_ldflags_override_defaults(self) -> None:
+        if not self.emsdk_available():
+            self.skipTest("emscripten SDK not available")
+
+        project_dir, _ = self.write_simple_app_project(
+            "em_override",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("hello wasm\\n");\n'
+            "    return 0;\n"
+            "}\n",
+            lang_c='{"${target em}": {"ldflags": ["-sMODULARIZE=0"]}}',
+        )
+
+        output = self.strip_ansi(
+            self.bake(["--target", "em", "--trace", "build", str(project_dir)]))
+
+        default_at = output.find("-s MODULARIZE=1")
+        override_at = output.find("-sMODULARIZE=0")
+        self.assertNotEqual(default_at, -1, "Expected bake to emit -s MODULARIZE=1")
+        self.assertNotEqual(override_at, -1, "Expected project ldflag on the link")
+        self.assertLess(
+            default_at,
+            override_at,
+            "Project ldflags must be emitted after bake's emscripten defaults",
+        )
+
+    @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
+    def test_target_em_release_passes_optimization_to_link(self) -> None:
+        if not self.emsdk_available():
+            self.skipTest("emscripten SDK not available")
+
+        project_dir, app_id = self.write_simple_app_project(
+            "em_release_opt",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("hello wasm\\n");\n'
+            "    return 0;\n"
+            "}\n",
+        )
+
+        output = self.strip_ansi(self.bake(
+            ["--target", "em", "--cfg", "release", "--trace", "build", str(project_dir)]))
+
+        link_lines = [l for l in output.splitlines() if f"-o " in l and f"{app_id}.js" in l]
+        self.assertTrue(link_lines, f"No link command found in:\n{output}")
+        self.assertIn("-O3", link_lines[-1])
+
     def test_json_strlist_skips_nulls(self) -> None:
         stamp = int(time.time() * 1_000_000)
         root = self.repo_root / "test" / "tmp" / f"json_null_{stamp}"
