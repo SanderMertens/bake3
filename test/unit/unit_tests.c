@@ -299,6 +299,16 @@ static void test_mode_flags_emscripten(void) {
     bake_set_build_target(NULL);
 }
 
+static void test_em_serve_first_port(void) {
+    CHECK(bake_em_serve_first_port(0) == BAKE_EM_SERVE_PORT_DEFAULT);
+    CHECK(bake_em_serve_first_port(-1) == BAKE_EM_SERVE_PORT_DEFAULT);
+    CHECK(bake_em_serve_first_port(65536) == BAKE_EM_SERVE_PORT_DEFAULT);
+    CHECK(bake_em_serve_first_port(1) == 1);
+    CHECK(bake_em_serve_first_port(8123) == 8123);
+    CHECK(bake_em_serve_first_port(65535) == 65535);
+    CHECK(BAKE_EM_SERVE_PORT_SCAN > 0);
+}
+
 int main(void) {
     ecs_os_init();
 
@@ -313,6 +323,7 @@ int main(void) {
     test_bundle_cargo_emscripten_paths();
     test_mode_flags_native();
     test_mode_flags_emscripten();
+    test_em_serve_first_port();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures != 0;

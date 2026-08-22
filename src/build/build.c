@@ -976,18 +976,19 @@ int bake_build_rebuild(bake_context_t *ctx) {
 static const char *bake_em_serve_script =
     "import functools, http.server, socketserver, sys, threading, webbrowser\n"
     "directory, first_port, page = sys.argv[1], int(sys.argv[2]), sys.argv[3]\n"
+    "scan = int(sys.argv[4])\n"
     "handler = functools.partial(\n"
     "    http.server.SimpleHTTPRequestHandler, directory=directory)\n"
     "socketserver.TCPServer.allow_reuse_address = True\n"
     "server = None\n"
-    "for port in range(first_port, first_port + 32):\n"
+    "for port in range(first_port, first_port + scan):\n"
     "    try:\n"
     "        server = socketserver.TCPServer(('127.0.0.1', port), handler)\n"
     "        break\n"
     "    except OSError:\n"
     "        continue\n"
     "if server is None:\n"
-    "    sys.exit('no free port in range')\n"
+    "    sys.exit('no free port in %d..%d' % (first_port, first_port + scan - 1))\n"
     "url = 'http://localhost:%d/%s' % (server.server_address[1], page)\n"
     "print('serving %s at %s (ctrl-c to stop)' % (directory, url), flush=True)\n"
     "threading.Timer(0.3, webbrowser.open, [url]).start()\n"
@@ -996,9 +997,14 @@ static const char *bake_em_serve_script =
     "except KeyboardInterrupt:\n"
     "    pass\n";
 
-#define BAKE_EM_SERVE_PORT 8080
+int32_t bake_em_serve_first_port(int32_t requested) {
+    if (requested < 1 || requested > 65535) {
+        return BAKE_EM_SERVE_PORT_DEFAULT;
+    }
+    return requested;
+}
 
-static int bake_run_em_artefact(const char *artefact) {
+static int bake_run_em_artefact(const char *artefact, int32_t requested_port) {
     char *dir = bake_path_dirname(artefact);
     char *page = bake_path_basename(artefact);
 
@@ -1022,13 +1028,17 @@ static int bake_run_em_artefact(const char *artefact) {
     }
 
     char port[16];
-    ecs_os_snprintf(port, sizeof(port), "%d", BAKE_EM_SERVE_PORT);
+    ecs_os_snprintf(port, sizeof(port), "%d",
+        bake_em_serve_first_port(requested_port));
+
+    char scan[16];
+    ecs_os_snprintf(scan, sizeof(scan), "%d", BAKE_EM_SERVE_PORT_SCAN);
 
     ecs_trace("#[green][#[normal]    run#[green]]#[normal] "
         "python3 -m http.server %s -d %s", port, dir);
 
     const char *argv[] = {
-        "python3", "-c", bake_em_serve_script, dir, port, page, NULL
+        "python3", "-c", bake_em_serve_script, dir, port, page, scan, NULL
     };
 
     bake_process_result_t result = {0};
@@ -1086,7 +1096,7 @@ int bake_build_run(bake_context_t *ctx) {
 
     if (!strcmp(ctx->opts.command, "run")) {
         if (bake_target_is_emscripten()) {
-            rc = bake_run_em_artefact(result->artefact);
+            rc = bake_run_em_artefact(result->artefact, ctx->opts.port);
             goto cleanup;
         }
 

@@ -56,6 +56,12 @@ int bake_apply_dependee_cfg(
     bake_lang_cfg_t *dst,
     bool cpp_lang);
 
+/* Local web server for "run --target em". The requested port is the first one
+ * tried; busy ports are skipped up to BAKE_EM_SERVE_PORT_SCAN entries later. */
+#define BAKE_EM_SERVE_PORT_DEFAULT 8080
+#define BAKE_EM_SERVE_PORT_SCAN 32
+int32_t bake_em_serve_first_port(int32_t requested);
+
 bake_compiler_kind_t bake_detect_compiler_kind(const char *cc, const char *cxx);
 void bake_add_mode_flags(const char *mode, bake_compiler_kind_t kind, bake_strlist_t *cflags, bake_strlist_t *cxxflags, bake_strlist_t *ldflags);
 void bake_add_strict_flags(bool strict, bake_compiler_kind_t kind, bake_strlist_t *cflags, bake_strlist_t *cxxflags, bake_strlist_t *ldflags);

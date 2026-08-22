@@ -127,6 +127,21 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        if (!strcmp(arg, "--port")) {
+            if ((i + 1) >= argc) {
+                ecs_err("missing value for --port");
+                goto cleanup;
+            }
+            char *end = NULL;
+            long port = strtol(argv[++i], &end, 10);
+            if (port < 1 || port > 65535 || !end || *end) {
+                ecs_err("invalid value for --port: %s", argv[i]);
+                goto cleanup;
+            }
+            opts.port = (int32_t)port;
+            continue;
+        }
+
 #define VARG(name, field) \
         if (!strcmp(arg, name)) { \
             if (i + 1 >= argc) { \

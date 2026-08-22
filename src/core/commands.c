@@ -24,6 +24,7 @@ static const char *bake_help_text =
     "  --cxx <compiler>    Override C++ compiler\n"
     "  --target <name>     Cross-compile target (em = emscripten/wasm)\n"
     "  --run-prefix <cmd>  Prefix command when running binaries\n"
+    "  --port <n>          First port for the 'run --target em' web server (default 8080)\n"
     "  --local-env[=<name>] Use ./.bake/local_env (or ./.bake/local_env/<name>) as isolated BAKE_HOME and build root\n"
     "  --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)\n"
     "  --standalone        Use amalgamated dependency sources in deps/\n"

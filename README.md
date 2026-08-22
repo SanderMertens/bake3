@@ -365,7 +365,15 @@ Bake adds `-s ALLOW_MEMORY_GROWTH=1`, `-s EXPORTED_RUNTIME_METHODS=cwrap`, `-s M
 ### The page
 `shell` names an html file, relative to the project directory, that emcc uses as the template for the artefact (`--shell-file`). Setting it makes the artefact an `.html` file instead of a `.js` one; the `.js` and `.wasm` are still written next to it. The template must contain the `{{{ SCRIPT }}}` placeholder, which emcc replaces with a `<script>` tag for the `.js` file.
 
-`bake run --target em` cannot execute a wasm artefact, so instead it serves the directory the artefact was linked into over a local http server and opens the artefact (or an `index.html` next to it) in a browser. Set `BROWSER` to a command that does nothing (`BROWSER=true`) to keep it from opening a window. The equivalent by hand is:
+`bake run --target em` cannot execute a wasm artefact, so instead it serves the directory the artefact was linked into over a local http server and opens the artefact (or an `index.html` next to it) in a browser. Set `BROWSER` to a command that does nothing (`BROWSER=true`) to keep it from opening a window.
+
+The server listens on port 8080 by default. `--port <n>` picks a different one:
+
+```sh
+bake run my_app --target em --port 9000
+```
+
+If the port is taken the next free one is used, scanning up to 32 ports past the one asked for; the url the server settles on is printed when it starts. The equivalent by hand is:
 
 ```sh
 python3 -m http.server 8080 -d <project>/.bake/wasm32-Emscripten-<cfg>

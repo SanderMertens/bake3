@@ -4,6 +4,7 @@ import os
 import platform
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import time
@@ -2946,16 +2947,27 @@ class BakeTests(unittest.TestCase):
         env["BROWSER"] = "true"  # webbrowser.open must not raise a window
 
         proc = subprocess.Popen(
-            [str(self.bake_bin), "--target", "em", "run", str(project_dir)],
+            [str(self.bake_bin), "--target", "em", "--port", "8123",
+             "run", str(project_dir)],
             cwd=str(self.repo_root),
             env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
+            start_new_session=True,
         )
+
+        def stop_server_group() -> None:
+            # bake spawns the web server as a child, so terminating bake alone
+            # leaves the port bound.
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                proc.terminate()
+
         self.addCleanup(proc.stdout.close)
         self.addCleanup(proc.wait)
-        self.addCleanup(proc.terminate)
+        self.addCleanup(stop_server_group)
 
         url = None
         deadline = time.time() + 60
@@ -2970,6 +2982,7 @@ class BakeTests(unittest.TestCase):
 
         self.assertIsNotNone(url, "bake run did not report a served url")
         self.assertTrue(url.endswith(f"{app_id}.html"), url)
+        self.assertIn(":8123/", url, "--port was not honoured")
 
         with urllib.request.urlopen(url, timeout=10) as response:
             self.assertEqual(response.status, 200)
@@ -2978,6 +2991,16 @@ class BakeTests(unittest.TestCase):
         wasm_url = url[: -len(".html")] + ".wasm"
         with urllib.request.urlopen(wasm_url, timeout=10) as response:
             self.assertEqual(response.status, 200)
+
+    def test_invalid_port_is_rejected(self) -> None:
+        output = self.bake_expect_failure(["--port", "0", "build", "."])
+        self.assertIn("invalid value for --port", self.strip_ansi(output))
+
+        output = self.bake_expect_failure(["--port", "http", "build", "."])
+        self.assertIn("invalid value for --port", self.strip_ansi(output))
+
+        output = self.bake_expect_failure(["--port"])
+        self.assertIn("missing value for --port", self.strip_ansi(output))
 
     @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
     def test_target_em_syncs_sibling_wasm_into_env(self) -> None:
