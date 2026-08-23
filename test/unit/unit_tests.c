@@ -187,7 +187,7 @@ static void test_bundle_cargo_native_paths(void) {
     bake_set_build_target(NULL);
 
     char *command = bake_bundle_cargo_command(
-        "source dir", "build dir", "debug");
+        NULL, "source dir", "build dir", "debug");
     char *manifest = bake_path_join("source dir", "Cargo.toml");
     char *expected = flecs_asprintf(
         "cargo build --manifest-path \"%s\" --target-dir \"build dir\"",
@@ -206,7 +206,7 @@ static void test_bundle_cargo_emscripten_paths(void) {
     bake_set_build_target("em");
 
     char *command = bake_bundle_cargo_command(
-        "source dir", "build dir", "profile");
+        NULL, "source dir", "build dir", "profile");
     char *manifest = bake_path_join("source dir", "Cargo.toml");
     char *expected_command = flecs_asprintf(
         "cargo rustc --release --target wasm32-unknown-emscripten "
@@ -226,6 +226,29 @@ static void test_bundle_cargo_emscripten_paths(void) {
     ecs_os_free(profile);
 
     bake_set_build_target(NULL);
+}
+
+static void test_bundle_cargo_args(void) {
+    bake_set_build_target(NULL);
+
+    bake_bundle_t bundle = {0};
+    bake_strlist_init(&bundle.cargo_args);
+    bake_strlist_append(&bundle.cargo_args, "--no-default-features");
+    bake_strlist_append(&bundle.cargo_args, "--features=raster-images");
+
+    char *command = bake_bundle_cargo_command(
+        &bundle, "source dir", "build dir", "debug");
+    char *manifest = bake_path_join("source dir", "Cargo.toml");
+    char *expected = flecs_asprintf(
+        "cargo build --manifest-path \"%s\" --target-dir \"build dir\" "
+        "\"--no-default-features\" \"--features=raster-images\"",
+        manifest);
+    CHECK_STR(command, expected);
+    ecs_os_free(expected);
+    ecs_os_free(manifest);
+    ecs_os_free(command);
+
+    bake_strlist_fini(&bundle.cargo_args);
 }
 
 static bool strlist_has(const bake_strlist_t *list, const char *value) {
@@ -321,6 +344,7 @@ int main(void) {
     test_strlist();
     test_bundle_cargo_native_paths();
     test_bundle_cargo_emscripten_paths();
+    test_bundle_cargo_args();
     test_mode_flags_native();
     test_mode_flags_emscripten();
     test_em_serve_first_port();

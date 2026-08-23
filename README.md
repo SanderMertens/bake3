@@ -277,6 +277,7 @@ The following options are supported per bundle entry:
 - `include`: List of subdirectories of the bundle source to add to the consuming project's include path (in addition to the default `<install>/include` for built bundles or the bundle root for header-only bundles).
 - `sources`: List of source files (relative to the bundle source) to compile alongside the consuming project's own sources. Useful for "drop-in" `.c` files like miniz.
 - `cmake-args`: List of extra arguments passed to `cmake` during configuration.
+- `cargo-args`: List of extra arguments passed to `cargo` for a `cargo` bundle, appended after the manifest and target directory. Each entry is passed as a single argument, so options that take a value must use the `--opt=value` form (for example `"--no-default-features"` and `"--features=raster-images"`).
 - `lib`: System libraries the bundle depends on at link time.
 - `ldflags`: Extra link flags to apply when linking the consuming project.
 

@@ -227,6 +227,7 @@ void bake_bundle_list_fini(bake_bundle_list_t *list) {
         bake_strlist_fini(&items[i].includes);
         bake_strlist_fini(&items[i].sources);
         bake_strlist_fini(&items[i].cmake_args);
+        bake_strlist_fini(&items[i].cargo_args);
         bake_strlist_fini(&items[i].libs);
         bake_strlist_fini(&items[i].ldflags);
     }
@@ -239,6 +240,7 @@ bake_bundle_t* bake_bundle_list_append(bake_bundle_list_t *list) {
     bake_strlist_init(&item->includes);
     bake_strlist_init(&item->sources);
     bake_strlist_init(&item->cmake_args);
+    bake_strlist_init(&item->cargo_args);
     bake_strlist_init(&item->libs);
     bake_strlist_init(&item->ldflags);
     return item;
@@ -459,7 +461,7 @@ static const char *bake_lang_object_keys[] = {
 static const char *bake_bundle_object_keys[] = {
     "repository", "branch", "tag", "commit", "subdir", "library",
     "build-system", "profile", "header-only", "include", "sources",
-    "cmake-args", "lib", "ldflags",
+    "cmake-args", "cargo-args", "lib", "ldflags",
     NULL
 };
 
@@ -937,6 +939,7 @@ static int bake_parse_bundle_entry(
     if (bake_json_get_array(object, "include", &bundle->includes) < 0) return -1;
     if (bake_json_get_array(object, "sources", &bundle->sources) < 0) return -1;
     if (bake_json_get_array(object, "cmake-args", &bundle->cmake_args) < 0) return -1;
+    if (bake_json_get_array(object, "cargo-args", &bundle->cargo_args) < 0) return -1;
     if (bake_json_get_array(object, "lib", &bundle->libs) < 0) return -1;
     if (bake_json_get_array(object, "ldflags", &bundle->ldflags) < 0) return -1;
 

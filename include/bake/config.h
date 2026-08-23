@@ -42,6 +42,7 @@ typedef struct bake_bundle_t {
     bake_strlist_t includes;
     bake_strlist_t sources;
     bake_strlist_t cmake_args;
+    bake_strlist_t cargo_args;
     bake_strlist_t libs;
     bake_strlist_t ldflags;
 } bake_bundle_t;

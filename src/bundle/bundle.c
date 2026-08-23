@@ -73,6 +73,9 @@ static char* bake_bundle_fingerprint(
     for (int32_t i = 0; i < bundle->cmake_args.count; i++) {
         ecs_strbuf_append(&buf, "cmake_arg=%s\n", bundle->cmake_args.items[i]);
     }
+    for (int32_t i = 0; i < bundle->cargo_args.count; i++) {
+        ecs_strbuf_append(&buf, "cargo_arg=%s\n", bundle->cargo_args.items[i]);
+    }
     ecs_strbuf_append(&buf, "source_mtime=%lld\n",
         (long long)bake_os_tree_newest_mtime(bundle_src_dir));
     return ecs_strbuf_get(&buf);
@@ -261,6 +264,7 @@ static const char* bake_bundle_cargo_target(void) {
 }
 
 char* bake_bundle_cargo_command(
+    const bake_bundle_t *bundle,
     const char *src_dir,
     const char *build_dir,
     const char *mode)
@@ -285,6 +289,14 @@ char* bake_bundle_cargo_command(
     ecs_strbuf_append(&cmd, " --manifest-path %s --target-dir %s",
         quoted_manifest, quoted_build);
 
+    if (bundle) {
+        for (int32_t i = 0; i < bundle->cargo_args.count; i++) {
+            char *q = bake_shell_quote_arg(bundle->cargo_args.items[i]);
+            ecs_strbuf_append(&cmd, " %s", q);
+            ecs_os_free(q);
+        }
+    }
+
     ecs_os_free(manifest);
     ecs_os_free(quoted_manifest);
     ecs_os_free(quoted_build);
@@ -302,11 +314,12 @@ char* bake_bundle_cargo_profile_dir(const char *mode) {
 }
 
 static int bake_bundle_run_cargo(
+    const bake_bundle_t *bundle,
     const char *src_dir,
     const char *build_dir,
     const char *mode)
 {
-    char *cmd_str = bake_bundle_cargo_command(src_dir, build_dir, mode);
+    char *cmd_str = bake_bundle_cargo_command(bundle, src_dir, build_dir, mode);
     int rc = bake_run_command(cmd_str, true);
     ecs_os_free(cmd_str);
     return rc;
@@ -512,7 +525,7 @@ static int bake_bundle_prepare_one(
 
             ecs_trace("#[green][#[normal] bundle#[green]]#[normal] building %s", bundle->id);
             int build_rc = uses_cargo
-                ? bake_bundle_run_cargo(bundle_src_dir, install_dir, mode)
+                ? bake_bundle_run_cargo(bundle, bundle_src_dir, install_dir, mode)
                 : bake_bundle_run_cmake(bundle, bundle_src_dir, build_dir, install_dir, mode);
             if (build_rc != 0) {
                 ecs_err("failed to build bundle '%s'", bundle->id);
