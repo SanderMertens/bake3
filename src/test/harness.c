@@ -1,5 +1,6 @@
 #include "bake/test_harness.h"
 #include "bake/os.h"
+#include "bake/ps.h"
 
 #include "harness_internal.h"
 
@@ -169,7 +170,17 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
 
     char *cmd_str = ecs_strbuf_get(&cmd);
     char *run_dir = bake_project_run_dir(cfg);
-    int rc = bake_run_command_in_dir(cmd_str, false, run_dir);
+    char *env_name = ctx ? bake_ps_env_from_home(ctx->bake_home) : NULL;
+    bake_ps_info_t ps = {
+        .project = cfg->id,
+        .cfg = ctx ? bake_effective_mode(ctx->opts.mode) : NULL,
+        .env = env_name,
+        .bake_home = ctx ? ctx->bake_home : NULL,
+        .workspace = ctx ? ctx->opts.cwd : NULL,
+        .kind = "test"
+    };
+    int rc = bake_run_command_tracked(cmd_str, false, run_dir, &ps);
+    ecs_os_free(env_name);
     ecs_os_free(run_dir);
     ecs_os_free(cmd_str);
 

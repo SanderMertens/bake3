@@ -15,8 +15,11 @@ typedef struct bake_process_result_t {
     bool interrupted;
 } bake_process_result_t;
 
+struct bake_ps_info_t;
+
 typedef struct bake_process_stdio_t {
     const char *cwd;
+    const struct bake_ps_info_t *ps;
     const char *stdin_path;
     const char *stdout_path;
     bool stdout_append;
@@ -61,8 +64,23 @@ void bake_log_win_error_last(const char *action, const char *path);
 int bake_os_lock_acquire(const char *path, int32_t timeout_sec, bake_lock_t *lock_out);
 void bake_os_lock_release(bake_lock_t *lock);
 
+typedef struct bake_proc_info_t {
+    int64_t pid;
+    int64_t parent_pid;
+    int64_t uid;
+    int64_t elapsed_sec;
+    char state;
+    char *cmd;
+} bake_proc_info_t;
+
 int64_t bake_os_pid(void);
 bool bake_os_pid_alive(int64_t pid);
+int64_t bake_os_uid(void);
+int bake_os_pid_kill(int64_t pid, bool force);
+
+/* Snapshot of the process table. Returns -1 when unsupported on the host. */
+int bake_proc_snapshot(bake_proc_info_t **procs_out, int32_t *count_out);
+void bake_proc_snapshot_free(bake_proc_info_t *procs, int32_t count);
 
 int bake_os_setenv(const char *name, const char *value);
 int bake_os_unsetenv(const char *name);

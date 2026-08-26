@@ -59,6 +59,8 @@ int main(int argc, char *argv[]) {
         BFLAG("--strict", strict)
         BFLAG("--trace", trace)
         BFLAG("--local", setup_local)
+        BFLAG("--json", json)
+        BFLAG("--all-users", all_users)
 #undef BFLAG
 
         if (!strcmp(arg, "--local-env") || !strncmp(arg, "--local-env=", 12)) {
@@ -137,6 +139,7 @@ int main(int argc, char *argv[]) {
         VARG("--cxx", cxx)
         VARG("--target", toolchain)
         VARG("--run-prefix", run_prefix)
+        VARG("--kill", ps_kill)
 #undef VARG
 
         if (arg[0] == '-') {
@@ -196,6 +199,11 @@ int main(int argc, char *argv[]) {
 
     if (opts.setup_local && strcmp(opts.command, "setup")) {
         ecs_err("--local can only be used with the setup command");
+        goto cleanup;
+    }
+
+    if ((opts.json || opts.all_users || opts.ps_kill) && strcmp(opts.command, "ps")) {
+        ecs_err("--json, --all-users and --kill can only be used with the ps command");
         goto cleanup;
     }
 

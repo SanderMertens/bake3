@@ -1,6 +1,7 @@
 #if defined(_WIN32)
 
 #include "bake/os.h"
+#include "bake/ps.h"
 #include <flecs.h>
 
 #include <windows.h>
@@ -251,10 +252,23 @@ int bake_proc_run(
         return -1;
     }
 
+    bool registered = false;
+    if (stdio_cfg && stdio_cfg->ps) {
+        registered = bake_ps_register(
+            (int64_t)pi.dwProcessId, argv, (const bake_ps_info_t*)stdio_cfg->ps) == 0;
+    }
+
     if (WaitForSingleObject(pi.hProcess, INFINITE) != WAIT_OBJECT_0) {
+        if (registered) {
+            bake_ps_unregister((int64_t)pi.dwProcessId);
+        }
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         return -1;
+    }
+
+    if (registered) {
+        bake_ps_unregister((int64_t)pi.dwProcessId);
     }
 
     DWORD exit_code = 0;
@@ -277,6 +291,17 @@ int bake_proc_run(
 
 int bake_proc_run_argv(const char *const *argv, bake_process_result_t *result) {
     return bake_proc_run(argv, NULL, result);
+}
+
+int bake_proc_snapshot(bake_proc_info_t **procs_out, int32_t *count_out) {
+    if (procs_out) *procs_out = NULL;
+    if (count_out) *count_out = 0;
+    return -1;
+}
+
+void bake_proc_snapshot_free(bake_proc_info_t *procs, int32_t count) {
+    BAKE_UNUSED(count);
+    BAKE_UNUSED(procs);
 }
 
 #endif

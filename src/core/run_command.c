@@ -290,7 +290,12 @@ static int bake_parse_command_line(const char *line, bake_cmd_line_t *cmd) {
     return 0;
 }
 
-int bake_run_command_in_dir(const char *cmd, bool log_command, const char *cwd) {
+int bake_run_command_tracked(
+    const char *cmd,
+    bool log_command,
+    const char *cwd,
+    const struct bake_ps_info_t *ps)
+{
     if (!cmd || !cmd[0]) {
         return -1;
     }
@@ -302,6 +307,7 @@ int bake_run_command_in_dir(const char *cmd, bool log_command, const char *cwd) 
     }
 
     parsed.stdio_cfg.cwd = cwd;
+    parsed.stdio_cfg.ps = ps;
 
     if (log_command) {
         ecs_trace("$ %s", cmd);
@@ -340,6 +346,10 @@ int bake_run_command_in_dir(const char *cmd, bool log_command, const char *cwd) 
     return 0;
 }
 
+int bake_run_command_in_dir(const char *cmd, bool log_command, const char *cwd) {
+    return bake_run_command_tracked(cmd, log_command, cwd, NULL);
+}
+
 int bake_run_command(const char *cmd, bool log_command) {
-    return bake_run_command_in_dir(cmd, log_command, NULL);
+    return bake_run_command_tracked(cmd, log_command, NULL, NULL);
 }

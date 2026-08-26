@@ -2,6 +2,7 @@
 #include "bake/discovery.h"
 #include "bake/environment.h"
 #include "bake/os.h"
+#include "bake/ps.h"
 
 static const char *bake_help_text =
     "Usage: bake [options] [command] [target]\n"
@@ -13,6 +14,7 @@ static const char *bake_help_text =
     "  clean [target]      Remove build artifacts\n"
     "  rebuild [target]    Clean and build\n"
     "  list                List projects in bake environment\n"
+    "  ps                  List processes started by bake\n"
     "  info <target>       Show project info\n"
     "  cleanup             Remove stale projects from bake environment\n"
     "  reset               Reset bake environment metadata\n"
@@ -24,6 +26,9 @@ static const char *bake_help_text =
     "  --cxx <compiler>    Override C++ compiler\n"
     "  --target <name>     Cross-compile target (em = emscripten/wasm)\n"
     "  --run-prefix <cmd>  Prefix command when running binaries\n"
+    "  --json              ps only: print the process list as json\n"
+    "  --all-users         ps only: include processes of other users in the scan\n"
+    "  --kill <pid|env>    ps only: stop a listed process or local environment\n"
     "  --port <n>          First port for the 'run --target em' web server (default 8080)\n"
     "  --local-env[=<name>] Use ./.bake/local_env (or ./.bake/local_env/<name>) as isolated BAKE_HOME and build root\n"
     "  --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)\n"
@@ -462,6 +467,7 @@ static const struct {
     {"test", bake_build_run, true},
     {"clean", bake_build_clean, false}, {"rebuild", bake_build_rebuild, true},
     {"list", bake_list_projects, false}, {"info", bake_info_project, false},
+    {"ps", bake_ps_command, false},
     {"reset", bake_env_reset, false}, {"cleanup", bake_env_cleanup_cmd, false},
 };
 

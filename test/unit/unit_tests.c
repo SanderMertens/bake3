@@ -1,4 +1,5 @@
 #include "bake/os.h"
+#include "bake/ps.h"
 #include "build/build_internal.h"
 #include "bake/build.h"
 #include "bake/bundle.h"
@@ -455,6 +456,170 @@ static void test_lock_excludes_second_holder(void) {
     ecs_os_free(dir);
 }
 
+
+static void test_ps_elapsed_formatting(void) {
+    char buf[32];
+
+    bake_ps_format_elapsed(0, buf, sizeof(buf));
+    CHECK_STR(buf, "0:00:00");
+
+    bake_ps_format_elapsed(59, buf, sizeof(buf));
+    CHECK_STR(buf, "0:00:59");
+
+    bake_ps_format_elapsed(61, buf, sizeof(buf));
+    CHECK_STR(buf, "0:01:01");
+
+    bake_ps_format_elapsed(3661, buf, sizeof(buf));
+    CHECK_STR(buf, "1:01:01");
+
+    bake_ps_format_elapsed(90061, buf, sizeof(buf));
+    CHECK_STR(buf, "25:01:01");
+
+    bake_ps_format_elapsed(-10, buf, sizeof(buf));
+    CHECK_STR(buf, "0:00:00");
+
+    CHECK(bake_ps_parse_etime("05") == 5);
+    CHECK(bake_ps_parse_etime("01:05") == 65);
+    CHECK(bake_ps_parse_etime("1:02:03") == 3723);
+    CHECK(bake_ps_parse_etime("2-03:04:05") == 2 * 86400 + 3 * 3600 + 4 * 60 + 5);
+    CHECK(bake_ps_parse_etime("") == 0);
+    CHECK(bake_ps_parse_etime(NULL) == 0);
+}
+
+static void test_ps_parse_local_env_path(void) {
+    bake_ps_path_info_t info;
+
+    CHECK(bake_ps_parse_local_env_path(
+        "/ws/.bake/local_env/agent_a/arm64-Darwin/debug/bin/night_shift", &info) == 0);
+    CHECK_STR(info.env, "agent_a");
+    CHECK_STR(info.workspace, "/ws");
+    CHECK_STR(info.cfg, "debug");
+    CHECK_STR(info.project, "night_shift");
+    bake_ps_path_info_fini(&info);
+
+    CHECK(bake_ps_parse_local_env_path(
+        "/ws/.bake/local_env/arm64-Darwin/release/bin/night_shift", &info) == 0);
+    CHECK_STR(info.env, "(unnamed)");
+    CHECK_STR(info.workspace, "/ws");
+    CHECK_STR(info.cfg, "release");
+    CHECK_STR(info.project, "night_shift");
+    bake_ps_path_info_fini(&info);
+
+    CHECK(bake_ps_parse_local_env_path(
+        "/ws/.bake/local_env/agent_a/build/my.app/arm64-Darwin-debug/bin/my_app", &info) == 0);
+    CHECK_STR(info.env, "agent_a");
+    CHECK_STR(info.cfg, "debug");
+    CHECK_STR(info.project, "my.app");
+    bake_ps_path_info_fini(&info);
+
+    CHECK(bake_ps_parse_local_env_path("/ws/.bake/arm64-Darwin-debug/bin/app", &info) != 0);
+    bake_ps_path_info_fini(&info);
+
+    char *env = bake_ps_env_from_home("/ws/.bake/local_env/agent_b");
+    CHECK_STR(env, "agent_b");
+    ecs_os_free(env);
+
+    env = bake_ps_env_from_home("/ws/.bake/local_env");
+    CHECK_STR(env, "(unnamed)");
+    ecs_os_free(env);
+
+    env = bake_ps_env_from_home("/Users/me/bake3");
+    CHECK(env == NULL);
+    ecs_os_free(env);
+}
+
+static void test_ps_registry_roundtrip(void) {
+    char *dir = flecs_asprintf("bake_unit_ps_%lld", (long long)bake_os_pid());
+    bake_os_setenv("BAKE3_PS_DIR", dir);
+
+    char *registry = bake_ps_registry_dir();
+    CHECK_STR(registry, dir);
+    ecs_os_free(registry);
+
+    char *exe = bake_os_executable_path();
+    const char *argv[] = {NULL, "--headless", NULL};
+    argv[0] = exe;
+
+    bake_ps_info_t info = {
+        .project = "unit_app",
+        .cfg = "debug",
+        .env = "unit_env",
+        .bake_home = "/ws/.bake/local_env/unit_env",
+        .workspace = "/ws",
+        .kind = "run"
+    };
+
+    CHECK(bake_ps_register(bake_os_pid(), argv, &info) == 0);
+
+    char *entry_file = flecs_asprintf("%s/%lld.json", dir, (long long)bake_os_pid());
+    CHECK(bake_path_exists(entry_file));
+
+    bake_ps_info_t stale = { .project = "gone", .cfg = "debug", .env = "unit_env" };
+    const char *stale_argv[] = {"/does/not/exist/gone", NULL};
+    CHECK(bake_ps_register(2147483646, stale_argv, &stale) == 0);
+    char *stale_file = flecs_asprintf("%s/2147483646.json", dir);
+    CHECK(bake_path_exists(stale_file));
+
+    bake_ps_list_t list;
+    CHECK(bake_ps_collect(&list, false) >= 0);
+
+    const bake_ps_entry_t *found = NULL;
+    for (int32_t i = 0; i < list.count; i ++) {
+        if (list.items[i].pid == bake_os_pid()) {
+            found = &list.items[i];
+        }
+        CHECK(list.items[i].pid != 2147483646);
+    }
+
+    CHECK(found != NULL);
+    if (found) {
+        CHECK_STR(found->project, "unit_app");
+        CHECK_STR(found->cfg, "debug");
+        CHECK_STR(found->env, "unit_env");
+        CHECK_STR(found->workspace, "/ws");
+        CHECK_STR(found->kind, "run");
+        CHECK_STR(found->source, "registry");
+        CHECK(found->elapsed_sec >= 0);
+        CHECK(found->cmd && strstr(found->cmd, "--headless") != NULL);
+    }
+
+    bake_ps_list_fini(&list);
+
+    CHECK(!bake_path_exists(stale_file));
+
+    bake_ps_unregister(bake_os_pid());
+    CHECK(!bake_path_exists(entry_file));
+
+    bake_os_rmtree(dir);
+    bake_os_unsetenv("BAKE3_PS_DIR");
+    ecs_os_free(stale_file);
+    ecs_os_free(entry_file);
+    ecs_os_free(exe);
+    ecs_os_free(dir);
+}
+
+static void test_ps_shorten_path(void) {
+    char *shortened = bake_ps_shorten_path("/ws/app", 32);
+    CHECK_STR(shortened, "/ws/app");
+    ecs_os_free(shortened);
+
+    shortened = bake_ps_shorten_path(
+        "/Users/someone/very/long/path/to/a/workspace/that/does/not/fit", 24);
+    CHECK(strlen(shortened) <= 24);
+    CHECK(!strncmp(shortened, "...", 3));
+    ecs_os_free(shortened);
+
+    char *home = bake_os_home_path();
+    if (home) {
+        char *path = bake_path_join(home, "ws");
+        shortened = bake_ps_shorten_path(path, 64);
+        CHECK_STR(shortened, "~/ws");
+        ecs_os_free(shortened);
+        ecs_os_free(path);
+        ecs_os_free(home);
+    }
+}
+
 int main(void) {
     ecs_os_init();
 
@@ -475,6 +640,10 @@ int main(void) {
     test_local_env_home();
     test_local_env_build_root();
     test_lock_excludes_second_holder();
+    test_ps_elapsed_formatting();
+    test_ps_parse_local_env_path();
+    test_ps_registry_roundtrip();
+    test_ps_shorten_path();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures != 0;

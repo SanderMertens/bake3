@@ -3,6 +3,7 @@
 #include "bake/environment.h"
 #include "bake/test_harness.h"
 #include "bake/os.h"
+#include "bake/ps.h"
 
 #include <limits.h>
 #include <stdlib.h>
@@ -1113,8 +1114,20 @@ int bake_build_run(bake_context_t *ctx) {
             ecs_strbuf_append(&cmd, " \"%s\"", ctx->opts.run_argv[i]);
         }
 
+        char *env_name = bake_ps_env_from_home(ctx->bake_home);
+        bake_ps_info_t ps = {
+            .project = project->cfg->id,
+            .cfg = bake_effective_mode(ctx->opts.mode),
+            .env = env_name,
+            .bake_home = ctx->bake_home,
+            .workspace = ctx->opts.cwd,
+            .kind = "run",
+            .announce = true
+        };
+
         char *cmd_str = ecs_strbuf_get(&cmd);
-        rc = bake_run_command_in_dir(cmd_str, true, run_dir);
+        rc = bake_run_command_tracked(cmd_str, true, run_dir, &ps);
+        ecs_os_free(env_name);
         ecs_os_free(cmd_str);
         ecs_os_free(exe_path);
         ecs_os_free(run_dir);

@@ -24,6 +24,26 @@ bool bake_os_pid_alive(int64_t pid) {
     return errno == EPERM;
 }
 
+int64_t bake_os_uid(void) {
+    return (int64_t)getuid();
+}
+
+int bake_os_pid_kill(int64_t pid, bool force) {
+    if (pid <= 0) {
+        return -1;
+    }
+
+    if (kill((pid_t)pid, force ? SIGKILL : SIGTERM) != 0) {
+        if (errno == ESRCH) {
+            return 0;
+        }
+        bake_log_errno_last("kill process", NULL);
+        return -1;
+    }
+
+    return 0;
+}
+
 int bake_os_setenv(const char *name, const char *value) {
     if (!name || !name[0] || !value) {
         return -1;

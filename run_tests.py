@@ -2087,6 +2087,178 @@ class BakeTests(unittest.TestCase):
 
         self.assertEqual(artefacts[0], artefacts[1])
 
+    def ps_env(self, stamp: int) -> tuple[dict[str, str], Path]:
+        ps_dir = self.repo_root / "test" / "tmp" / f"ps_registry_{stamp}"
+        ps_dir.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(shutil.rmtree, ps_dir, ignore_errors=True)
+        env = self.env.copy()
+        env["BAKE3_PS_DIR"] = str(ps_dir)
+        return env, ps_dir
+
+    def ps_entries(self, env: dict[str, str], args: list[str] | None = None) -> list[dict]:
+        output = self.strip_ansi(self.bake(["ps", "--json", *(args or [])], env=env))
+        return json.loads(output)
+
+    def ps_wait_for(
+        self,
+        env: dict[str, str],
+        predicate,
+        timeout: float = 60.0,
+    ) -> list[dict]:
+        deadline = time.time() + timeout
+        entries = []
+        while time.time() < deadline:
+            entries = self.ps_entries(env)
+            matched = [entry for entry in entries if predicate(entry)]
+            if matched:
+                return matched
+            time.sleep(0.2)
+        return []
+
+    def ps_wait_until_gone(self, env: dict[str, str], pid: int, timeout: float = 30.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not any(entry["pid"] == pid for entry in self.ps_entries(env)):
+                return True
+            time.sleep(0.2)
+        return False
+
+    def write_forever_app(self, name: str) -> tuple[Path, str]:
+        return self.write_simple_app_project(
+            name,
+            "#include <stdio.h>\n"
+            "#if defined(_WIN32)\n"
+            "#include <windows.h>\n"
+            "#define bake_test_sleep() Sleep(200)\n"
+            "#else\n"
+            "#include <unistd.h>\n"
+            "#define bake_test_sleep() usleep(200 * 1000)\n"
+            "#endif\n"
+            "int main(void) {\n"
+            '    printf("forever app running\\n");\n'
+            "    fflush(stdout);\n"
+            "    for (;;) {\n"
+            "        bake_test_sleep();\n"
+            "    }\n"
+            "    return 0;\n"
+            "}\n",
+        )
+
+    def test_ps_lists_and_kills_a_process_started_by_bake_run(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_dir, app_id = self.write_forever_app("ps_run")
+        env_name = f"ps_run_{stamp}"
+        env, _ = self.ps_env(stamp)
+
+        self.bake([f"--local-env={env_name}", "--cfg", "release", "build", "."],
+            cwd=project_dir, env=env)
+
+        proc = subprocess.Popen(
+            [str(self.bake_bin), f"--local-env={env_name}", "--cfg", "release", "run", "."],
+            cwd=str(project_dir),
+            env=env,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+
+        def stop_group() -> None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, PermissionError, OSError):
+                proc.kill()
+
+        self.addCleanup(proc.stdout.close)
+        self.addCleanup(proc.wait)
+        self.addCleanup(stop_group)
+
+        matched = self.ps_wait_for(env, lambda entry: entry["project"] == app_id)
+        self.assertTrue(matched, f"bake ps did not list {app_id}")
+        self.assertEqual(len(matched), 1, matched)
+
+        entry = matched[0]
+        self.assertEqual(entry["env"], env_name)
+        self.assertEqual(entry["cfg"], "release")
+        self.assertEqual(entry["kind"], "run")
+        self.assertEqual(entry["source"], "registry")
+        self.assertEqual(entry["state"], "running")
+        self.assertGreaterEqual(entry["elapsed_sec"], 0)
+        self.assertIn(app_id, entry["cmd"])
+        self.assertEqual(entry["parent_pid"], proc.pid)
+
+        table = self.strip_ansi(self.bake(["ps"], env=env))
+        self.assertIn(str(entry["pid"]), table)
+        self.assertIn(env_name, table)
+        self.assertIn("PID", table.splitlines()[0])
+
+        self.bake(["ps", "--kill", str(entry["pid"])], env=env)
+        self.assertTrue(
+            self.ps_wait_until_gone(env, entry["pid"]),
+            "killed process is still listed by bake ps",
+        )
+        proc.wait(timeout=60)
+
+        output = self.strip_ansi(proc.stdout.read())
+        self.assertIn(f"started {app_id}", output)
+        self.assertIn("bake3 ps", output)
+
+    def test_ps_detects_a_directly_started_local_env_binary(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_dir, app_id = self.write_forever_app("ps_exec")
+        env_name = f"ps_exec_{stamp}"
+        env, _ = self.ps_env(stamp)
+
+        self.bake([f"--local-env={env_name}", "build", "."], cwd=project_dir, env=env)
+
+        env_home = project_dir / ".bake" / "local_env" / env_name
+        candidates = [
+            path for path in env_home.rglob(f"{app_id}{EXE_SUFFIX}")
+            if path.is_file() and os.access(path, os.X_OK)
+        ]
+        self.assertTrue(candidates, f"no executable found under {env_home}")
+
+        proc = subprocess.Popen(
+            [str(candidates[0])],
+            cwd=str(project_dir),
+            env=env,
+            text=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.kill)
+
+        matched = self.ps_wait_for(env, lambda entry: entry["pid"] == proc.pid)
+        if not matched and platform.system() == "Windows":
+            self.skipTest("process table scan is POSIX only")
+
+        self.assertTrue(matched, "bake ps did not report the directly started binary")
+        entry = matched[0]
+        self.assertEqual(entry["source"], "scan")
+        self.assertEqual(entry["env"], env_name)
+        self.assertEqual(entry["project"], app_id)
+        self.assertEqual(entry["state"], "running")
+        self.assertEqual(entry["workspace"], str(project_dir))
+
+        self.bake(["ps", "--kill", str(entry["pid"])], env=env)
+        self.assertTrue(
+            self.ps_wait_until_gone(env, entry["pid"]),
+            "killed process is still listed by bake ps",
+        )
+
+    def test_ps_kill_rejects_unknown_targets(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        env, _ = self.ps_env(stamp)
+        output = self.strip_ansi(
+            self.bake_expect_failure(["ps", "--kill", "2147483646"], env=env))
+        self.assertIn("no bake process matches", output)
+
+    def test_ps_options_are_rejected_for_other_commands(self) -> None:
+        output = self.strip_ansi(self.bake_expect_failure(["--json", "list"]))
+        self.assertIn("can only be used with the ps command", output)
+
     def test_local_env_dependency_isolation_between_workspaces(self) -> None:
         stamp = int(time.time() * 1_000_000)
         root = self.repo_root / "test" / "tmp" / f"local_env_isolation_{stamp}"

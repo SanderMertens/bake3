@@ -1,6 +1,7 @@
 #if !defined(_WIN32)
 
 #include "bake/os.h"
+#include "bake/ps.h"
 #include <flecs.h>
 
 #include <errno.h>
@@ -120,6 +121,12 @@ int bake_proc_run(
         return -1;
     }
 
+    bool registered = false;
+    if (stdio_cfg && stdio_cfg->ps) {
+        registered = bake_ps_register(
+            (int64_t)pid, argv, (const bake_ps_info_t*)stdio_cfg->ps) == 0;
+    }
+
     int status = 0;
     for (;;) {
         pid_t rc = waitpid(pid, &status, 0);
@@ -131,8 +138,16 @@ int bake_proc_run(
             continue;
         }
 
+        if (registered) {
+            bake_ps_unregister((int64_t)pid);
+        }
+
         bake_log_errno_last("wait for command", argv[0]);
         return -1;
+    }
+
+    if (registered) {
+        bake_ps_unregister((int64_t)pid);
     }
 
     if (result) {
@@ -157,6 +172,100 @@ int bake_proc_run(
 
 int bake_proc_run_argv(const char *const *argv, bake_process_result_t *result) {
     return bake_proc_run(argv, NULL, result);
+}
+
+#define BAKE_PS_SNAPSHOT_CMD \
+    "ps -axww -o pid=,ppid=,uid=,state=,etime=,command= 2>/dev/null"
+
+static const char* bake_proc_scan_field(const char *cursor, char *buf, size_t size) {
+    while (*cursor == ' ' || *cursor == '\t') {
+        cursor ++;
+    }
+
+    size_t len = 0;
+    while (*cursor && *cursor != ' ' && *cursor != '\t') {
+        if (len < (size - 1)) {
+            buf[len] = *cursor;
+        }
+        len ++;
+        cursor ++;
+    }
+
+    buf[len < (size - 1) ? len : (size - 1)] = '\0';
+    return cursor;
+}
+
+int bake_proc_snapshot(bake_proc_info_t **procs_out, int32_t *count_out) {
+    if (!procs_out || !count_out) {
+        return -1;
+    }
+
+    *procs_out = NULL;
+    *count_out = 0;
+
+    FILE *stream = popen(BAKE_PS_SNAPSHOT_CMD, "r");
+    if (!stream) {
+        return -1;
+    }
+
+    ecs_vec_t vec = {0};
+    char line[8192];
+    while (fgets(line, sizeof(line), stream)) {
+        char pid[32], ppid[32], uid[32], state[32], etime[64];
+        const char *cursor = line;
+        cursor = bake_proc_scan_field(cursor, pid, sizeof(pid));
+        cursor = bake_proc_scan_field(cursor, ppid, sizeof(ppid));
+        cursor = bake_proc_scan_field(cursor, uid, sizeof(uid));
+        cursor = bake_proc_scan_field(cursor, state, sizeof(state));
+        cursor = bake_proc_scan_field(cursor, etime, sizeof(etime));
+
+        while (*cursor == ' ' || *cursor == '\t') {
+            cursor ++;
+        }
+
+        size_t cmd_len = strlen(cursor);
+        while (cmd_len && (cursor[cmd_len - 1] == '\n' || cursor[cmd_len - 1] == '\r')) {
+            cmd_len --;
+        }
+
+        if (!pid[0] || !cmd_len) {
+            continue;
+        }
+
+        bake_proc_info_t *info = ecs_vec_append_t(NULL, &vec, bake_proc_info_t);
+        info->pid = (int64_t)strtoll(pid, NULL, 10);
+        info->parent_pid = (int64_t)strtoll(ppid, NULL, 10);
+        info->uid = (int64_t)strtoll(uid, NULL, 10);
+        info->elapsed_sec = bake_ps_parse_etime(etime);
+        info->state = state[0];
+        info->cmd = ecs_os_malloc((ecs_size_t)cmd_len + 1);
+        ecs_os_memcpy(info->cmd, cursor, (ecs_size_t)cmd_len);
+        info->cmd[cmd_len] = '\0';
+    }
+
+    if (pclose(stream) == -1 && !ecs_vec_count(&vec)) {
+        ecs_vec_fini_t(NULL, &vec, bake_proc_info_t);
+        return -1;
+    }
+
+    int32_t count = ecs_vec_count(&vec);
+    if (count) {
+        bake_proc_info_t *items = ecs_os_malloc_n(bake_proc_info_t, count);
+        ecs_os_memcpy_n(items, ecs_vec_first_t(&vec, bake_proc_info_t),
+            bake_proc_info_t, count);
+        *procs_out = items;
+    }
+
+    ecs_vec_fini_t(NULL, &vec, bake_proc_info_t);
+    *count_out = count;
+    return 0;
+}
+
+void bake_proc_snapshot_free(bake_proc_info_t *procs, int32_t count) {
+    for (int32_t i = 0; i < count; i ++) {
+        ecs_os_free(procs[i].cmd);
+    }
+    ecs_os_free(procs);
 }
 
 #endif

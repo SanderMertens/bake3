@@ -12,6 +12,9 @@ typedef struct bake_options_t {
     const char *cc;
     const char *cxx;
     const char *run_prefix;
+    const char *ps_kill;
+    bool json;
+    bool all_users;
     bool recursive;
     bool standalone;
     bool strict;

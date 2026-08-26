@@ -29,8 +29,15 @@
 
 #define BAKE_UNUSED(x) (void)(x)
 
+struct bake_ps_info_t;
+
 int bake_run_command(const char *cmd, bool log_command);
 int bake_run_command_in_dir(const char *cmd, bool log_command, const char *cwd);
+int bake_run_command_tracked(
+    const char *cmd,
+    bool log_command,
+    const char *cwd,
+    const struct bake_ps_info_t *ps);
 char* bake_shell_quote_arg(const char *arg);
 char* bake_text_replace(const char *input, const char *needle, const char *replacement);
 

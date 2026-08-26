@@ -25,6 +25,36 @@ bool bake_os_pid_alive(int64_t pid) {
     return alive;
 }
 
+int64_t bake_os_uid(void) {
+    return 0;
+}
+
+int bake_os_pid_kill(int64_t pid, bool force) {
+    BAKE_UNUSED(force);
+
+    if (pid <= 0) {
+        return -1;
+    }
+
+    HANDLE proc = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+    if (!proc) {
+        if (GetLastError() == ERROR_INVALID_PARAMETER) {
+            return 0;
+        }
+        bake_log_win_error_last("kill process", NULL);
+        return -1;
+    }
+
+    BOOL ok = TerminateProcess(proc, 1);
+    CloseHandle(proc);
+    if (!ok) {
+        bake_log_win_error_last("kill process", NULL);
+        return -1;
+    }
+
+    return 0;
+}
+
 int bake_os_setenv(const char *name, const char *value) {
     if (!name || !name[0] || !value) {
         return -1;

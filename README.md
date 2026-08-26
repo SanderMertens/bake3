@@ -75,6 +75,14 @@ bake run -- --key=value
 bake run my_app -- --key=value
 ```
 
+List processes that were started by bake (see
+[Orchestrating multiple agents](#orchestrating-multiple-agents)):
+```
+bake ps
+bake ps --json
+bake ps --kill 82190
+```
+
 ## Usage
 ```
 Usage: bake [options] [command] [target]
@@ -86,6 +94,7 @@ Commands:
   clean [target]      Remove build artifacts
   rebuild [target]    Clean and build
   list                List projects in bake environment
+  ps                  List processes started by bake
   info <target>       Show project info
   cleanup             Remove stale projects from bake environment
   reset               Reset bake environment metadata
@@ -97,6 +106,9 @@ Options:
   --cxx <compiler>    Override C++ compiler
   --target <name>     Cross-compile target (em = emscripten/wasm)
   --run-prefix <cmd>  Prefix command when running binaries
+  --json              ps only: print the process list as json
+  --all-users         ps only: include processes of other users in the scan
+  --kill <pid|env>    ps only: stop a listed process or local environment
   --local-env[=<name>] Use ./.bake/local_env (or ./.bake/local_env/<name>) as isolated BAKE_HOME and build root
   --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)
   --standalone        Use amalgamated dependency sources in deps/
@@ -105,6 +117,89 @@ Options:
   -j <count>          Number of parallel jobs for build/test execution
   -r                  Apply command recursively to project and project dependencies
   -h, --help          Show this help
+```
+
+## Orchestrating multiple agents
+Two features exist for workspaces that several people, agents or CI jobs share at
+the same time. Read both before running bake in a shared checkout:
+
+- **[`--local-env[=<name>]`](#named-local-environments)** gives each agent its own
+  isolated `BAKE_HOME` and build root inside the workspace, so parallel builds of
+  the same checkout do not overwrite each other's artefacts.
+- **[`bake ps`](#listing-running-processes)** lists everything bake started (and
+  everything started directly from a local environment binary), how long it has
+  been running and which environment it came from, so an orchestrator can audit
+  and stop what is running.
+
+Typical use:
+
+```
+bake run my_app --local-env=agent_a     # build + run in agent_a's environment
+bake ps                                 # what is running, where, for how long
+bake ps --kill agent_a                  # stop everything from that environment
+```
+
+### Listing running processes
+`bake ps` prints one row per running process that bake knows about:
+
+```
+$ bake ps
+PID    ELAPSED  ENV      CFG    PROJECT      STATE    SOURCE    WORKSPACE            CMD
+82190  0:04:12  agent_a  debug  night_shift  running  registry  ~/dev/flecs-engine   /Users/me/dev/flecs-engine/.bake/local_env/agent_a/a...
+82355  0:00:47  agent_b  debug  night_shift  running  scan      ~/dev/flecs-engine   /Users/me/dev/flecs-engine/.bake/local_env/agent_b/a...
+```
+
+Columns:
+
+- `PID`: process id of the started process (not of bake itself)
+- `ELAPSED`: how long the process has been running, as `h:mm:ss`
+- `ENV`: local environment name, `(unnamed)` for `--local-env` without a name, `-` for the global environment
+- `CFG`: build mode the binary was built with
+- `PROJECT`: project id
+- `STATE`: `running`, `zombie`, or `orphan` when the bake process that started it is gone
+- `SOURCE`: `registry` or `scan` (see below)
+- `WORKSPACE`: directory bake was invoked from, shortened for display
+- `CMD`: command line, truncated
+
+Processes are found in two ways, and both end up in the same table:
+
+- `registry`: every time `bake run` or `bake test` starts a process, bake writes
+  `<pid>.json` with the project, cfg, environment, `BAKE_HOME`, workspace, command
+  line, start time and the pid of the bake process that started it. The file is
+  removed when the process exits, and entries whose process is gone are pruned the
+  next time `bake ps` runs. The registry lives in `~/.bake3/ps` so it spans every
+  workspace on the machine; set `BAKE3_PS_DIR` to point it somewhere else (tests do
+  this). It is per user: `bake ps` never reads another user's registry.
+- `scan`: bake also scans the process table for running executables whose path is
+  inside a `.bake/local_env` directory. This finds processes that were started
+  directly from a local environment binary instead of through `bake run`, for
+  example a tool that execs
+  `.bake/local_env/agent_a/arm64-Darwin/debug/bin/my_app` itself. The environment
+  name, workspace, config and project are read from that path. The scan is POSIX
+  only; on Windows `bake ps` lists registry entries and says so.
+
+Options:
+
+- `--json`: print the same information as a json array, with `elapsed_sec`,
+  `start_time`, `parent_pid` and `bake_home` included. Use this from scripts.
+- `--all-users`: include processes owned by other users in the process table scan.
+- `--kill <pid|env>`: send a terminate signal to a listed process (by pid) or to
+  every listed process of a local environment (by environment name), wait for them
+  to stop and force kill what is left. Only processes that `bake ps` lists can be
+  killed this way; an unknown pid is an error, never a signal to an unrelated
+  process.
+
+Not everything can be detected: a process started directly from a binary that is
+not inside `.bake/local_env` (a global environment build, or a copy of the binary),
+a process whose path contains spaces, and processes started through a wrapper
+script that replaces `argv[0]` are invisible to the scan. Those show up only when
+they were started with `bake run` or `bake test`.
+
+When `bake run` starts a process it prints a single line naming the pid and
+environment, as a reminder that `bake ps` exists:
+
+```
+[bake] started my_app (pid 82190, env agent_a) - run 'bake3 ps' to see running processes
 ```
 
 ## Project structure
@@ -406,6 +501,9 @@ The bake environment has the following directories:
 - `meta/<project>`: stores project metadata
 
 ### Named local environments
+See [Orchestrating multiple agents](#orchestrating-multiple-agents) for how this
+combines with `bake ps`.
+
 `--local-env=<name>` gives a workspace more than one isolated environment, which lets several people or agents build the same checkout at the same time without sharing build state. Everything the environment owns is scoped by name:
 
 - `.bake/local_env/<name>/build/<project-id>/<arch-os-config>`: object files, generated files and the built artefact
@@ -418,6 +516,8 @@ A name may contain letters, digits, `.`, `_` and `-`. Names that would collide w
 Named environments do not read or write each other, and they do not read or write the unnamed `.bake/local_env` environment, so `--local-env` without a name keeps behaving exactly as before. `build`, `run`, `test` and `clean` all resolve binaries in the environment of the name they were given, so `bake run <target> --local-env=<name>` runs that name's binary. What *is* shared between names is everything that is expensive and identical for all of them: the bundle sources and bundle builds under `.bake/bundles` (see [Bundles](#bundles)). A second name therefore only pays for compiling the project itself.
 
 Two named builds of the same workspace can run concurrently. Bake serializes the parts that write to shared paths (bundle fetch and build, test harness generation) with a lock, and keeps everything else in per-name directories.
+
+Use `bake run <target> --local-env=<name>` to run a name's binary, `bake test <target> --local-env=<name>` to run its tests, and `bake clean <target> --local-env=<name>` to remove only that name's build output. To see what a name is currently running, or to stop it, use [`bake ps`](#listing-running-processes) and `bake ps --kill <name>`.
 
 A project meta folder stores:
 - `project.json`: Copy of the bake configuration for the project
