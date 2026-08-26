@@ -15,6 +15,7 @@ typedef struct bake_options_t {
     const char *ps_kill;
     bool json;
     bool all_users;
+    bool ps_full;
     bool recursive;
     bool standalone;
     bool strict;

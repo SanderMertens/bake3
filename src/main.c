@@ -61,6 +61,7 @@ int main(int argc, char *argv[]) {
         BFLAG("--local", setup_local)
         BFLAG("--json", json)
         BFLAG("--all-users", all_users)
+        BFLAG("--full", ps_full)
 #undef BFLAG
 
         if (!strcmp(arg, "--local-env") || !strncmp(arg, "--local-env=", 12)) {
@@ -202,8 +203,11 @@ int main(int argc, char *argv[]) {
         goto cleanup;
     }
 
-    if ((opts.json || opts.all_users || opts.ps_kill) && strcmp(opts.command, "ps")) {
-        ecs_err("--json, --all-users and --kill can only be used with the ps command");
+    if ((opts.json || opts.all_users || opts.ps_full || opts.ps_kill) &&
+        strcmp(opts.command, "ps"))
+    {
+        ecs_err("--json, --all-users, --full and --kill can only be used with "
+            "the ps command");
         goto cleanup;
     }
 

@@ -170,11 +170,14 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
 
     char *cmd_str = ecs_strbuf_get(&cmd);
     char *run_dir = bake_project_run_dir(cfg);
-    char *env_name = ctx ? bake_ps_env_from_home(ctx->bake_home) : NULL;
+    char *env_name = NULL;
+    bake_ps_env_kind_t env_kind = ctx ?
+        bake_ps_env_from_home(ctx->bake_home, &env_name) : BakePsEnvUnknown;
     bake_ps_info_t ps = {
         .project = cfg->id,
         .cfg = ctx ? bake_effective_mode(ctx->opts.mode) : NULL,
         .env = env_name,
+        .env_kind = env_kind,
         .bake_home = ctx ? ctx->bake_home : NULL,
         .workspace = ctx ? ctx->opts.cwd : NULL,
         .kind = "test"

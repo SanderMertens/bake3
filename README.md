@@ -79,6 +79,7 @@ List processes that were started by bake (see
 [Orchestrating multiple agents](#orchestrating-multiple-agents)):
 ```
 bake ps
+bake ps --full
 bake ps --json
 bake ps --kill 82190
 ```
@@ -108,7 +109,8 @@ Options:
   --run-prefix <cmd>  Prefix command when running binaries
   --json              ps only: print the process list as json
   --all-users         ps only: include processes of other users in the scan
-  --kill <pid|env>    ps only: stop a listed process or local environment
+  --full              ps only: print untruncated workspace and command columns
+  --kill <pid|env>    ps only: stop a listed process, environment or env kind
   --local-env[=<name>] Use ./.bake/local_env (or ./.bake/local_env/<name>) as isolated BAKE_HOME and build root
   --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)
   --standalone        Use amalgamated dependency sources in deps/
@@ -136,7 +138,9 @@ Typical use:
 ```
 bake run my_app --local-env=agent_a     # build + run in agent_a's environment
 bake ps                                 # what is running, where, for how long
+bake ps --full                          # same table with untruncated paths
 bake ps --kill agent_a                  # stop everything from that environment
+bake ps --kill local                    # stop every local environment process
 ```
 
 ### Listing running processes
@@ -144,22 +148,32 @@ bake ps --kill agent_a                  # stop everything from that environment
 
 ```
 $ bake ps
-PID    ELAPSED  ENV      CFG    PROJECT      STATE    SOURCE    WORKSPACE            CMD
-82190  0:04:12  agent_a  debug  night_shift  running  registry  ~/dev/flecs-engine   /Users/me/dev/flecs-engine/.bake/local_env/agent_a/a...
-82355  0:00:47  agent_b  debug  night_shift  running  scan      ~/dev/flecs-engine   /Users/me/dev/flecs-engine/.bake/local_env/agent_b/a...
+PID    ELAPSED  ENV            CFG    PROJECT      STATE    SOURCE    WORKSPACE           CMD
+82190  0:04:12  local:agent_a  debug  night_shift  running  registry  ~/dev/flecs-engine  /Users/me/dev/flecs-engine/.bake/local_env/agent_a/a...
+82355  0:00:47  local:agent_b  debug  night_shift  running  scan      ~/dev/flecs-engine  /Users/me/dev/flecs-engine/.bake/local_env/agent_b/a...
+82420  0:00:12  local          debug  night_shift  running  registry  ~/dev/flecs-engine  /Users/me/dev/flecs-engine/.bake/local_env/arm64-Da...
+82512  0:00:05  global         debug  my_app       running  registry  ~/dev/my_app        /Users/me/bake3/arm64-Darwin/debug/bin/my_app
+run 'bake3 ps --full' to see full paths
 ```
 
 Columns:
 
 - `PID`: process id of the started process (not of bake itself)
 - `ELAPSED`: how long the process has been running, as `h:mm:ss`
-- `ENV`: local environment name, `(unnamed)` for `--local-env` without a name, `-` for the global environment
+- `ENV`: which environment the process came from: `local:<name>` for
+  `--local-env=<name>`, `local` for `--local-env` without a name, `global` for the
+  global `BAKE_HOME`, and `?` when the environment cannot be determined
 - `CFG`: build mode the binary was built with
 - `PROJECT`: project id
 - `STATE`: `running`, `zombie`, or `orphan` when the bake process that started it is gone
 - `SOURCE`: `registry` or `scan` (see below)
 - `WORKSPACE`: directory bake was invoked from, shortened for display
 - `CMD`: command line, truncated
+
+`WORKSPACE` and `CMD` are shortened to keep the table readable, and a line under
+the table points at `bake ps --full`, which prints both columns in full. That line
+is never printed with `--full` or `--json`, and it comes after the rows so the
+table stays parsable.
 
 Processes are found in two ways, and both end up in the same table:
 
@@ -181,13 +195,21 @@ Processes are found in two ways, and both end up in the same table:
 Options:
 
 - `--json`: print the same information as a json array, with `elapsed_sec`,
-  `start_time`, `parent_pid` and `bake_home` included. Use this from scripts.
+  `start_time`, `parent_pid` and `bake_home` included. `env` holds the same label
+  the `ENV` column shows, with `env_kind` (`local`, `global` or `unknown`) and
+  `env_name` (the local environment name, `-` when there is none) next to it. Use
+  this from scripts.
 - `--all-users`: include processes owned by other users in the process table scan.
-- `--kill <pid|env>`: send a terminate signal to a listed process (by pid) or to
-  every listed process of a local environment (by environment name), wait for them
-  to stop and force kill what is left. Only processes that `bake ps` lists can be
-  killed this way; an unknown pid is an error, never a signal to an unrelated
-  process.
+- `--full`: print the `WORKSPACE` and `CMD` columns in full instead of shortening
+  them, and drop the hint line under the table.
+- `--kill <pid|env>`: send a terminate signal to a listed process (by pid), to
+  every listed process of a local environment (by environment name, or by its
+  `local:<name>` label), or to every listed process of an environment kind
+  (`local` or `global`), wait for them to stop and force kill what is left. Only
+  processes that `bake ps` lists can be killed this way; an unknown pid is an
+  error, never a signal to an unrelated process. A kind is a wide target: `local`
+  matches every listed local environment process, in every workspace the scan
+  reached, so prefer a pid or an environment name to stop one agent's work.
 
 Not everything can be detected: a process started directly from a binary that is
 not inside `.bake/local_env` (a global environment build, or a copy of the binary),
@@ -199,7 +221,7 @@ When `bake run` starts a process it prints a single line naming the pid and
 environment, as a reminder that `bake ps` exists:
 
 ```
-[bake] started my_app (pid 82190, env agent_a) - run 'bake3 ps' to see running processes
+[bake] started my_app (pid 82190, env local:agent_a) - run 'bake3 ps' to see running processes
 ```
 
 ## Project structure

@@ -148,7 +148,7 @@ char* bake_ps_shorten_path(const char *path, int32_t max_len) {
     ecs_os_free(home);
 
     int32_t len = (int32_t)strlen(shortened);
-    if (len <= max_len || max_len < 8) {
+    if (max_len <= 0 || len <= max_len || max_len < 8) {
         return shortened;
     }
 
@@ -164,6 +164,65 @@ char* bake_ps_shorten_path(const char *path, int32_t max_len) {
     char *result = flecs_asprintf("...%s", tail);
     ecs_os_free(shortened);
     return result;
+}
+
+char* bake_ps_render_workspace(const char *workspace, bool full) {
+    if (!workspace || !workspace[0]) {
+        return ecs_os_strdup("-");
+    }
+    if (full) {
+        return ecs_os_strdup(workspace);
+    }
+    return bake_ps_shorten_path(workspace, BAKE_PS_WORKSPACE_WIDTH);
+}
+
+char* bake_ps_render_cmd(const char *cmd, bool full) {
+    if (!cmd || !cmd[0]) {
+        return ecs_os_strdup("-");
+    }
+    if (full) {
+        return ecs_os_strdup(cmd);
+    }
+    return bake_ps_truncate(cmd, BAKE_PS_CMD_WIDTH);
+}
+
+const char* bake_ps_env_kind_str(bake_ps_env_kind_t kind) {
+    if (kind == BakePsEnvLocal) {
+        return BAKE_PS_ENV_LOCAL;
+    }
+    if (kind == BakePsEnvGlobal) {
+        return BAKE_PS_ENV_GLOBAL;
+    }
+    return "unknown";
+}
+
+bake_ps_env_kind_t bake_ps_env_kind_from_str(const char *kind) {
+    if (!kind || !kind[0]) {
+        return BakePsEnvUnknown;
+    }
+    if (!strcmp(kind, BAKE_PS_ENV_LOCAL)) {
+        return BakePsEnvLocal;
+    }
+    if (!strcmp(kind, BAKE_PS_ENV_GLOBAL)) {
+        return BakePsEnvGlobal;
+    }
+    return BakePsEnvUnknown;
+}
+
+char* bake_ps_env_label(bake_ps_env_kind_t kind, const char *name) {
+    if (kind == BakePsEnvLocal) {
+        if (name && name[0]) {
+            return flecs_asprintf("%s:%s", BAKE_PS_ENV_LOCAL, name);
+        }
+        return ecs_os_strdup(BAKE_PS_ENV_LOCAL);
+    }
+    if (kind == BakePsEnvGlobal) {
+        return ecs_os_strdup(BAKE_PS_ENV_GLOBAL);
+    }
+    if (name && name[0]) {
+        return ecs_os_strdup(name);
+    }
+    return ecs_os_strdup(BAKE_PS_ENV_UNKNOWN);
 }
 
 static char* bake_ps_cfg_from_triplet(const char *triplet) {
@@ -266,8 +325,6 @@ int bake_ps_parse_local_env_path(const char *path, bake_ps_path_info_t *info_out
     {
         info_out->env = ecs_os_strdup(parts[i]);
         i ++;
-    } else {
-        info_out->env = ecs_os_strdup(BAKE_PS_ENV_UNNAMED);
     }
 
     if ((i + 2) < count && !strcmp(parts[i], "build")) {
@@ -295,21 +352,28 @@ int bake_ps_parse_local_env_path(const char *path, bake_ps_path_info_t *info_out
     return 0;
 }
 
-char* bake_ps_env_from_home(const char *bake_home) {
+bake_ps_env_kind_t bake_ps_env_from_home(const char *bake_home, char **name_out) {
+    if (name_out) {
+        *name_out = NULL;
+    }
+
     if (!bake_home || !bake_home[0]) {
-        return NULL;
+        return BakePsEnvUnknown;
     }
 
     char *probe = bake_path_join(bake_home, "bin");
     bake_ps_path_info_t info;
-    char *env = NULL;
+    bake_ps_env_kind_t kind = BakePsEnvGlobal;
     if (bake_ps_parse_local_env_path(probe, &info) == 0) {
-        env = info.env;
-        info.env = NULL;
+        kind = BakePsEnvLocal;
+        if (name_out) {
+            *name_out = info.env;
+            info.env = NULL;
+        }
     }
     bake_ps_path_info_fini(&info);
     ecs_os_free(probe);
-    return env;
+    return kind;
 }
 
 int bake_ps_register(
@@ -341,6 +405,7 @@ int bake_ps_register(
     if (info->project) json_object_set_string(object, "project", info->project);
     if (info->cfg) json_object_set_string(object, "cfg", info->cfg);
     if (info->env) json_object_set_string(object, "env", info->env);
+    json_object_set_string(object, "env_kind", bake_ps_env_kind_str(info->env_kind));
     if (info->bake_home) json_object_set_string(object, "bake_home", info->bake_home);
     if (info->workspace) json_object_set_string(object, "workspace", info->workspace);
     if (info->kind) json_object_set_string(object, "kind", info->kind);
@@ -356,11 +421,13 @@ int bake_ps_register(
     ecs_os_free(dir);
 
     if (!rc && info->announce) {
+        char *label = bake_ps_env_label(info->env_kind, info->env);
         ecs_trace("[bake] started %s (pid %lld, env %s) - run 'bake3 ps' to "
             "see running processes",
             info->project ? info->project : "process",
             (long long)pid,
-            info->env ? info->env : "global");
+            label);
+        ecs_os_free(label);
     }
 
     return rc;
@@ -557,6 +624,12 @@ static void bake_ps_collect_registry(
         entry->cfg = bake_ps_json_string(object, "cfg");
         entry->env = bake_ps_json_string(object, "env");
         entry->bake_home = bake_ps_json_string(object, "bake_home");
+        const char *env_kind = json_object_get_string(object, "env_kind");
+        if (env_kind) {
+            entry->env_kind = bake_ps_env_kind_from_str(env_kind);
+        } else {
+            entry->env_kind = bake_ps_env_from_home(entry->bake_home, NULL);
+        }
         entry->workspace = bake_ps_json_string(object, "workspace");
         entry->kind = bake_ps_json_string(object, "kind");
         entry->cmd = cmd;
@@ -633,6 +706,7 @@ static void bake_ps_collect_scan(
         entry->project = info.project;
         entry->cfg = info.cfg;
         entry->env = info.env;
+        entry->env_kind = BakePsEnvLocal;
         entry->workspace = info.workspace;
         entry->cmd = ecs_os_strdup(proc->cmd);
         entry->kind = ecs_os_strdup("exec");
@@ -698,7 +772,12 @@ static void bake_ps_print_json(const bake_ps_list_t *list) {
         json_object_set_number(object, "start_time", (double)entry->start_time);
         json_object_set_number(object, "elapsed_sec", (double)entry->elapsed_sec);
         json_object_set_string(object, "elapsed", elapsed);
-        json_object_set_string(object, "env", bake_ps_value(entry->env));
+        char *label = bake_ps_env_label(entry->env_kind, entry->env);
+        json_object_set_string(object, "env", label);
+        json_object_set_string(object, "env_kind",
+            bake_ps_env_kind_str(entry->env_kind));
+        json_object_set_string(object, "env_name", bake_ps_value(entry->env));
+        ecs_os_free(label);
         json_object_set_string(object, "cfg", bake_ps_value(entry->cfg));
         json_object_set_string(object, "project", bake_ps_value(entry->project));
         json_object_set_string(object, "kind", bake_ps_value(entry->kind));
@@ -718,7 +797,7 @@ static void bake_ps_print_json(const bake_ps_list_t *list) {
 
 #define BAKE_PS_COLUMNS (9)
 
-static void bake_ps_print_table(const bake_ps_list_t *list) {
+static void bake_ps_print_table(const bake_ps_list_t *list, bool full) {
     static const char *headers[BAKE_PS_COLUMNS] = {
         "PID", "ELAPSED", "ENV", "CFG", "PROJECT",
         "STATE", "SOURCE", "WORKSPACE", "CMD"
@@ -738,15 +817,13 @@ static void bake_ps_print_table(const bake_ps_list_t *list) {
         char **row = ecs_os_calloc_n(char*, BAKE_PS_COLUMNS);
         row[0] = flecs_asprintf("%lld", (long long)entry->pid);
         row[1] = ecs_os_strdup(elapsed);
-        row[2] = ecs_os_strdup(bake_ps_value(entry->env));
+        row[2] = bake_ps_env_label(entry->env_kind, entry->env);
         row[3] = ecs_os_strdup(bake_ps_value(entry->cfg));
         row[4] = ecs_os_strdup(bake_ps_value(entry->project));
         row[5] = ecs_os_strdup(entry->state);
         row[6] = ecs_os_strdup(entry->source);
-        row[7] = entry->workspace && entry->workspace[0] ?
-            bake_ps_shorten_path(entry->workspace, BAKE_PS_WORKSPACE_WIDTH) :
-            ecs_os_strdup("-");
-        row[8] = bake_ps_truncate(bake_ps_value(entry->cmd), BAKE_PS_CMD_WIDTH);
+        row[7] = bake_ps_render_workspace(entry->workspace, full);
+        row[8] = bake_ps_render_cmd(entry->cmd, full);
 
         for (int32_t c = 0; c < BAKE_PS_COLUMNS; c ++) {
             int32_t len = (int32_t)strlen(row[c]);
@@ -793,11 +870,28 @@ static bool bake_ps_is_number(const char *value) {
     return true;
 }
 
-static bool bake_ps_entry_matches(const bake_ps_entry_t *entry, const char *target) {
+bool bake_ps_entry_matches(const bake_ps_entry_t *entry, const char *target) {
+    if (!entry || !target || !target[0]) {
+        return false;
+    }
+
     if (bake_ps_is_number(target)) {
         return entry->pid == (int64_t)strtoll(target, NULL, 10);
     }
-    return entry->env && !strcmp(entry->env, target);
+
+    if (entry->env && !strcmp(entry->env, target)) {
+        return true;
+    }
+
+    bake_ps_env_kind_t kind = bake_ps_env_kind_from_str(target);
+    if (kind != BakePsEnvUnknown && kind == entry->env_kind) {
+        return true;
+    }
+
+    char *label = bake_ps_env_label(entry->env_kind, entry->env);
+    bool match = !strcmp(label, target);
+    ecs_os_free(label);
+    return match;
 }
 
 static int bake_ps_kill(const bake_ps_list_t *list, const char *target) {
@@ -814,10 +908,12 @@ static int bake_ps_kill(const bake_ps_list_t *list, const char *target) {
             continue;
         }
 
+        char *label = bake_ps_env_label(entry->env_kind, entry->env);
         ecs_trace("terminated %s (pid %lld, env %s)",
             bake_ps_value(entry->project),
             (long long)entry->pid,
-            bake_ps_value(entry->env));
+            label);
+        ecs_os_free(label);
     }
 
     if (!matched) {
@@ -888,7 +984,10 @@ int bake_ps_command(bake_context_t *ctx) {
     if (!list.count) {
         printf("no processes started by bake are running\n");
     } else {
-        bake_ps_print_table(&list);
+        bake_ps_print_table(&list, ctx->opts.ps_full);
+        if (!ctx->opts.ps_full) {
+            printf("run 'bake3 ps --full' to see full paths\n");
+        }
     }
 
     bake_ps_list_fini(&list);

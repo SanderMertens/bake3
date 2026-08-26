@@ -499,7 +499,7 @@ static void test_ps_parse_local_env_path(void) {
 
     CHECK(bake_ps_parse_local_env_path(
         "/ws/.bake/local_env/arm64-Darwin/release/bin/night_shift", &info) == 0);
-    CHECK_STR(info.env, "(unnamed)");
+    CHECK(info.env == NULL);
     CHECK_STR(info.workspace, "/ws");
     CHECK_STR(info.cfg, "release");
     CHECK_STR(info.project, "night_shift");
@@ -515,17 +515,140 @@ static void test_ps_parse_local_env_path(void) {
     CHECK(bake_ps_parse_local_env_path("/ws/.bake/arm64-Darwin-debug/bin/app", &info) != 0);
     bake_ps_path_info_fini(&info);
 
-    char *env = bake_ps_env_from_home("/ws/.bake/local_env/agent_b");
+    char *env = NULL;
+    CHECK(bake_ps_env_from_home("/ws/.bake/local_env/agent_b", &env) == BakePsEnvLocal);
     CHECK_STR(env, "agent_b");
     ecs_os_free(env);
 
-    env = bake_ps_env_from_home("/ws/.bake/local_env");
-    CHECK_STR(env, "(unnamed)");
-    ecs_os_free(env);
-
-    env = bake_ps_env_from_home("/Users/me/bake3");
+    CHECK(bake_ps_env_from_home("/ws/.bake/local_env", &env) == BakePsEnvLocal);
     CHECK(env == NULL);
-    ecs_os_free(env);
+
+    CHECK(bake_ps_env_from_home("/Users/me/bake3", &env) == BakePsEnvGlobal);
+    CHECK(env == NULL);
+
+    CHECK(bake_ps_env_from_home(NULL, &env) == BakePsEnvUnknown);
+    CHECK(env == NULL);
+
+    CHECK(bake_ps_env_from_home("", &env) == BakePsEnvUnknown);
+    CHECK(env == NULL);
+}
+
+static void test_ps_env_labels(void) {
+    char *label = bake_ps_env_label(BakePsEnvLocal, "agent_a");
+    CHECK_STR(label, "local:agent_a");
+    ecs_os_free(label);
+
+    label = bake_ps_env_label(BakePsEnvLocal, NULL);
+    CHECK_STR(label, "local");
+    ecs_os_free(label);
+
+    label = bake_ps_env_label(BakePsEnvLocal, "");
+    CHECK_STR(label, "local");
+    ecs_os_free(label);
+
+    label = bake_ps_env_label(BakePsEnvGlobal, NULL);
+    CHECK_STR(label, "global");
+    ecs_os_free(label);
+
+    label = bake_ps_env_label(BakePsEnvGlobal, "ignored");
+    CHECK_STR(label, "global");
+    ecs_os_free(label);
+
+    label = bake_ps_env_label(BakePsEnvUnknown, NULL);
+    CHECK_STR(label, "?");
+    ecs_os_free(label);
+
+    label = bake_ps_env_label(BakePsEnvUnknown, "leftover");
+    CHECK_STR(label, "leftover");
+    ecs_os_free(label);
+
+    CHECK_STR(bake_ps_env_kind_str(BakePsEnvLocal), "local");
+    CHECK_STR(bake_ps_env_kind_str(BakePsEnvGlobal), "global");
+    CHECK_STR(bake_ps_env_kind_str(BakePsEnvUnknown), "unknown");
+
+    CHECK(bake_ps_env_kind_from_str("local") == BakePsEnvLocal);
+    CHECK(bake_ps_env_kind_from_str("global") == BakePsEnvGlobal);
+    CHECK(bake_ps_env_kind_from_str("unknown") == BakePsEnvUnknown);
+    CHECK(bake_ps_env_kind_from_str("agent_a") == BakePsEnvUnknown);
+    CHECK(bake_ps_env_kind_from_str(NULL) == BakePsEnvUnknown);
+}
+
+static void test_ps_kill_target_matching(void) {
+    bake_ps_entry_t named = {
+        .pid = 4242, .env = (char*)"agent_a", .env_kind = BakePsEnvLocal };
+    bake_ps_entry_t unnamed = { .pid = 4243, .env_kind = BakePsEnvLocal };
+    bake_ps_entry_t global = { .pid = 4244, .env_kind = BakePsEnvGlobal };
+
+    CHECK(bake_ps_entry_matches(&named, "4242"));
+    CHECK(!bake_ps_entry_matches(&named, "4243"));
+    CHECK(bake_ps_entry_matches(&named, "agent_a"));
+    CHECK(bake_ps_entry_matches(&named, "local:agent_a"));
+    CHECK(bake_ps_entry_matches(&named, "local"));
+    CHECK(!bake_ps_entry_matches(&named, "global"));
+    CHECK(!bake_ps_entry_matches(&named, "agent_b"));
+
+    CHECK(bake_ps_entry_matches(&unnamed, "local"));
+    CHECK(!bake_ps_entry_matches(&unnamed, "local:agent_a"));
+    CHECK(!bake_ps_entry_matches(&unnamed, "global"));
+
+    CHECK(bake_ps_entry_matches(&global, "global"));
+    CHECK(!bake_ps_entry_matches(&global, "local"));
+    CHECK(!bake_ps_entry_matches(&global, ""));
+    CHECK(!bake_ps_entry_matches(&global, NULL));
+}
+
+static void test_ps_render_columns(void) {
+    const char *workspace = "/Users/someone/very/long/path/to/a/workspace/that/does/not/fit";
+    char *rendered = bake_ps_render_workspace(workspace, false);
+    CHECK(strlen(rendered) < strlen(workspace));
+    CHECK(strstr(rendered, "...") != NULL);
+    ecs_os_free(rendered);
+
+    rendered = bake_ps_render_workspace(workspace, true);
+    CHECK_STR(rendered, workspace);
+    ecs_os_free(rendered);
+
+    rendered = bake_ps_render_workspace(NULL, true);
+    CHECK_STR(rendered, "-");
+    ecs_os_free(rendered);
+
+    rendered = bake_ps_render_workspace("", false);
+    CHECK_STR(rendered, "-");
+    ecs_os_free(rendered);
+
+    char *home = bake_os_home_path();
+    if (home) {
+        char *path = bake_path_join(home, "ws");
+        rendered = bake_ps_render_workspace(path, false);
+        CHECK_STR(rendered, "~/ws");
+        ecs_os_free(rendered);
+
+        rendered = bake_ps_render_workspace(path, true);
+        CHECK_STR(rendered, path);
+        ecs_os_free(rendered);
+        ecs_os_free(path);
+        ecs_os_free(home);
+    }
+
+    const char *cmd =
+        "/ws/.bake/local_env/agent_a/arm64-Darwin/debug/bin/night_shift "
+        "--headless --scene /ws/etc/scenes/a/very/long/scene/path.flecs";
+    rendered = bake_ps_render_cmd(cmd, false);
+    CHECK(strlen(rendered) < strlen(cmd));
+    CHECK(bake_has_suffix(rendered, "..."));
+    ecs_os_free(rendered);
+
+    rendered = bake_ps_render_cmd(cmd, true);
+    CHECK_STR(rendered, cmd);
+    ecs_os_free(rendered);
+
+    rendered = bake_ps_render_cmd("app -a", false);
+    CHECK_STR(rendered, "app -a");
+    ecs_os_free(rendered);
+
+    rendered = bake_ps_render_cmd(NULL, false);
+    CHECK_STR(rendered, "-");
+    ecs_os_free(rendered);
 }
 
 static void test_ps_registry_roundtrip(void) {
@@ -544,6 +667,7 @@ static void test_ps_registry_roundtrip(void) {
         .project = "unit_app",
         .cfg = "debug",
         .env = "unit_env",
+        .env_kind = BakePsEnvLocal,
         .bake_home = "/ws/.bake/local_env/unit_env",
         .workspace = "/ws",
         .kind = "run"
@@ -576,6 +700,10 @@ static void test_ps_registry_roundtrip(void) {
         CHECK_STR(found->project, "unit_app");
         CHECK_STR(found->cfg, "debug");
         CHECK_STR(found->env, "unit_env");
+        CHECK(found->env_kind == BakePsEnvLocal);
+        char *label = bake_ps_env_label(found->env_kind, found->env);
+        CHECK_STR(label, "local:unit_env");
+        ecs_os_free(label);
         CHECK_STR(found->workspace, "/ws");
         CHECK_STR(found->kind, "run");
         CHECK_STR(found->source, "registry");
@@ -642,6 +770,9 @@ int main(void) {
     test_lock_excludes_second_holder();
     test_ps_elapsed_formatting();
     test_ps_parse_local_env_path();
+    test_ps_env_labels();
+    test_ps_render_columns();
+    test_ps_kill_target_matching();
     test_ps_registry_roundtrip();
     test_ps_shorten_path();
 

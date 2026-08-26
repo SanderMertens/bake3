@@ -1114,11 +1114,14 @@ int bake_build_run(bake_context_t *ctx) {
             ecs_strbuf_append(&cmd, " \"%s\"", ctx->opts.run_argv[i]);
         }
 
-        char *env_name = bake_ps_env_from_home(ctx->bake_home);
+        char *env_name = NULL;
+        bake_ps_env_kind_t env_kind = bake_ps_env_from_home(
+            ctx->bake_home, &env_name);
         bake_ps_info_t ps = {
             .project = project->cfg->id,
             .cfg = bake_effective_mode(ctx->opts.mode),
             .env = env_name,
+            .env_kind = env_kind,
             .bake_home = ctx->bake_home,
             .workspace = ctx->opts.cwd,
             .kind = "run",
