@@ -60,13 +60,21 @@ static char* bake_bundle_install_marker(const char *install_dir) {
     return bake_path_join(install_dir, ".bake_bundle_built");
 }
 
+static bool bake_bundle_uses_cargo(const bake_bundle_t *bundle);
+static bool bake_bundle_cargo_release(const char *mode);
+
 static char* bake_bundle_fingerprint(
     const bake_bundle_t *bundle,
-    const char *bundle_src_dir)
+    const char *bundle_src_dir,
+    const char *mode)
 {
     ecs_strbuf_t buf = ECS_STRBUF_INIT;
     ecs_strbuf_append(&buf, "build_system=%s\n",
         bundle->build_system ? bundle->build_system : "");
+    if (bake_bundle_uses_cargo(bundle)) {
+        ecs_strbuf_append(&buf, "cargo_profile=%s\n",
+            bake_bundle_cargo_release(mode) ? "release" : "debug");
+    }
     ecs_strbuf_append(&buf, "profile=%s\n",
         bundle->profile ? bundle->profile : "");
     ecs_strbuf_append(&buf, "subdir=%s\n", bundle->subdir ? bundle->subdir : "");
@@ -256,7 +264,7 @@ static bool bake_bundle_uses_cargo(const bake_bundle_t *bundle) {
 }
 
 static bool bake_bundle_cargo_release(const char *mode) {
-    return mode && (!strcmp(mode, "release") || !strcmp(mode, "profile"));
+    return !mode || strcmp(mode, "sanitize") != 0;
 }
 
 static const char* bake_bundle_cargo_target(void) {
@@ -515,7 +523,7 @@ static int bake_bundle_prepare_one(
             }
         }
 
-        char *fingerprint = bake_bundle_fingerprint(bundle, bundle_src_dir);
+        char *fingerprint = bake_bundle_fingerprint(bundle, bundle_src_dir, mode);
 
         char *built = bake_file_read(marker, NULL);
         bool up_to_date = built && !strcmp(built, fingerprint);
