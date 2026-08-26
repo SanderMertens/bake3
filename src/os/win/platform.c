@@ -5,6 +5,26 @@
 
 #include <windows.h>
 
+int64_t bake_os_pid(void) {
+    return (int64_t)GetCurrentProcessId();
+}
+
+bool bake_os_pid_alive(int64_t pid) {
+    if (pid <= 0) {
+        return false;
+    }
+
+    HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid);
+    if (!proc) {
+        return GetLastError() == ERROR_ACCESS_DENIED;
+    }
+
+    DWORD code = 0;
+    bool alive = GetExitCodeProcess(proc, &code) && code == STILL_ACTIVE;
+    CloseHandle(proc);
+    return alive;
+}
+
 int bake_os_setenv(const char *name, const char *value) {
     if (!name || !name[0] || !value) {
         return -1;

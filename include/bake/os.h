@@ -25,6 +25,11 @@ typedef struct bake_process_stdio_t {
     bool stderr_to_stdout;
 } bake_process_stdio_t;
 
+typedef struct bake_lock_t {
+    char *path;
+    bool held;
+} bake_lock_t;
+
 typedef int (*bake_dir_walk_cb)(const bake_dir_entry_t *entry, void *ctx);
 
 int bake_dir_list(const char *path, bake_dir_entry_t **entries_out, int32_t *count_out);
@@ -52,6 +57,12 @@ int bake_remove_file_if_exists(const char *path);
 void bake_log_win_error(const char *action, const char *path, unsigned long err);
 void bake_log_win_error_last(const char *action, const char *path);
 #endif
+
+int bake_os_lock_acquire(const char *path, int32_t timeout_sec, bake_lock_t *lock_out);
+void bake_os_lock_release(bake_lock_t *lock);
+
+int64_t bake_os_pid(void);
+bool bake_os_pid_alive(int64_t pid);
 
 int bake_os_setenv(const char *name, const char *value);
 int bake_os_unsetenv(const char *name);

@@ -3,10 +3,26 @@
 #include "bake/os.h"
 #include <flecs.h>
 
+#include <errno.h>
+#include <signal.h>
 #include <unistd.h>
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #endif
+
+int64_t bake_os_pid(void) {
+    return (int64_t)getpid();
+}
+
+bool bake_os_pid_alive(int64_t pid) {
+    if (pid <= 0) {
+        return false;
+    }
+    if (kill((pid_t)pid, 0) == 0) {
+        return true;
+    }
+    return errno == EPERM;
+}
 
 int bake_os_setenv(const char *name, const char *value) {
     if (!name || !name[0] || !value) {

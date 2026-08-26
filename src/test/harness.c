@@ -3,6 +3,8 @@
 
 #include "harness_internal.h"
 
+#define BAKE_HARNESS_LOCK_TIMEOUT_SEC (10 * 60)
+
 static bool bake_should_generate_harness(const char *project_json, const char *exe_path) {
     if (!exe_path || !exe_path[0]) {
         return true;
@@ -57,6 +59,8 @@ int bake_test_generate_harness(
 
     int rc = 0;
     bake_suite_list_t suites = {0};
+    char *lock_path = NULL;
+    bake_lock_t lock = {0};
     char *project_json = bake_path_join(cfg->path, "project.json");
 
     if (!bake_path_exists(project_json)) {
@@ -68,6 +72,12 @@ int bake_test_generate_harness(
     ecs_os_free(main_src);
 
     if (!main_missing && !bake_should_generate_harness(project_json, exe_path)) {
+        goto cleanup;
+    }
+
+    lock_path = bake_path_join3(cfg->path, ".bake", "harness.lock");
+    if (bake_os_lock_acquire(lock_path, BAKE_HARNESS_LOCK_TIMEOUT_SEC, &lock) != 0) {
+        rc = -1;
         goto cleanup;
     }
 
@@ -88,6 +98,8 @@ int bake_test_generate_harness(
     }
 
 cleanup:
+    bake_os_lock_release(&lock);
+    ecs_os_free(lock_path);
     bake_suite_list_fini(&suites);
     ecs_os_free(project_json);
     return rc;

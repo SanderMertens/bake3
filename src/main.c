@@ -1,30 +1,7 @@
 #include "bake/commands.h"
 #include "bake/context.h"
+#include "bake/environment.h"
 #include "bake/os.h"
-
-static bool bake_local_env_name_char_valid(char ch) {
-    return
-        (ch >= 'a' && ch <= 'z') ||
-        (ch >= 'A' && ch <= 'Z') ||
-        (ch >= '0' && ch <= '9') ||
-        ch == '.' ||
-        ch == '_' ||
-        ch == '-';
-}
-
-static bool bake_local_env_name_valid(const char *name) {
-    if (!name || !name[0] || !strcmp(name, ".") || !strcmp(name, "..")) {
-        return false;
-    }
-
-    for (const char *ptr = name; *ptr; ptr ++) {
-        if (!bake_local_env_name_char_valid(*ptr)) {
-            return false;
-        }
-    }
-
-    return true;
-}
 
 int main(int argc, char *argv[]) {
     ecs_os_init();
@@ -96,7 +73,7 @@ int main(int argc, char *argv[]) {
             } else if ((i + 1) < argc && argv[i + 1][0] && argv[i + 1][0] != '-' &&
                        !bake_is_command(argv[i + 1]))
             {
-                if (bake_local_env_name_valid(argv[i + 1]) &&
+                if (bake_local_env_name_chars_valid(argv[i + 1]) &&
                     !bake_path_exists(argv[i + 1]))
                 {
                     candidate = argv[++i];
@@ -104,8 +81,12 @@ int main(int argc, char *argv[]) {
                     candidate = argv[++i];
                 }
             }
-            if (candidate && !bake_local_env_name_valid(candidate)) {
+            if (candidate && !bake_local_env_name_chars_valid(candidate)) {
                 ecs_err("invalid --local-env name '%s' (use letters, digits, '.', '_' or '-')", candidate);
+                goto cleanup;
+            }
+            if (candidate && bake_local_env_name_reserved(candidate)) {
+                ecs_err("reserved --local-env name '%s', pick another name", candidate);
                 goto cleanup;
             }
             local_env_name = candidate;
@@ -201,11 +182,7 @@ int main(int argc, char *argv[]) {
             bake_os_unsetenv("BAKE_GLOBAL_HOME");
         }
 
-        char *local_env_root = bake_path_join3(cwd, ".bake", "local_env");
-        local_bake_home = local_env_name
-            ? (local_env_root ? bake_path_join(local_env_root, local_env_name) : NULL)
-            : local_env_root;
-        if (local_env_name) ecs_os_free(local_env_root);
+        local_bake_home = bake_local_env_home(cwd, local_env_name);
         if (!local_bake_home) {
             ecs_err("failed to resolve local bake environment path");
             goto cleanup;

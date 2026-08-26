@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import platform
 import re
@@ -1991,6 +1992,100 @@ class BakeTests(unittest.TestCase):
 
         output = self.strip_ansi(self.bake([f"--local-env={env_b}", "run", target], cwd=workspace))
         self.assertIn("hello 42", output)
+
+    def test_local_env_rejects_invalid_and_reserved_names(self) -> None:
+        workspace = self.repo_root / "test" / "projects" / "ws"
+        target = "apps/hello"
+        local_env_root = workspace / ".bake" / "local_env"
+
+        for name in ("a b", "a/b", "..", "a:b"):
+            output = self.strip_ansi(
+                self.bake_expect_failure([f"--local-env={name}", "build", target], cwd=workspace))
+            self.assertIn("invalid --local-env name", output, name)
+
+        for name in ("build", "meta", "include", "test", "bin", "lib", "arm64-Darwin"):
+            output = self.strip_ansi(
+                self.bake_expect_failure([f"--local-env={name}", "build", target], cwd=workspace))
+            self.assertIn("reserved --local-env name", output, name)
+            self.assertFalse(
+                (local_env_root / name / "build").exists(),
+                f"Reserved name should not create an environment: {name}",
+            )
+
+    def test_local_env_names_share_bundle_sources(self) -> None:
+        _, pkg_dir, _ = self.write_bundle_consumer_workspace("bundle_named_env")
+        stamp = int(time.time() * 1_000_000)
+        env_a = f"share_a_{stamp}"
+        env_b = f"share_b_{stamp}"
+        project_id = json.loads((pkg_dir / "project.json").read_text())["id"]
+        bundle_id = next(iter(json.loads((pkg_dir / "project.json").read_text())["bundle"]))
+
+        first = self.strip_ansi(self.bake([f"--local-env={env_a}", "build", "."], cwd=pkg_dir))
+        second = self.strip_ansi(self.bake([f"--local-env={env_b}", "build", "."], cwd=pkg_dir))
+
+        self.assertIn(f"fetching {bundle_id}", first)
+        self.assertNotIn(
+            f"fetching {bundle_id}",
+            second,
+            "A second named environment must reuse the bundle sources of the first",
+        )
+
+        bundle_src = pkg_dir / ".bake" / "bundles" / bundle_id / "default" / "src"
+        self.assertTrue(bundle_src.is_dir(), f"Expected shared bundle source dir: {bundle_src}")
+        self.assertFalse(
+            (pkg_dir / ".bake" / "local_env" / env_a / "bundles").exists(),
+            "Bundles must not be duplicated per named local environment",
+        )
+
+        for name in (env_a, env_b):
+            build_root = pkg_dir / ".bake" / "local_env" / name / "build" / project_id
+            self.assertTrue(build_root.is_dir(), f"Expected per-name build root: {build_root}")
+
+    def test_local_env_concurrent_named_builds_share_bundle(self) -> None:
+        _, pkg_dir, _ = self.write_bundle_consumer_workspace("bundle_concurrent_env")
+        stamp = int(time.time() * 1_000_000)
+        names = [f"conc_a_{stamp}", f"conc_b_{stamp}"]
+        project_id = json.loads((pkg_dir / "project.json").read_text())["id"]
+        bundle_id = next(iter(json.loads((pkg_dir / "project.json").read_text())["bundle"]))
+
+        procs = [
+            subprocess.Popen(
+                [str(self.bake_bin), f"--local-env={name}", "build", "."],
+                cwd=str(pkg_dir),
+                env=self.env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+            for name in names
+        ]
+
+        outputs = []
+        for proc in procs:
+            out, _ = proc.communicate(timeout=600)
+            outputs.append((proc.returncode, self.strip_ansi(out or "")))
+
+        for name, (code, out) in zip(names, outputs):
+            self.assertEqual(code, 0, f"Concurrent build for {name} failed:\n{out}")
+
+        fetches = sum(f"fetching {bundle_id}" in out for _, out in outputs)
+        self.assertEqual(fetches, 1, "Concurrent named builds must clone the bundle exactly once")
+
+        bundle_root = pkg_dir / ".bake" / "bundles" / bundle_id / "default"
+        self.assertFalse(
+            (bundle_root / ".lock").exists(),
+            "Bundle lock must be released after a build",
+        )
+
+        artefacts = []
+        for name in names:
+            build_root = pkg_dir / ".bake" / "local_env" / name / "build" / project_id
+            self.assertTrue(build_root.is_dir(), f"Expected per-name build root: {build_root}")
+            found = list(build_root.glob("*/*"))
+            self.assertTrue(found, f"Expected build output in {build_root}")
+            artefacts.append({p.name for p in found})
+
+        self.assertEqual(artefacts[0], artefacts[1])
 
     def test_local_env_dependency_isolation_between_workspaces(self) -> None:
         stamp = int(time.time() * 1_000_000)

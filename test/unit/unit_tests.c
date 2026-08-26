@@ -1,6 +1,8 @@
 #include "bake/os.h"
 #include "build/build_internal.h"
+#include "bake/build.h"
 #include "bake/bundle.h"
+#include "bake/environment.h"
 #include "bake/strlist.h"
 #include "bake/common.h"
 #include "common/strutil.h"
@@ -332,6 +334,124 @@ static void test_em_serve_first_port(void) {
     CHECK(BAKE_EM_SERVE_PORT_SCAN > 0);
 }
 
+static void test_local_env_name_validation(void) {
+    CHECK(bake_local_env_name_chars_valid("agent1"));
+    CHECK(bake_local_env_name_chars_valid("Agent-1.2_x"));
+    CHECK(!bake_local_env_name_chars_valid(NULL));
+    CHECK(!bake_local_env_name_chars_valid(""));
+    CHECK(!bake_local_env_name_chars_valid("."));
+    CHECK(!bake_local_env_name_chars_valid(".."));
+    CHECK(!bake_local_env_name_chars_valid("a/b"));
+    CHECK(!bake_local_env_name_chars_valid("a\\b"));
+    CHECK(!bake_local_env_name_chars_valid("a b"));
+    CHECK(!bake_local_env_name_chars_valid("a:b"));
+
+    CHECK(bake_local_env_name_reserved("build"));
+    CHECK(bake_local_env_name_reserved("meta"));
+    CHECK(bake_local_env_name_reserved("include"));
+    CHECK(bake_local_env_name_reserved("test"));
+    CHECK(bake_local_env_name_reserved("bin"));
+    CHECK(bake_local_env_name_reserved("lib"));
+    CHECK(bake_local_env_name_reserved("arm64-Darwin"));
+    CHECK(bake_local_env_name_reserved("x64-Linux"));
+    CHECK(bake_local_env_name_reserved("wasm32-Emscripten"));
+    CHECK(!bake_local_env_name_reserved("agent1"));
+    CHECK(!bake_local_env_name_reserved("builder"));
+
+    CHECK(bake_local_env_name_valid("agent1"));
+    CHECK(!bake_local_env_name_valid("build"));
+    CHECK(!bake_local_env_name_valid("a b"));
+}
+
+static void test_local_env_home(void) {
+    char *unnamed = bake_local_env_home("/ws", NULL);
+    char *expect_unnamed = bake_path_join3("/ws", ".bake", "local_env");
+    CHECK_STR(unnamed, expect_unnamed);
+
+    char *named = bake_local_env_home("/ws", "agent1");
+    char *expect_named = bake_path_join(expect_unnamed, "agent1");
+    CHECK_STR(named, expect_named);
+
+    CHECK(bake_local_env_home("/ws", "build") == NULL);
+    CHECK(bake_local_env_home("/ws", "a/b") == NULL);
+    CHECK(bake_local_env_home("/ws", "") == NULL);
+    CHECK(bake_local_env_home(NULL, "agent1") == NULL);
+
+    ecs_os_free(unnamed);
+    ecs_os_free(named);
+    ecs_os_free(expect_unnamed);
+    ecs_os_free(expect_named);
+}
+
+static void test_local_env_build_root(void) {
+    bake_set_build_target(NULL);
+
+    char *home = bake_local_env_home("/ws", "agent1");
+    bake_os_setenv("BAKE_HOME", home);
+    bake_os_setenv("BAKE_LOCAL_ENV", "1");
+
+    char *triplet = bake_host_triplet("debug");
+    char *build_dir = bake_path_join(home, "build");
+    char *id_dir = bake_path_join(build_dir, "my_app");
+    char *expect_root = bake_path_join(id_dir, triplet);
+
+    char *root = bake_project_build_root("/ws/projects/app", "my_app", "debug");
+    CHECK_STR(root, expect_root);
+    ecs_os_free(root);
+
+    char *other_home = bake_local_env_home("/ws", "agent2");
+    bake_os_setenv("BAKE_HOME", other_home);
+    char *other_root = bake_project_build_root("/ws/projects/app", "my_app", "debug");
+    CHECK(other_root && strcmp(other_root, expect_root) != 0);
+    ecs_os_free(other_root);
+
+    bake_os_setenv("BAKE_LOCAL_ENV", "0");
+    char *project_root = bake_project_build_root("/ws/projects/app", "my_app", "debug");
+    char *expect_project = bake_path_join3("/ws/projects/app", ".bake", triplet);
+    CHECK_STR(project_root, expect_project);
+    ecs_os_free(project_root);
+    ecs_os_free(expect_project);
+
+    bake_os_unsetenv("BAKE_HOME");
+    bake_os_unsetenv("BAKE_LOCAL_ENV");
+
+    ecs_os_free(home);
+    ecs_os_free(other_home);
+    ecs_os_free(triplet);
+    ecs_os_free(build_dir);
+    ecs_os_free(id_dir);
+    ecs_os_free(expect_root);
+}
+
+static void test_lock_excludes_second_holder(void) {
+    char *dir = flecs_asprintf("bake_unit_lock_%lld", (long long)bake_os_pid());
+    char *lock_path = bake_path_join(dir, "test.lock");
+
+    bake_lock_t first = {0};
+    CHECK(bake_os_lock_acquire(lock_path, 5, &first) == 0);
+    CHECK(first.held);
+    CHECK(bake_path_exists(lock_path));
+
+    bake_lock_t second = {0};
+    CHECK(bake_os_lock_acquire(lock_path, 1, &second) != 0);
+    CHECK(!second.held);
+
+    bake_os_lock_release(&first);
+    CHECK(!bake_path_exists(lock_path));
+
+    bake_lock_t third = {0};
+    CHECK(bake_os_lock_acquire(lock_path, 5, &third) == 0);
+    bake_os_lock_release(&third);
+
+    CHECK(bake_os_pid() > 0);
+    CHECK(bake_os_pid_alive(bake_os_pid()));
+    CHECK(!bake_os_pid_alive(-1));
+
+    bake_os_rmtree(dir);
+    ecs_os_free(lock_path);
+    ecs_os_free(dir);
+}
+
 int main(void) {
     ecs_os_init();
 
@@ -348,6 +468,10 @@ int main(void) {
     test_mode_flags_native();
     test_mode_flags_emscripten();
     test_em_serve_first_port();
+    test_local_env_name_validation();
+    test_local_env_home();
+    test_local_env_build_root();
+    test_lock_excludes_second_holder();
 
     printf("%d checks, %d failures\n", checks, failures);
     return failures != 0;

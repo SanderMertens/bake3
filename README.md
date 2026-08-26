@@ -283,6 +283,8 @@ The following options are supported per bundle entry:
 
 Bundles are project-scoped: each project's bundles are fetched and built under that project's own `.bake/bundles/<id>/<ref>/{src,build/<triplet>,install/<triplet>}` tree, where `<ref>` is `commits/<hash>`, `tags/<tag>`, `branches/<branch>`, or `default` (when no ref is pinned). The most specific ref wins (`commit` > `tag` > `branch`). Two projects in the same workspace pinning different versions of the same bundle do not interfere with each other. Bundles are only fetched and built once per ref-scoped path; subsequent builds reuse them.
 
+Bundles live outside of the bake environment, which means they are shared between local environments (see `--local-env`): a bundle is cloned and built once per project and ref, and every named environment of that project links against the same install tree. Concurrent bakes are safe: bake takes a lock (`.bake/bundles/<id>/<ref>/.lock`) around fetching and building a bundle, so a second bake waits for the first one to finish instead of cloning or building over it. A lock whose owning process is gone, or that is older than two hours, is treated as stale and removed.
+
 What a bundle contributes does propagate transitively: the include paths, library paths, libraries and `ldflags` a bundle adds to its own project are also applied to every project that uses it, so a dependee links against the bundle without redeclaring it. The exception is `sources`, which are compiled into the declaring project only.
 
 ## Conditional configuration
@@ -402,6 +404,20 @@ The bake environment has the following directories:
 - `<arch-os>/<config>/lib`: stores library binaries
 - `include/<project>`: stores the `include` folder of a project
 - `meta/<project>`: stores project metadata
+
+### Named local environments
+`--local-env=<name>` gives a workspace more than one isolated environment, which lets several people or agents build the same checkout at the same time without sharing build state. Everything the environment owns is scoped by name:
+
+- `.bake/local_env/<name>/build/<project-id>/<arch-os-config>`: object files, generated files and the built artefact
+- `.bake/local_env/<name>/<arch-os>/<config>/bin/<project-id>`: installed application binaries
+- `.bake/local_env/<name>/<arch-os>/<config>/lib`: installed library binaries
+- `.bake/local_env/<name>/{meta,include,test}`: project metadata, installed public headers and test harness templates
+
+A name may contain letters, digits, `.`, `_` and `-`. Names that would collide with a directory of the unnamed environment are rejected: `bin`, `build`, `etc`, `include`, `lib`, `meta`, `src`, `test`, and platform directories such as `arm64-Darwin`.
+
+Named environments do not read or write each other, and they do not read or write the unnamed `.bake/local_env` environment, so `--local-env` without a name keeps behaving exactly as before. `build`, `run`, `test` and `clean` all resolve binaries in the environment of the name they were given, so `bake run <target> --local-env=<name>` runs that name's binary. What *is* shared between names is everything that is expensive and identical for all of them: the bundle sources and bundle builds under `.bake/bundles` (see [Bundles](#bundles)). A second name therefore only pays for compiling the project itself.
+
+Two named builds of the same workspace can run concurrently. Bake serializes the parts that write to shared paths (bundle fetch and build, test harness generation) with a lock, and keeps everything else in per-name directories.
 
 A project meta folder stores:
 - `project.json`: Copy of the bake configuration for the project

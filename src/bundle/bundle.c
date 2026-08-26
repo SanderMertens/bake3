@@ -5,6 +5,8 @@
 
 #include <flecs.h>
 
+#define BAKE_BUNDLE_LOCK_TIMEOUT_SEC (60 * 60)
+
 static char* bake_bundle_ref_segment(const bake_bundle_t *bundle) {
     if (bundle->commit && bundle->commit[0]) {
         return flecs_asprintf("commits/%s", bundle->commit);
@@ -439,8 +441,20 @@ static int bake_bundle_prepare_one(
     char *install_dir = bake_bundle_install_dir(root_dir, triplet);
     char *marker = install_dir ? bake_bundle_install_marker(install_dir) : NULL;
     char *bundle_src_dir = NULL;
+    char *lock_path = NULL;
+    bake_lock_t lock = {0};
 
     if (!root_dir) {
+        goto cleanup;
+    }
+
+    if (bake_os_mkdirs(root_dir) != 0) {
+        goto cleanup;
+    }
+
+    lock_path = bake_path_join(root_dir, ".lock");
+    if (bake_os_lock_acquire(lock_path, BAKE_BUNDLE_LOCK_TIMEOUT_SEC, &lock) != 0) {
+        ecs_err("failed to lock bundle '%s'", bundle->id);
         goto cleanup;
     }
 
@@ -548,6 +562,8 @@ static int bake_bundle_prepare_one(
     rc = 0;
 
 cleanup:
+    bake_os_lock_release(&lock);
+    ecs_os_free(lock_path);
     ecs_os_free(triplet);
     ecs_os_free(root_dir);
     ecs_os_free(src_dir);
