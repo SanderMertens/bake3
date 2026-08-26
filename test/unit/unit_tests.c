@@ -192,7 +192,7 @@ static void test_bundle_cargo_native_paths(void) {
         NULL, "source dir", "build dir", "debug");
     char *manifest = bake_path_join("source dir", "Cargo.toml");
     char *expected = flecs_asprintf(
-        "cargo build --manifest-path \"%s\" --target-dir \"build dir\"",
+        "cargo build --release --manifest-path \"%s\" --target-dir \"build dir\"",
         manifest);
     CHECK_STR(command, expected);
     ecs_os_free(expected);
@@ -200,6 +200,9 @@ static void test_bundle_cargo_native_paths(void) {
     ecs_os_free(command);
 
     char *profile = bake_bundle_cargo_profile_dir("debug");
+    CHECK_STR(profile, "release");
+    ecs_os_free(profile);
+    profile = bake_bundle_cargo_profile_dir("sanitize");
     CHECK_STR(profile, "debug");
     ecs_os_free(profile);
 }
@@ -242,7 +245,7 @@ static void test_bundle_cargo_args(void) {
         &bundle, "source dir", "build dir", "debug");
     char *manifest = bake_path_join("source dir", "Cargo.toml");
     char *expected = flecs_asprintf(
-        "cargo build --manifest-path \"%s\" --target-dir \"build dir\" "
+        "cargo build --release --manifest-path \"%s\" --target-dir \"build dir\" "
         "\"--no-default-features\" \"--features=raster-images\"",
         manifest);
     CHECK_STR(command, expected);
