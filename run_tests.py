@@ -1852,6 +1852,98 @@ class BakeTests(unittest.TestCase):
         self.assertIn("PASS:  0, FAIL:  0, EMPTY:  1", output)
         self.assertNotIn("PASS:  1, FAIL:  0, EMPTY:  0", output)
 
+    def test_test_harness_parallelizes_cases_and_preserves_summaries(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.harness.parallel.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_parallel_{stamp}"
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        case_names = [f"case_{i}" for i in range(1, 7)]
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": project_id,
+                    "type": "test",
+                    "test": {
+                        "testsuites": [
+                            {"id": "Alpha", "testcases": case_names},
+                            {"id": "Beta", "testcases": case_names},
+                        ]
+                    },
+                },
+                indent=4,
+            ) + "\n"
+        )
+
+        for suite in ("Alpha", "Beta"):
+            functions = "".join(
+                f'void {suite}_{case}(void) {{ wait_case("{suite}.{case}"); }}\n'
+                for case in case_names
+            )
+            (src_dir / f"{suite}.c").write_text(
+                "#include <bake_test.h>\n"
+                "#include <stdio.h>\n"
+                "#if defined(_WIN32)\n"
+                "#include <windows.h>\n"
+                "#define runner_sleep() Sleep(1000)\n"
+                "#else\n"
+                "#include <unistd.h>\n"
+                "#define runner_sleep() sleep(1)\n"
+                "#endif\n"
+                "static void wait_case(const char *id) { runner_sleep(); printf(\"CASE %s\\n\", id); test_assert(true); }\n"
+                f"{functions}"
+            )
+
+        local_env = "--local-env=parallel_cases"
+        self.bake([local_env, "build", "."], cwd=project_dir)
+
+        start = time.monotonic()
+        serial_output = self.bake(
+            [local_env, "run", ".", "--", "-j", "1"], cwd=project_dir)
+        serial_elapsed = time.monotonic() - start
+
+        start = time.monotonic()
+        parallel_output = self.bake(
+            [local_env, "run", ".", "--", "-j", "6"], cwd=project_dir)
+        parallel_elapsed = time.monotonic() - start
+
+        def summaries(output: str) -> str:
+            return "".join(
+                line for line in output.splitlines(keepends=True)
+                if line.startswith("PASS:") and f"({project_id}." in line
+            )
+
+        serial_summaries = summaries(serial_output)
+        parallel_summaries = summaries(parallel_output)
+        expected_summaries = (
+            f"PASS:  6, FAIL:  0, EMPTY:  0 ({project_id}.Alpha)\n"
+            f"PASS:  6, FAIL:  0, EMPTY:  0 ({project_id}.Beta)\n"
+            f"PASS: 12, FAIL:  0, EMPTY:  0 ({project_id}.all)\n"
+        )
+
+        self.assertEqual(serial_summaries, expected_summaries)
+        self.assertEqual(parallel_summaries, serial_summaries)
+        expected_cases = [
+            f"CASE {suite}.{case}"
+            for suite in ("Alpha", "Beta")
+            for case in case_names
+        ]
+        serial_cases = [
+            line for line in serial_output.splitlines() if line.startswith("CASE ")
+        ]
+        parallel_cases = [
+            line for line in parallel_output.splitlines() if line.startswith("CASE ")
+        ]
+        self.assertEqual(serial_cases, expected_cases)
+        self.assertEqual(parallel_cases, serial_cases)
+        self.assertGreater(serial_elapsed, 10.0)
+        self.assertLess(
+            parallel_elapsed,
+            serial_elapsed * 0.4,
+            f"serial={serial_elapsed:.3f}s parallel={parallel_elapsed:.3f}s",
+        )
+
     def test_setup_local_reinstalls_executable_bake_binary(self) -> None:
         installed_bake = self.bake_home / f"bake3{EXE_SUFFIX}"
         self.assertTrue(installed_bake.is_file(), f"Expected installed bake binary at {installed_bake}")

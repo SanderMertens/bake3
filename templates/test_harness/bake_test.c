@@ -313,7 +313,7 @@ static int bake_parse_cmd(const char *cmd, char ***argv_out, int *argc_out) {
     return 0;
 }
 
-static int bake_run_subprocess(const char *cmd) {
+static int bake_run_subprocess_to_stream(const char *cmd, FILE *stream) {
 #if defined(_WIN32)
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
@@ -321,13 +321,63 @@ static int bake_run_subprocess(const char *cmd) {
     memset(&pi, 0, sizeof(pi));
     si.cb = sizeof(si);
 
+    HANDLE child_input = NULL;
+    HANDLE child_output = NULL;
+    BOOL inherit_handles = FALSE;
+    if (stream) {
+        int stream_fd = _fileno(stream);
+        intptr_t stream_handle = stream_fd >= 0 ? _get_osfhandle(stream_fd) : -1;
+        if (stream_handle == -1 || !DuplicateHandle(
+            GetCurrentProcess(), (HANDLE)stream_handle,
+            GetCurrentProcess(), &child_output, 0, TRUE,
+            DUPLICATE_SAME_ACCESS))
+        {
+            return -1;
+        }
+        HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
+        if (input == NULL || input == INVALID_HANDLE_VALUE || !DuplicateHandle(
+            GetCurrentProcess(), input, GetCurrentProcess(),
+            &child_input, 0, TRUE, DUPLICATE_SAME_ACCESS))
+        {
+            SECURITY_ATTRIBUTES attributes = {
+                sizeof(SECURITY_ATTRIBUTES), NULL, TRUE
+            };
+            child_input = CreateFileA(
+                "NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                &attributes, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (child_input == INVALID_HANDLE_VALUE) {
+                CloseHandle(child_output);
+                return -1;
+            }
+        }
+        si.dwFlags |= STARTF_USESTDHANDLES;
+        si.hStdInput = child_input;
+        si.hStdOutput = child_output;
+        si.hStdError = child_output;
+        inherit_handles = TRUE;
+    }
+
     char *cmd_copy = _strdup(cmd);
     if (!cmd_copy) {
+        if (child_input) {
+            CloseHandle(child_input);
+        }
+        if (child_output) {
+            CloseHandle(child_output);
+        }
         return -1;
     }
 
-    BOOL ok = CreateProcessA(NULL, cmd_copy, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+    BOOL ok = CreateProcessA(
+        NULL, cmd_copy, NULL, NULL, inherit_handles, 0,
+        NULL, NULL, &si, &pi);
     free(cmd_copy);
+    if (child_input) {
+        CloseHandle(child_input);
+    }
+    if (child_output) {
+        CloseHandle(child_output);
+    }
     if (!ok) {
         return -1;
     }
@@ -356,6 +406,15 @@ static int bake_run_subprocess(const char *cmd) {
         return -1;
     }
 
+    int stream_fd = -1;
+    if (stream) {
+        stream_fd = fileno(stream);
+        if (stream_fd < 0) {
+            bake_free_argv(argv, argc);
+            return -1;
+        }
+    }
+
     pid_t pid = fork();
     if (pid < 0) {
         bake_free_argv(argv, argc);
@@ -363,6 +422,13 @@ static int bake_run_subprocess(const char *cmd) {
     }
 
     if (pid == 0) {
+        if (stream_fd >= 0) {
+            if (dup2(stream_fd, STDOUT_FILENO) < 0 ||
+                dup2(stream_fd, STDERR_FILENO) < 0)
+            {
+                _exit(127);
+            }
+        }
         execvp(argv[0], argv);
         _exit(127);
     }
@@ -386,6 +452,10 @@ static int bake_run_subprocess(const char *cmd) {
     }
     return -1;
 #endif
+}
+
+static int bake_run_subprocess(const char *cmd) {
+    return bake_run_subprocess_to_stream(cmd, NULL);
 }
 
 static void bake_set_failure(const char *file, int line, const char *msg) {
@@ -645,6 +715,51 @@ static const char* bake_lookup_cli_param_only(const char *name) {
     return NULL;
 }
 
+static int bake_build_case_command(
+    char *cmd,
+    size_t cmd_size,
+    const char *exec,
+    bake_test_suite *suite,
+    bake_test_case *tc,
+    const int32_t *param_values)
+{
+    int written = snprintf(cmd, cmd_size, "\"%s\" \"%s.%s\"", exec, suite->id, tc->id);
+    if (written < 0 || (size_t)written >= cmd_size) {
+        return -1;
+    }
+
+    for (int p = 0; p < g_cli_param_count; p++) {
+        size_t used = strlen(cmd);
+        if ((used + strlen(g_cli_params[p]) + 12) >= cmd_size) {
+            break;
+        }
+        strcat(cmd, " --param ");
+        strcat(cmd, g_cli_params[p]);
+    }
+
+    for (uint32_t p = 0; p < suite->param_count; p++) {
+        bake_test_param *param = &suite->params[p];
+        if (bake_lookup_cli_param_only(param->name)) {
+            continue;
+        }
+        int32_t value_cur = param_values ? param_values[p] : param->value_cur;
+        if (value_cur < 0 || value_cur >= param->value_count) {
+            continue;
+        }
+        const char *value = param->values[value_cur];
+        size_t used = strlen(cmd);
+        if ((used + strlen(param->name) + strlen(value) + 16) >= cmd_size) {
+            break;
+        }
+        strcat(cmd, " --param ");
+        strcat(cmd, param->name);
+        strcat(cmd, "=");
+        strcat(cmd, value);
+    }
+
+    return 0;
+}
+
 static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite *suite, int *pass_out, int *fail_out, int *empty_out) {
     int rc = 0;
     int pass = 0;
@@ -659,40 +774,11 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
         }
 
         char cmd[4096];
-        int written = snprintf(cmd, sizeof(cmd), "\"%s\" \"%s.%s\"", exec, suite->id, suite->testcases[i].id);
-        if (written < 0 || (size_t)written >= sizeof(cmd)) {
+        if (bake_build_case_command(cmd, sizeof(cmd), exec, suite, &suite->testcases[i], NULL) != 0) {
             fail ++;
             rc = -1;
             bake_record_failure(suite->id, suite->testcases[i].id, param_str);
             continue;
-        }
-
-        for (int p = 0; p < g_cli_param_count; p++) {
-            size_t used = strlen(cmd);
-            if ((used + strlen(g_cli_params[p]) + 12) >= sizeof(cmd)) {
-                break;
-            }
-            strcat(cmd, " --param ");
-            strcat(cmd, g_cli_params[p]);
-        }
-
-        for (uint32_t p = 0; p < suite->param_count; p++) {
-            bake_test_param *param = &suite->params[p];
-            if (bake_lookup_cli_param_only(param->name)) {
-                continue;
-            }
-            if (param->value_cur < 0 || param->value_cur >= param->value_count) {
-                continue;
-            }
-            const char *value = param->values[param->value_cur];
-            size_t used = strlen(cmd);
-            if ((used + strlen(param->name) + strlen(value) + 16) >= sizeof(cmd)) {
-                break;
-            }
-            strcat(cmd, " --param ");
-            strcat(cmd, param->name);
-            strcat(cmd, "=");
-            strcat(cmd, value);
         }
 
         int test_rc = bake_run_subprocess(cmd);
@@ -753,97 +839,470 @@ static int bake_run_suite_for_params(const char *test_id, const char *exec, bake
     return rc;
 }
 
-#if !defined(_WIN32)
-typedef struct bake_suite_jobs_t {
-    const char *test_id;
-    const char *exec;
-    bake_test_suite *suites;
-    uint32_t suite_count;
-    uint32_t next_suite;
-    int pass;
-    int fail;
-    int empty;
-    int rc;
-    pthread_mutex_t lock;
-} bake_suite_jobs_t;
+typedef struct bake_case_job_t {
+    size_t run_index;
+    bake_test_case *testcase;
+    char cmd[4096];
+    char *output;
+    size_t output_size;
+    int command_rc;
+    int test_rc;
+} bake_case_job_t;
 
-static void* bake_suite_worker(void *arg) {
-    bake_suite_jobs_t *jobs = arg;
-    for (;;) {
-        pthread_mutex_lock(&jobs->lock);
-        uint32_t suite_index = jobs->next_suite;
-        if (suite_index < jobs->suite_count) {
-            jobs->next_suite ++;
+typedef struct bake_suite_run_t {
+    bake_test_suite *suite;
+    int32_t *param_values;
+    char param_str[512];
+    size_t first_job;
+    size_t job_count;
+} bake_suite_run_t;
+
+typedef struct bake_case_plan_t {
+    bake_suite_run_t *runs;
+    size_t run_count;
+    size_t run_cap;
+    bake_case_job_t *jobs;
+    size_t job_count;
+    size_t job_cap;
+} bake_case_plan_t;
+
+#if defined(_WIN32)
+typedef CRITICAL_SECTION bake_jobs_mutex_t;
+typedef HANDLE bake_worker_thread_t;
+#else
+typedef pthread_mutex_t bake_jobs_mutex_t;
+typedef pthread_t bake_worker_thread_t;
+#endif
+
+typedef struct bake_case_jobs_t {
+    bake_case_plan_t *plan;
+    size_t next_job;
+    bake_jobs_mutex_t lock;
+} bake_case_jobs_t;
+
+static void bake_jobs_mutex_init(bake_jobs_mutex_t *mutex) {
+#if defined(_WIN32)
+    InitializeCriticalSection(mutex);
+#else
+    pthread_mutex_init(mutex, NULL);
+#endif
+}
+
+static void bake_jobs_mutex_lock(bake_jobs_mutex_t *mutex) {
+#if defined(_WIN32)
+    EnterCriticalSection(mutex);
+#else
+    pthread_mutex_lock(mutex);
+#endif
+}
+
+static void bake_jobs_mutex_unlock(bake_jobs_mutex_t *mutex) {
+#if defined(_WIN32)
+    LeaveCriticalSection(mutex);
+#else
+    pthread_mutex_unlock(mutex);
+#endif
+}
+
+static void bake_jobs_mutex_fini(bake_jobs_mutex_t *mutex) {
+#if defined(_WIN32)
+    DeleteCriticalSection(mutex);
+#else
+    pthread_mutex_destroy(mutex);
+#endif
+}
+
+static int bake_parallel_plan_counts(
+    bake_test_suite *suites,
+    uint32_t suite_count,
+    size_t *run_count_out,
+    size_t *job_count_out)
+{
+    size_t run_count = 0;
+    size_t job_count = 0;
+    size_t size_max = (size_t)-1;
+
+    for (uint32_t s = 0; s < suite_count; s++) {
+        bake_test_suite *suite = &suites[s];
+        size_t suite_run_count = 1;
+        for (uint32_t p = 0; p < suite->param_count; p++) {
+            int32_t value_count = suite->params[p].value_count;
+            if (value_count <= 0) {
+                suite_run_count = 0;
+                break;
+            }
+            if (suite_run_count > size_max / (size_t)value_count) {
+                return -1;
+            }
+            suite_run_count *= (size_t)value_count;
         }
-        pthread_mutex_unlock(&jobs->lock);
 
-        if (suite_index >= jobs->suite_count) {
+        if (run_count > size_max - suite_run_count) {
+            return -1;
+        }
+        run_count += suite_run_count;
+
+        if (suite->testcase_count &&
+            suite_run_count > size_max / (size_t)suite->testcase_count)
+        {
+            return -1;
+        }
+        size_t suite_job_count = suite_run_count * (size_t)suite->testcase_count;
+        if (job_count > size_max - suite_job_count) {
+            return -1;
+        }
+        job_count += suite_job_count;
+    }
+
+    *run_count_out = run_count;
+    *job_count_out = job_count;
+    return 0;
+}
+
+static void bake_parallel_plan_fini(bake_case_plan_t *plan) {
+    if (plan->jobs) {
+        for (size_t i = 0; i < plan->job_count; i++) {
+            free(plan->jobs[i].output);
+        }
+    }
+    if (plan->runs) {
+        for (size_t i = 0; i < plan->run_count; i++) {
+            free(plan->runs[i].param_values);
+        }
+    }
+    free(plan->runs);
+    free(plan->jobs);
+    memset(plan, 0, sizeof(*plan));
+}
+
+static int bake_parallel_plan_add_run(
+    bake_case_plan_t *plan,
+    const char *exec,
+    bake_test_suite *suite)
+{
+    if (plan->run_count >= plan->run_cap) {
+        return -1;
+    }
+
+    bake_suite_run_t *run = &plan->runs[plan->run_count];
+    run->suite = suite;
+    run->first_job = plan->job_count;
+    run->job_count = suite->testcase_count;
+    bake_append_suite_params(run->param_str, sizeof(run->param_str), suite);
+
+    if (suite->param_count) {
+        if ((size_t)suite->param_count > ((size_t)-1) / sizeof(int32_t)) {
+            return -1;
+        }
+        run->param_values = malloc((size_t)suite->param_count * sizeof(int32_t));
+        if (!run->param_values) {
+            return -1;
+        }
+        for (uint32_t p = 0; p < suite->param_count; p++) {
+            run->param_values[p] = suite->params[p].value_cur;
+        }
+    }
+
+    size_t run_index = plan->run_count ++;
+    for (uint32_t t = 0; t < suite->testcase_count; t++) {
+        if (plan->job_count >= plan->job_cap) {
+            return -1;
+        }
+        bake_case_job_t *job = &plan->jobs[plan->job_count ++];
+        job->run_index = run_index;
+        job->testcase = &suite->testcases[t];
+        job->command_rc = bake_build_case_command(
+            job->cmd, sizeof(job->cmd), exec, suite, job->testcase,
+            run->param_values);
+        job->test_rc = -1;
+    }
+
+    return 0;
+}
+
+static int bake_parallel_plan_add_suite(
+    bake_case_plan_t *plan,
+    const char *exec,
+    bake_test_suite *suite,
+    uint32_t param)
+{
+    if (!suite->param_count || param >= suite->param_count) {
+        return bake_parallel_plan_add_run(plan, exec, suite);
+    }
+
+    bake_test_param *p = &suite->params[param];
+    for (int32_t i = 0; i < p->value_count; i++) {
+        p->value_cur = i;
+        if (bake_parallel_plan_add_suite(plan, exec, suite, param + 1) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int bake_parallel_plan_init(
+    bake_case_plan_t *plan,
+    const char *exec,
+    bake_test_suite *suites,
+    uint32_t suite_count)
+{
+    memset(plan, 0, sizeof(*plan));
+    if (bake_parallel_plan_counts(
+        suites, suite_count, &plan->run_cap, &plan->job_cap) != 0)
+    {
+        return -1;
+    }
+
+    if (plan->run_cap) {
+        plan->runs = calloc(plan->run_cap, sizeof(bake_suite_run_t));
+        if (!plan->runs) {
+            bake_parallel_plan_fini(plan);
+            return -1;
+        }
+    }
+    if (plan->job_cap) {
+        plan->jobs = calloc(plan->job_cap, sizeof(bake_case_job_t));
+        if (!plan->jobs) {
+            bake_parallel_plan_fini(plan);
+            return -1;
+        }
+    }
+
+    for (uint32_t s = 0; s < suite_count; s++) {
+        if (bake_parallel_plan_add_suite(plan, exec, &suites[s], 0) != 0) {
+            bake_parallel_plan_fini(plan);
+            return -1;
+        }
+    }
+
+    if (plan->run_count != plan->run_cap || plan->job_count != plan->job_cap) {
+        bake_parallel_plan_fini(plan);
+        return -1;
+    }
+    return 0;
+}
+
+static void bake_case_job_execute(bake_case_job_t *job) {
+    FILE *stream = tmpfile();
+    if (!stream) {
+        job->test_rc = bake_run_subprocess(job->cmd);
+        return;
+    }
+
+    job->test_rc = bake_run_subprocess_to_stream(job->cmd, stream);
+    fflush(stream);
+    if (fseek(stream, 0, SEEK_END) == 0) {
+        long end = ftell(stream);
+        if (end > 0 && (long)(size_t)end == end) {
+            size_t size = (size_t)end;
+            job->output = malloc(size);
+            if (job->output) {
+                rewind(stream);
+                job->output_size = fread(job->output, 1, size, stream);
+            }
+        }
+    }
+    fclose(stream);
+}
+
+static void bake_case_worker_run(bake_case_jobs_t *jobs) {
+    for (;;) {
+        bake_jobs_mutex_lock(&jobs->lock);
+        size_t job_index = jobs->next_job;
+        if (job_index < jobs->plan->job_count) {
+            jobs->next_job ++;
+        }
+        bake_jobs_mutex_unlock(&jobs->lock);
+
+        if (job_index >= jobs->plan->job_count) {
             break;
         }
 
+        bake_case_job_t *job = &jobs->plan->jobs[job_index];
+        if (job->command_rc == 0) {
+            bake_case_job_execute(job);
+        }
+    }
+}
+
+#if defined(_WIN32)
+static DWORD WINAPI bake_case_worker(void *arg) {
+    bake_case_worker_run(arg);
+    return 0;
+}
+#else
+static void* bake_case_worker(void *arg) {
+    bake_case_worker_run(arg);
+    return NULL;
+}
+#endif
+
+static int bake_worker_start(
+    bake_worker_thread_t *thread,
+    bake_case_jobs_t *jobs)
+{
+#if defined(_WIN32)
+    *thread = CreateThread(NULL, 0, bake_case_worker, jobs, 0, NULL);
+    return *thread ? 0 : -1;
+#else
+    return pthread_create(thread, NULL, bake_case_worker, jobs);
+#endif
+}
+
+static int bake_worker_join(bake_worker_thread_t thread) {
+#if defined(_WIN32)
+    DWORD rc = WaitForSingleObject(thread, INFINITE);
+    CloseHandle(thread);
+    return rc == WAIT_OBJECT_0 ? 0 : -1;
+#else
+    return pthread_join(thread, NULL);
+#endif
+}
+
+static void bake_parallel_apply_params(bake_suite_run_t *run) {
+    for (uint32_t p = 0; p < run->suite->param_count; p++) {
+        run->suite->params[p].value_cur = run->param_values[p];
+    }
+}
+
+static int bake_parallel_report(
+    bake_case_plan_t *plan,
+    const char *test_id,
+    const char *exec,
+    int *pass_out,
+    int *fail_out,
+    int *empty_out)
+{
+    int rc = 0;
+
+    for (size_t r = 0; r < plan->run_count; r++) {
+        bake_suite_run_t *run = &plan->runs[r];
+        bake_test_suite *suite = run->suite;
         int pass = 0;
         int fail = 0;
         int empty = 0;
-        int suite_rc = bake_run_suite_for_params(jobs->test_id, jobs->exec, &jobs->suites[suite_index], 0, &pass, &fail, &empty);
+        bake_parallel_apply_params(run);
 
-        pthread_mutex_lock(&jobs->lock);
-        jobs->pass += pass;
-        jobs->fail += fail;
-        jobs->empty += empty;
-        if (suite_rc != 0) {
-            jobs->rc = -1;
+        for (size_t j = 0; j < run->job_count; j++) {
+            bake_case_job_t *job = &plan->jobs[run->first_job + j];
+            if (g_trace) {
+                bake_print_trace(suite->id, job->testcase->id, run->param_str);
+            }
+            if (job->output_size) {
+                fwrite(job->output, 1, job->output_size, stdout);
+            }
+            if (job->command_rc != 0) {
+                fail ++;
+                rc = -1;
+                bake_record_failure(suite->id, job->testcase->id, run->param_str);
+                continue;
+            }
+
+            if (job->test_rc == 0) {
+                pass ++;
+                continue;
+            }
+            if (job->test_rc == BAKE_TEST_QUARANTINED) {
+                continue;
+            }
+            if (job->test_rc == BAKE_TEST_EMPTY) {
+                empty ++;
+                bake_print_status("EMPTY", BAKE_COLOR_YELLOW);
+                printf(" %s.%s (add test statements)\n", suite->id, job->testcase->id);
+                bake_print_debug_command(exec, suite, job->testcase);
+                continue;
+            }
+
+            fail ++;
+            rc = -1;
+            bake_record_failure(suite->id, job->testcase->id, run->param_str);
+            bake_print_debug_command(exec, suite, job->testcase);
         }
-        pthread_mutex_unlock(&jobs->lock);
+
+        bake_print_report(test_id, suite->id, run->param_str, pass, fail, empty);
+        if (fail || empty) {
+            printf("\n");
+        }
+        *pass_out += pass;
+        *fail_out += fail;
+        *empty_out += empty;
     }
-    return NULL;
+
+    return rc;
 }
 
-static int bake_run_suites_parallel(const char *test_id, const char *exec, bake_test_suite *suites, uint32_t suite_count, int jobs_count, int *pass, int *fail, int *empty) {
-    if (jobs_count < 1) {
-        jobs_count = 1;
-    }
-    if ((uint32_t)jobs_count > suite_count) {
-        jobs_count = (int)suite_count;
-    }
+static int bake_run_cases_parallel(
+    const char *test_id,
+    const char *exec,
+    bake_test_suite *suites,
+    uint32_t suite_count,
+    int jobs_count,
+    int *pass,
+    int *fail,
+    int *empty)
+{
     if (jobs_count < 2) {
         return 1;
     }
 
-    bake_suite_jobs_t jobs = {
-        .test_id = test_id,
-        .exec = exec,
-        .suites = suites,
-        .suite_count = suite_count,
-        .next_suite = 0,
-        .pass = 0,
-        .fail = 0,
-        .empty = 0,
-        .rc = 0
-    };
-    pthread_mutex_init(&jobs.lock, NULL);
+    bake_case_plan_t plan;
+    if (bake_parallel_plan_init(&plan, exec, suites, suite_count) != 0) {
+        return 1;
+    }
+    if (plan.job_count < 2) {
+        bake_parallel_plan_fini(&plan);
+        return 1;
+    }
+    if ((size_t)jobs_count > plan.job_count) {
+        jobs_count = (int)plan.job_count;
+    }
 
-    pthread_t *threads = calloc((size_t)jobs_count, sizeof(pthread_t));
+    bake_case_jobs_t jobs = {
+        .plan = &plan,
+        .next_job = 0
+    };
+    bake_jobs_mutex_init(&jobs.lock);
+
+    bake_worker_thread_t *threads = calloc(
+        (size_t)jobs_count, sizeof(bake_worker_thread_t));
     if (!threads) {
-        pthread_mutex_destroy(&jobs.lock);
+        bake_jobs_mutex_fini(&jobs.lock);
+        bake_parallel_plan_fini(&plan);
+        return 1;
+    }
+
+    int started = 0;
+    for (int i = 0; i < jobs_count; i++) {
+        if (bake_worker_start(&threads[i], &jobs) != 0) {
+            break;
+        }
+        started ++;
+    }
+    if (!started) {
+        free(threads);
+        bake_jobs_mutex_fini(&jobs.lock);
+        bake_parallel_plan_fini(&plan);
+        return 1;
+    }
+
+    int join_rc = 0;
+    for (int i = 0; i < started; i++) {
+        if (bake_worker_join(threads[i]) != 0) {
+            join_rc = -1;
+        }
+    }
+
+    free(threads);
+    bake_jobs_mutex_fini(&jobs.lock);
+
+    int rc = bake_parallel_report(
+        &plan, test_id, exec, pass, fail, empty);
+    bake_parallel_plan_fini(&plan);
+    if (join_rc != 0) {
         return -1;
     }
-
-    for (int i = 0; i < jobs_count; i++) {
-        pthread_create(&threads[i], NULL, bake_suite_worker, &jobs);
-    }
-    for (int i = 0; i < jobs_count; i++) {
-        pthread_join(threads[i], NULL);
-    }
-
-    pthread_mutex_destroy(&jobs.lock);
-    free(threads);
-
-    *pass += jobs.pass;
-    *fail += jobs.fail;
-    *empty += jobs.empty;
-    return jobs.rc;
+    return rc;
 }
-#endif
 
 static void bake_list_tests(bake_test_suite *suites, uint32_t suite_count) {
     for (uint32_t s = 0; s < suite_count; s++) {
@@ -982,26 +1441,32 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
             printf("test suite '%s' not found\n", suite_filter);
             return -1;
         }
-        int suite_rc = bake_run_suite_for_params(test_id, argv[0], suite, 0, &pass, &fail, &empty);
-        if (suite_rc != 0) {
+        int parallel_rc = bake_run_cases_parallel(
+            test_id, argv[0], suite, 1, job_count,
+            &pass, &fail, &empty);
+        if (parallel_rc == 1) {
+            int suite_rc = bake_run_suite_for_params(
+                test_id, argv[0], suite, 0, &pass, &fail, &empty);
+            if (suite_rc != 0) {
+                rc = -1;
+            }
+        } else if (parallel_rc != 0) {
             rc = -1;
         }
         bake_print_failed_tests();
     } else {
-#if !defined(_WIN32)
-        int parallel_rc = bake_run_suites_parallel(test_id, argv[0], suites, suite_count, job_count, &pass, &fail, &empty);
-        if (parallel_rc == -1) {
-            rc = -1;
-        }
-        if (parallel_rc == 1)
-#endif
-        {
+        int parallel_rc = bake_run_cases_parallel(
+            test_id, argv[0], suites, suite_count, job_count,
+            &pass, &fail, &empty);
+        if (parallel_rc == 1) {
             for (uint32_t s = 0; s < suite_count; s++) {
                 int suite_rc = bake_run_suite_for_params(test_id, argv[0], &suites[s], 0, &pass, &fail, &empty);
                 if (suite_rc != 0) {
                     rc = -1;
                 }
             }
+        } else if (parallel_rc != 0) {
+            rc = -1;
         }
         printf("-----------------------------\n");
         bake_print_report(test_id, "all", "", pass, fail, empty);
