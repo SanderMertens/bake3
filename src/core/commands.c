@@ -1,4 +1,5 @@
 #include "bake/commands.h"
+#include "bake/bundle.h"
 #include "bake/discovery.h"
 #include "bake/environment.h"
 #include "bake/os.h"
@@ -19,6 +20,7 @@ static const char *bake_help_text =
     "  cleanup             Remove stale projects from bake environment\n"
     "  reset               Reset bake environment metadata\n"
     "  setup               Install bake executable into bake environment\n"
+    "  bundle update [<name>] Update bundle branch checkouts\n"
     "\n"
     "Options:\n"
     "  --cfg <mode>        Build mode: sanitize|debug|profile|release\n"
@@ -469,6 +471,7 @@ static const struct {
     {"clean", bake_build_clean, false}, {"rebuild", bake_build_rebuild, true},
     {"list", bake_list_projects, false}, {"info", bake_info_project, false},
     {"ps", bake_ps_command, false},
+    {"bundle", bake_bundle_update_command, false},
     {"reset", bake_env_reset, false}, {"cleanup", bake_env_cleanup_cmd, false},
 };
 

@@ -1,4 +1,5 @@
 #include "bake/bundle.h"
+#include "bake/discovery.h"
 #include "bake/environment.h"
 #include "bake/model.h"
 #include "bake/os.h"
@@ -160,6 +161,371 @@ static int bake_bundle_clone(const bake_bundle_t *bundle, const char *dest) {
 
     ecs_os_free(quoted_dest);
     return 0;
+}
+
+static int bake_bundle_run_git(
+    const char *repository,
+    const char *scratch_dir,
+    const char *const *args,
+    char **output_out)
+{
+    if (output_out) {
+        *output_out = NULL;
+    }
+
+    int32_t arg_count = 0;
+    while (args[arg_count]) {
+        arg_count++;
+    }
+
+    const char **argv = ecs_os_malloc_n(const char*, arg_count + 4);
+    argv[0] = "git";
+    argv[1] = "-C";
+    argv[2] = repository;
+    for (int32_t i = 0; i < arg_count; i++) {
+        argv[i + 3] = args[i];
+    }
+    argv[arg_count + 3] = NULL;
+
+    char *stdout_path = bake_path_join(scratch_dir, ".bake_git_stdout");
+    char *stderr_path = bake_path_join(scratch_dir, ".bake_git_stderr");
+    bake_remove_file_if_exists(stdout_path);
+    bake_remove_file_if_exists(stderr_path);
+
+    bake_process_stdio_t stdio_cfg = {
+        .stdout_path = stdout_path,
+        .stderr_path = stderr_path
+    };
+    bake_process_result_t result = {0};
+    int spawn_rc = bake_proc_run(argv, &stdio_cfg, &result);
+    int rc = spawn_rc == 0 ? result.exit_code : -1;
+    if (rc == 0 && output_out) {
+        *output_out = bake_file_read_trimmed(stdout_path);
+        if (!*output_out) {
+            rc = -1;
+        }
+    }
+
+    bake_remove_file_if_exists(stdout_path);
+    bake_remove_file_if_exists(stderr_path);
+    ecs_os_free(stdout_path);
+    ecs_os_free(stderr_path);
+    ecs_os_free(argv);
+    return rc;
+}
+
+static char* bake_bundle_local_repository(
+    const bake_project_cfg_t *cfg,
+    const bake_bundle_t *bundle)
+{
+    if (!cfg || !cfg->path || !bundle || !bundle->repository ||
+        !bundle->repository[0])
+    {
+        return NULL;
+    }
+
+    if (bake_path_is_abs(bundle->repository)) {
+        return bake_path_is_dir(bundle->repository)
+            ? bake_path_resolve(bundle->repository)
+            : NULL;
+    }
+
+    char *candidate = bake_path_join(cfg->path, bundle->repository);
+    if (bake_path_is_dir(candidate)) {
+        char *resolved = bake_path_resolve(candidate);
+        ecs_os_free(candidate);
+        return resolved;
+    }
+    ecs_os_free(candidate);
+
+    return bake_path_is_dir(bundle->repository)
+        ? bake_path_resolve(bundle->repository)
+        : NULL;
+}
+
+static const char* bake_bundle_short_branch(const char *branch) {
+    static const char prefix[] = "refs/heads/";
+    if (branch && !strncmp(branch, prefix, sizeof(prefix) - 1)) {
+        return branch + sizeof(prefix) - 1;
+    }
+    return branch;
+}
+
+static char* bake_bundle_branch_ref(const char *branch) {
+    if (!branch || !branch[0]) {
+        return NULL;
+    }
+    if (!strncmp(branch, "refs/", 5)) {
+        return ecs_os_strdup(branch);
+    }
+    return flecs_asprintf("refs/heads/%s", branch);
+}
+
+static char* bake_bundle_current_branch(
+    const char *src_dir,
+    const char *scratch_dir)
+{
+    const char *args[] = {
+        "symbolic-ref", "--quiet", "--short", "HEAD", NULL
+    };
+    char *branch = NULL;
+    if (bake_bundle_run_git(src_dir, scratch_dir, args, &branch) != 0) {
+        ecs_os_free(branch);
+        return NULL;
+    }
+    return branch;
+}
+
+static void bake_bundle_notice_if_behind(
+    const bake_project_cfg_t *cfg,
+    const bake_bundle_t *bundle,
+    const char *root_dir,
+    const char *src_dir)
+{
+    if ((bundle->commit && bundle->commit[0]) ||
+        (bundle->tag && bundle->tag[0]))
+    {
+        return;
+    }
+
+    char *repository = bake_bundle_local_repository(cfg, bundle);
+    if (!repository) {
+        return;
+    }
+
+    char *current_branch = NULL;
+    const char *branch = bake_bundle_short_branch(bundle->branch);
+    if (!branch || !branch[0]) {
+        current_branch = bake_bundle_current_branch(src_dir, root_dir);
+        branch = current_branch;
+    }
+
+    char *branch_ref = bake_bundle_branch_ref(branch);
+    char *remote_head = NULL;
+    char *checkout_head = NULL;
+    if (!branch_ref) {
+        goto cleanup;
+    }
+
+    const char *remote_args[] = {
+        "rev-parse", "--verify", branch_ref, NULL
+    };
+    if (bake_bundle_run_git(
+        repository, root_dir, remote_args, &remote_head) != 0)
+    {
+        goto cleanup;
+    }
+
+    const char *checkout_args[] = {
+        "rev-parse", "--verify", "HEAD", NULL
+    };
+    if (bake_bundle_run_git(
+        src_dir, root_dir, checkout_args, &checkout_head) != 0)
+    {
+        goto cleanup;
+    }
+
+    if (!strcmp(remote_head, checkout_head)) {
+        goto cleanup;
+    }
+
+    const char *ancestor_args[] = {
+        "merge-base", "--is-ancestor", checkout_head, remote_head, NULL
+    };
+    if (bake_bundle_run_git(
+        repository, root_dir, ancestor_args, NULL) == 0)
+    {
+        ecs_warn(
+            "bundle '%s' checkout is behind its remote branch '%s'; "
+            "run bake3 bundle update %s",
+            bundle->id, branch, bundle->id);
+    }
+
+cleanup:
+    ecs_os_free(repository);
+    ecs_os_free(current_branch);
+    ecs_os_free(branch_ref);
+    ecs_os_free(remote_head);
+    ecs_os_free(checkout_head);
+}
+
+static int bake_bundle_update_one(
+    const bake_project_cfg_t *cfg,
+    const bake_bundle_t *bundle)
+{
+    if (bundle->commit && bundle->commit[0]) {
+        printf("[bake] bundle '%s' is pinned to commit '%s'; nothing to update\n",
+            bundle->id, bundle->commit);
+        return 0;
+    }
+    if (bundle->tag && bundle->tag[0]) {
+        printf("[bake] bundle '%s' is pinned to tag '%s'; nothing to update\n",
+            bundle->id, bundle->tag);
+        return 0;
+    }
+
+    int rc = -1;
+    char *root_dir = bake_bundle_root_dir(cfg, bundle);
+    char *src_dir = bake_bundle_source_dir(root_dir);
+    char *lock_path = NULL;
+    char *git_dir = NULL;
+    char *current_branch = NULL;
+    char *repository = NULL;
+    char *branch_ref = NULL;
+    char *status = NULL;
+    char *old_head = NULL;
+    char *new_head = NULL;
+    bake_lock_t lock = {0};
+
+    if (!root_dir || bake_os_mkdirs(root_dir) != 0) {
+        goto cleanup;
+    }
+
+    lock_path = bake_path_join(root_dir, ".lock");
+    if (bake_os_lock_acquire(
+        lock_path, BAKE_BUNDLE_LOCK_TIMEOUT_SEC, &lock) != 0)
+    {
+        ecs_err("failed to lock bundle '%s'", bundle->id);
+        goto cleanup;
+    }
+
+    git_dir = bake_path_join(src_dir, ".git");
+    if (!bake_path_exists(src_dir) || !bake_path_exists(git_dir)) {
+        ecs_err(
+            "bundle '%s' has no checkout to update; build the project first",
+            bundle->id);
+        goto cleanup;
+    }
+
+    const char *status_args[] = {
+        "status", "--porcelain=v1", "--untracked-files=all",
+        "--ignore-submodules=none", NULL
+    };
+    if (bake_bundle_run_git(src_dir, root_dir, status_args, &status) != 0) {
+        ecs_err("failed to inspect bundle '%s' checkout", bundle->id);
+        goto cleanup;
+    }
+    if (status[0]) {
+        ecs_err(
+            "bundle '%s' checkout has local modifications; refusing to update",
+            bundle->id);
+        goto cleanup;
+    }
+
+    current_branch = bake_bundle_current_branch(src_dir, root_dir);
+    if (!current_branch || !current_branch[0]) {
+        ecs_err(
+            "bundle '%s' checkout is not on a branch; refusing to update",
+            bundle->id);
+        goto cleanup;
+    }
+
+    const char *configured_branch = bake_bundle_short_branch(bundle->branch);
+    if (configured_branch && configured_branch[0] &&
+        strcmp(configured_branch, current_branch))
+    {
+        ecs_err(
+            "bundle '%s' checkout is on branch '%s', expected '%s'; "
+            "refusing to update",
+            bundle->id, current_branch, configured_branch);
+        goto cleanup;
+    }
+    const char *branch = configured_branch && configured_branch[0]
+        ? configured_branch
+        : current_branch;
+
+    repository = bake_bundle_local_repository(cfg, bundle);
+    const char *fetch_repository = repository
+        ? repository
+        : bundle->repository;
+    branch_ref = bake_bundle_branch_ref(branch);
+    if (!fetch_repository || !fetch_repository[0] || !branch_ref) {
+        ecs_err("bundle '%s' has no repository or branch to update", bundle->id);
+        goto cleanup;
+    }
+
+    const char *head_args[] = {
+        "rev-parse", "--verify", "HEAD", NULL
+    };
+    if (bake_bundle_run_git(src_dir, root_dir, head_args, &old_head) != 0) {
+        ecs_err("failed to read bundle '%s' checkout revision", bundle->id);
+        goto cleanup;
+    }
+
+    const char *fetch_args[] = {
+        "fetch", "--quiet", "--recurse-submodules=on-demand", "--",
+        fetch_repository, branch_ref, NULL
+    };
+    if (bake_bundle_run_git(src_dir, root_dir, fetch_args, NULL) != 0) {
+        ecs_err(
+            "failed to fetch branch '%s' for bundle '%s' from '%s'",
+            branch, bundle->id, fetch_repository);
+        goto cleanup;
+    }
+
+    const char *fetch_head_args[] = {
+        "rev-parse", "--verify", "FETCH_HEAD", NULL
+    };
+    if (bake_bundle_run_git(
+        src_dir, root_dir, fetch_head_args, &new_head) != 0)
+    {
+        ecs_err("failed to read fetched revision for bundle '%s'", bundle->id);
+        goto cleanup;
+    }
+
+    if (!strcmp(old_head, new_head)) {
+        printf("[bake] bundle '%s' is already up to date on branch '%s'\n",
+            bundle->id, branch);
+        rc = 0;
+        goto cleanup;
+    }
+
+    const char *ancestor_args[] = {
+        "merge-base", "--is-ancestor", old_head, new_head, NULL
+    };
+    if (bake_bundle_run_git(src_dir, root_dir, ancestor_args, NULL) != 0) {
+        ecs_err(
+            "bundle '%s' checkout has diverged from branch '%s' and cannot "
+            "be fast-forwarded; refusing to update",
+            bundle->id, branch);
+        goto cleanup;
+    }
+
+    const char *merge_args[] = {
+        "merge", "--ff-only", "--quiet", "FETCH_HEAD", NULL
+    };
+    if (bake_bundle_run_git(src_dir, root_dir, merge_args, NULL) != 0) {
+        ecs_err(
+            "bundle '%s' checkout could not be fast-forwarded to branch '%s'",
+            bundle->id, branch);
+        goto cleanup;
+    }
+
+    const char *submodule_args[] = {
+        "submodule", "update", "--init", "--recursive", NULL
+    };
+    if (bake_bundle_run_git(src_dir, root_dir, submodule_args, NULL) != 0) {
+        ecs_err("failed to update submodules for bundle '%s'", bundle->id);
+        goto cleanup;
+    }
+
+    printf("[bake] bundle '%s' updated %.12s -> %.12s on branch '%s'\n",
+        bundle->id, old_head, new_head, branch);
+    rc = 0;
+
+cleanup:
+    bake_os_lock_release(&lock);
+    ecs_os_free(root_dir);
+    ecs_os_free(src_dir);
+    ecs_os_free(lock_path);
+    ecs_os_free(git_dir);
+    ecs_os_free(current_branch);
+    ecs_os_free(repository);
+    ecs_os_free(branch_ref);
+    ecs_os_free(status);
+    ecs_os_free(old_head);
+    ecs_os_free(new_head);
+    return rc;
 }
 
 static int bake_bundle_run_cmake(
@@ -496,6 +862,10 @@ static int bake_bundle_prepare_one(
         }
     }
 
+    if (!need_clone) {
+        bake_bundle_notice_if_behind(cfg, bundle, root_dir, src_dir);
+    }
+
     bundle_src_dir = (bundle->subdir && bundle->subdir[0])
         ? bake_path_join(src_dir, bundle->subdir)
         : ecs_os_strdup(src_dir);
@@ -608,4 +978,63 @@ int bake_bundle_prepare_for_project(bake_context_t *ctx, bake_project_cfg_t *cfg
     }
 
     return 0;
+}
+
+int bake_bundle_update_command(bake_context_t *ctx) {
+    if (!ctx->opts.bundle_action || !ctx->opts.bundle_action[0]) {
+        ecs_err("bundle command requires an action; use "
+            "'bake3 bundle update [<name>]'");
+        return -1;
+    }
+    if (strcmp(ctx->opts.bundle_action, "update")) {
+        ecs_err("unknown bundle action: %s", ctx->opts.bundle_action);
+        return -1;
+    }
+
+    if (bake_discover_projects(ctx, ctx->opts.cwd, false) < 0) {
+        return -1;
+    }
+
+    int32_t matched = 0;
+    int32_t failed = 0;
+    ecs_iter_t it = ecs_each_id(ctx->world, ecs_id(BakeProject));
+    while (ecs_each_next(&it)) {
+        const BakeProject *projects = ecs_field(&it, BakeProject, 0);
+        for (int32_t i = 0; i < it.count; i++) {
+            const BakeProject *project = &projects[i];
+            if (project->external || !project->cfg) {
+                continue;
+            }
+
+            int32_t count = bake_bundle_list_count(&project->cfg->bundles);
+            for (int32_t j = 0; j < count; j++) {
+                const bake_bundle_t *bundle =
+                    bake_bundle_list_get(&project->cfg->bundles, j);
+                if (!bundle || !bundle->id) {
+                    continue;
+                }
+                if (ctx->opts.bundle_name &&
+                    strcmp(ctx->opts.bundle_name, bundle->id))
+                {
+                    continue;
+                }
+
+                matched++;
+                if (bake_bundle_update_one(project->cfg, bundle) != 0) {
+                    failed++;
+                }
+            }
+        }
+    }
+
+    if (!matched) {
+        if (ctx->opts.bundle_name) {
+            ecs_err("bundle '%s' is not declared by a project under %s",
+                ctx->opts.bundle_name, ctx->opts.cwd);
+            return -1;
+        }
+        printf("[bake] no bundles declared by projects under %s\n", ctx->opts.cwd);
+    }
+
+    return failed ? -1 : 0;
 }

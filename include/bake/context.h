@@ -6,6 +6,8 @@
 typedef struct bake_options_t {
     const char *command;
     const char *target;
+    const char *bundle_action;
+    const char *bundle_name;
     const char *toolchain;
     const char *mode;
     const char *cwd;

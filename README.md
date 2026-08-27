@@ -100,6 +100,7 @@ Commands:
   cleanup             Remove stale projects from bake environment
   reset               Reset bake environment metadata
   setup               Install bake executable into bake environment
+  bundle update [<name>] Update bundle branch checkouts
 
 Options:
   --cfg <mode>        Build mode: sanitize|debug|profile|release
@@ -398,7 +399,22 @@ The following options are supported per bundle entry:
 - `lib`: System libraries the bundle depends on at link time.
 - `ldflags`: Extra link flags to apply when linking the consuming project.
 
-Bundles are project-scoped: each project's bundles are fetched and built under that project's own `.bake/bundles/<id>/<ref>/{src,build/<triplet>,install/<triplet>}` tree, where `<ref>` is `commits/<hash>`, `tags/<tag>`, `branches/<branch>`, or `default` (when no ref is pinned). The most specific ref wins (`commit` > `tag` > `branch`). Two projects in the same workspace pinning different versions of the same bundle do not interfere with each other. Bundles are only fetched and built once per ref-scoped path; subsequent builds reuse them.
+Bundles are project-scoped: each project's bundles are fetched and built under that project's own `.bake/bundles/<id>/<ref>/{src,build/<triplet>,install/<triplet>}` tree, where `<ref>` is `commits/<hash>`, `tags/<tag>`, `branches/<branch>`, or `default` (when no ref is pinned). The most specific ref wins (`commit` > `tag` > `branch`). Two projects in the same workspace pinning different versions of the same bundle do not interfere with each other. Bundles are fetched once per ref-scoped path; subsequent builds reuse the checkout until it is explicitly updated.
+
+Use `bundle update` from a project or workspace directory to fetch and fast-forward every mutable bundle checkout found there, or name one bundle to update only that checkout:
+
+```sh
+bake3 bundle update
+bake3 bundle update glfw
+```
+
+An update uses the configured repository and branch. For a bundle without an explicit branch, it updates the branch currently checked out. Commit- and tag-pinned bundles are left unchanged. The command refuses to update a checkout with tracked or untracked modifications, a detached or unexpected branch, or history that cannot be fast-forwarded. A bundle must have been fetched by a build before it can be updated.
+
+Builds do not contact network remotes to look for changes. When a bundle's configured repository is a local path on disk, bake compares that repository's branch with the checkout. If the checkout is behind, the build continues with the existing revision and prints:
+
+```
+[warning] bundle 'glfw' checkout is behind its remote branch 'main'; run bake3 bundle update glfw
+```
 
 Bundles live outside of the bake environment, which means they are shared between local environments (see `--local-env`): a bundle is cloned and built once per project and ref, and every named environment of that project links against the same install tree. Concurrent bakes are safe: bake takes a lock (`.bake/bundles/<id>/<ref>/.lock`) around fetching and building a bundle, so a second bake waits for the first one to finish instead of cloning or building over it. A lock whose owning process is gone, or that is older than two hours, is treated as stale and removed.
 

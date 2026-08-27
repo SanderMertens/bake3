@@ -4183,6 +4183,162 @@ class BakeTests(unittest.TestCase):
         if shutil.which("git") is None:
             self.skipTest("git not available on PATH")
 
+    def write_refresh_bundle_workspace(
+        self, name: str
+    ) -> tuple[Path, Path, Path, Path]:
+        if shutil.which("git") is None:
+            self.skipTest("git not available on PATH")
+
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"{name}_{stamp}"
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        repo = root / "bundle_repo"
+        project = root / "app"
+        bundle_id = "refresh_bundle"
+
+        (repo / "include").mkdir(parents=True)
+        (repo / "include" / "refresh.h").write_text(
+            "#ifndef REFRESH_H\n"
+            "#define REFRESH_H\n"
+            "#define REFRESH_VALUE 1\n"
+            "#endif\n"
+        )
+        self._git_init_repo(repo)
+        self.run_cmd(["git", "checkout", "-q", "-b", "tracked"], cwd=repo)
+
+        (project / "src").mkdir(parents=True)
+        (project / "project.json").write_text(
+            "{\n"
+            f'    "id": "tmp.bundle.refresh.{stamp}",\n'
+            '    "type": "application",\n'
+            f'    "value": {{ "use": ["{bundle_id}"] }},\n'
+            '    "bundle": {\n'
+            f'        "{bundle_id}": {{\n'
+            '            "repository": "../bundle_repo",\n'
+            '            "branch": "tracked",\n'
+            '            "header-only": true,\n'
+            '            "include": ["include"]\n'
+            "        }\n"
+            "    }\n"
+            "}\n"
+        )
+        (project / "src" / "main.c").write_text(
+            "#include <refresh.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            "    printf(\"value=%d\\n\", REFRESH_VALUE);\n"
+            "    return 0;\n"
+            "}\n"
+        )
+
+        checkout = (
+            project / ".bake" / "bundles" / bundle_id /
+            "branches" / "tracked" / "src"
+        )
+        return root, project, repo, checkout
+
+    def advance_refresh_bundle(self, repo: Path, value: int) -> str:
+        (repo / "include" / "refresh.h").write_text(
+            "#ifndef REFRESH_H\n"
+            "#define REFRESH_H\n"
+            f"#define REFRESH_VALUE {value}\n"
+            "#endif\n"
+        )
+        self.git_commit_all(repo, f"set value to {value}")
+        return self.run_cmd(["git", "rev-parse", "HEAD"], cwd=repo).strip()
+
+    def test_bundle_build_notices_local_remote_is_ahead(self) -> None:
+        _, project, repo, _ = self.write_refresh_bundle_workspace(
+            "bundle_behind_notice")
+        self.bake(["build", "."], cwd=project)
+        self.advance_refresh_bundle(repo, 2)
+
+        output = self.strip_ansi(self.bake(["build", "."], cwd=project))
+        self.assertIn(
+            "bundle 'refresh_bundle' checkout is behind its remote branch "
+            "'tracked'; run bake3 bundle update refresh_bundle",
+            output,
+        )
+
+    def test_bundle_update_fast_forwards_checkout(self) -> None:
+        _, project, repo, checkout = self.write_refresh_bundle_workspace(
+            "bundle_update_fast_forward")
+        self.bake(["build", "."], cwd=project)
+        old_head = self.run_cmd(
+            ["git", "rev-parse", "HEAD"], cwd=checkout).strip()
+        new_head = self.advance_refresh_bundle(repo, 2)
+
+        output = self.strip_ansi(
+            self.bake(["bundle", "update", "refresh_bundle"], cwd=project))
+        self.assertIn(
+            f"[bake] bundle 'refresh_bundle' updated {old_head[:12]} -> "
+            f"{new_head[:12]} on branch 'tracked'",
+            output,
+        )
+        checkout_head = self.run_cmd(
+            ["git", "rev-parse", "HEAD"], cwd=checkout).strip()
+        self.assertEqual(checkout_head, new_head)
+        self.assertIn(
+            "#define REFRESH_VALUE 2",
+            (checkout / "include" / "refresh.h").read_text(),
+        )
+        run_output = self.strip_ansi(self.bake(["run", "."], cwd=project))
+        self.assertIn("value=2", run_output)
+
+    def test_bundle_update_refuses_dirty_checkout(self) -> None:
+        _, project, _, checkout = self.write_refresh_bundle_workspace(
+            "bundle_update_dirty")
+        self.bake(["build", "."], cwd=project)
+        checkout_head = self.run_cmd(
+            ["git", "rev-parse", "HEAD"], cwd=checkout).strip()
+        dirty_header = checkout / "include" / "refresh.h"
+        dirty_header.write_text(
+            "#ifndef REFRESH_H\n"
+            "#define REFRESH_H\n"
+            "#define REFRESH_VALUE 9\n"
+            "#endif\n"
+        )
+
+        output = self.strip_ansi(self.bake_expect_failure(
+            ["bundle", "update", "refresh_bundle"], cwd=project))
+        self.assertIn(
+            "bundle 'refresh_bundle' checkout has local modifications; "
+            "refusing to update",
+            output,
+        )
+        current_head = self.run_cmd(
+            ["git", "rev-parse", "HEAD"], cwd=checkout).strip()
+        self.assertEqual(current_head, checkout_head)
+        self.assertIn("#define REFRESH_VALUE 9", dirty_header.read_text())
+
+    def test_bundle_update_refuses_diverged_checkout(self) -> None:
+        _, project, repo, checkout = self.write_refresh_bundle_workspace(
+            "bundle_update_diverged")
+        self.bake(["build", "."], cwd=project)
+        checkout_header = checkout / "include" / "refresh.h"
+        checkout_header.write_text(
+            "#ifndef REFRESH_H\n"
+            "#define REFRESH_H\n"
+            "#define REFRESH_VALUE 3\n"
+            "#endif\n"
+        )
+        self.git_commit_all(checkout, "local value")
+        checkout_head = self.run_cmd(
+            ["git", "rev-parse", "HEAD"], cwd=checkout).strip()
+        self.advance_refresh_bundle(repo, 2)
+
+        output = self.strip_ansi(self.bake_expect_failure(
+            ["bundle", "update", "refresh_bundle"], cwd=project))
+        self.assertIn(
+            "bundle 'refresh_bundle' checkout has diverged from branch "
+            "'tracked' and cannot be fast-forwarded; refusing to update",
+            output,
+        )
+        current_head = self.run_cmd(
+            ["git", "rev-parse", "HEAD"], cwd=checkout).strip()
+        self.assertEqual(current_head, checkout_head)
+        self.assertIn("#define REFRESH_VALUE 3", checkout_header.read_text())
+
     def test_bundle_subdir_builds_the_nested_cmake_project(self) -> None:
         self.require_cmake_bundle_tools()
         stamp = int(time.time() * 1_000_000)

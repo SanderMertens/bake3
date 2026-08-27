@@ -152,6 +152,18 @@ int main(int argc, char *argv[]) {
             seen_command = true;
             continue;
         }
+        if (seen_command && !strcmp(opts.command, "bundle")) {
+            if (!opts.bundle_action) {
+                opts.bundle_action = arg;
+                continue;
+            }
+            if (!opts.bundle_name) {
+                opts.bundle_name = arg;
+                continue;
+            }
+            ecs_err("unexpected argument: %s", arg);
+            goto cleanup;
+        }
         if (!opts.target) {
             opts.target = arg;
             continue;
