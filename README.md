@@ -12,6 +12,8 @@ To install bake, run the following command:
 
 ```
 ./setup.sh
+
+On macOS the setup script ad-hoc signs the binary before installing it; an unsigned replacement of an installed binary is killed by the system (`Killed: 9`). If you copy the binary by hand, run `codesign -f -s - <path>`.
 ```
 
 This might prompt you for a password once as the script has to to install a script to `/usr/local/bin`. Once this script is installed, providing a password during setup is no longer needed.
