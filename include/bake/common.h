@@ -36,6 +36,7 @@ char* bake_text_replace(const char *input, const char *needle, const char *repla
 
 char* bake_project_id_as_dash(const char *id);
 char* bake_macro_upper(const char *value);
+char* bake_project_id_as_header(const char *id);
 
 bool bake_has_suffix(const char *value, const char *suffix);
 bool bake_char_is_space(char ch);

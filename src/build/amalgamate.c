@@ -1182,12 +1182,12 @@ static char* bake_amalgamate_resolve_main_header(
     const char *include_path,
     char **project_id_out)
 {
-    char *project_id = bake_project_id_as_macro(cfg->id);
+    char *project_id = bake_project_id_as_header(cfg->id);
     char *main_header = flecs_asprintf("%s/%s.h", include_path, project_id);
 
     if (!bake_path_exists(main_header)) {
         char *id_base = bake_project_id_base(cfg->id);
-        char *base_project_id = bake_project_id_as_macro(id_base);
+        char *base_project_id = bake_project_id_as_header(id_base);
         char *base_header = flecs_asprintf("%s/%s.h", include_path, base_project_id);
         if (bake_path_exists(base_header)) {
             ecs_os_free(project_id);
@@ -1219,7 +1219,7 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir) 
 
     int rc = -1;
     char *project_id = NULL;
-    char *output_base = bake_project_id_as_macro(cfg->id);
+    char *output_base = bake_project_id_as_header(cfg->id);
     char *include_path = bake_path_join(cfg->path, "include");
     char *src_path = bake_path_join(cfg->path, "src");
     char *main_header = bake_amalgamate_resolve_main_header(
@@ -1263,10 +1263,10 @@ int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg) {
         cfg, include_path, &project_id);
 
     if (!main_header) {
-        char *macro_id = bake_project_id_as_macro(cfg->id);
+        char *header_id = bake_project_id_as_header(cfg->id);
         ecs_err("cannot find include file '%s/%s.h' for amalgamation",
-            include_path, macro_id);
-        ecs_os_free(macro_id);
+            include_path, header_id);
+        ecs_os_free(header_id);
         goto cleanup;
     }
 

@@ -306,14 +306,14 @@ static void bake_append_dep_include(
     const char *dep_id,
     bool standalone_local_headers)
 {
-    char *dep_macro = bake_project_id_as_macro(dep_id);
+    char *dep_header = bake_project_id_as_header(dep_id);
     if (standalone_local_headers) {
-        ecs_strbuf_append(header, "#include \"../../deps/%s.h\"\n", dep_macro);
+        ecs_strbuf_append(header, "#include \"../../deps/%s.h\"\n", dep_header);
     } else {
-        ecs_strbuf_append(header, "#include <%s.h>\n", dep_macro);
+        ecs_strbuf_append(header, "#include <%s.h>\n", dep_header);
     }
 
-    ecs_os_free(dep_macro);
+    ecs_os_free(dep_header);
 }
 
 static void bake_append_dep_includes(
