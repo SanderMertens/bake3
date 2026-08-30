@@ -219,7 +219,7 @@ static int bake_prepare_standalone_sources(
             continue;
         }
 
-        char *base = bake_project_id_as_macro(dep_cfg->id);
+        char *base = bake_project_id_as_header(dep_cfg->id);
         char *h_name = flecs_asprintf("%s.h", base);
         char *c_name = flecs_asprintf("%s.c", base);
         char *cpp_name = flecs_asprintf("%s.cpp", base);

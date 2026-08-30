@@ -24,6 +24,22 @@ char* bake_project_id_as_macro(const char *id) {
     return out;
 }
 
+char* bake_project_id_as_header(const char *id) {
+    if (!id) {
+        return NULL;
+    }
+
+    size_t len = strlen(id);
+    char *out = ecs_os_malloc(len + 1);
+
+    for (size_t i = 0; i < len; i++) {
+        unsigned char ch = (unsigned char)id[i];
+        out[i] = isalnum(ch) ? (char)ch : '_';
+    }
+    out[len] = '\0';
+    return out;
+}
+
 bool bake_char_is_space(char ch) {
     return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
 }

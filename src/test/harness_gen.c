@@ -178,7 +178,7 @@ static char* bake_harness_try_project_header(const char *include_dir, const char
         return NULL;
     }
 
-    char *header_id = bake_project_id_as_macro(project_id);
+    char *header_id = bake_project_id_as_header(project_id);
     char *header_name = flecs_asprintf("%s.h", header_id);
     char *header_path = bake_path_join(include_dir, header_name);
 
