@@ -1,5 +1,12 @@
 #if !defined(_WIN32)
 
+/* glibc hides posix_spawn_file_actions_addchdir_np unless _GNU_SOURCE is
+ * defined before system headers. Keep the macro local to this file so other
+ * translation units keep the XSI strerror_r (int) rather than the GNU (char*). */
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "bake/os.h"
 #include <flecs.h>
 
