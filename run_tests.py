@@ -2003,6 +2003,237 @@ class BakeTests(unittest.TestCase):
                 self.assertEqual(t["suite"], "Alpha")
                 self.assertGreater(t["elapsed"], 0.0)
 
+    def bench_project_files(self, project_dir: Path, project_id: str, cases: list[str]) -> None:
+        """Write a bench project with hand written benchcase bodies."""
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": project_id,
+                    "type": "application",
+                    "bench": {
+                        "benchsuites": [{"id": "Alpha", "benchcases": cases}]
+                    },
+                },
+                indent=4,
+            ) + "\n"
+        )
+        (src_dir / "Alpha.c").write_text(
+            "#include <bake_bench.h>\n"
+            "\n"
+            "void Alpha_add(bench_t *b) {\n"
+            "    int x = 0;\n"
+            "    bench_set_items(b, 2);\n"
+            "    while (bench_iter(b)) {\n"
+            "        x += 3;\n"
+            "        bench_keep(x);\n"
+            "        bench_counter(b, \"adds\", 1.0);\n"
+            "    }\n"
+            "}\n"
+            "\n"
+            "void Alpha_mul(bench_t *b) {\n"
+            "    int x = 1;\n"
+            "    while (bench_iter(b)) {\n"
+            "        x *= 3;\n"
+            "        bench_keep(x);\n"
+            "    }\n"
+            "}\n"
+        )
+
+    def test_bench_project_generates_main_and_stubs(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.bench.gen.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"bench_gen_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": project_id,
+                    "type": "application",
+                    "bench": {
+                        "benchsuites": [{
+                            "id": "Alpha",
+                            "benchcases": ["add", "mul"],
+                            "setup": True,
+                            "teardown": True,
+                        }]
+                    },
+                },
+                indent=4,
+            ) + "\n"
+        )
+
+        self.bake(["--local-env=bench_gen", "build", "."], cwd=project_dir)
+
+        info = self.strip_ansi(self.bake(["--local-env=bench_gen", "info", "."], cwd=project_dir))
+        self.assertRegex(info, r"(?m)^kind:\s+bench$")
+
+        main_src = (src_dir / "main.c").read_text()
+        self.assertIn("#include <bake_bench.h>", main_src)
+        self.assertIn("void Alpha_setup(void);", main_src)
+        self.assertIn("void Alpha_teardown(void);", main_src)
+        self.assertIn("void Alpha_add(bench_t *b);", main_src)
+        self.assertIn("void Alpha_mul(bench_t *b);", main_src)
+        self.assertIn("bake_bench_case Alpha_benchcases[] = {", main_src)
+        self.assertIn("bake_bench_suite suites[] = {", main_src)
+        self.assertIn(f'bake_bench_run("{project_id}", argc, argv, suites, 1)', main_src)
+
+        suite_src = (src_dir / "Alpha.c").read_text()
+        self.assertIn("#include <bake_bench.h>", suite_src)
+        self.assertIn("void Alpha_setup(void) {", suite_src)
+        self.assertIn("void Alpha_teardown(void) {", suite_src)
+        self.assertIn("void Alpha_add(bench_t *b) {", suite_src)
+        self.assertIn("while (bench_iter(b)) {", suite_src)
+
+        generated = sorted(project_dir.glob("**/generated/bake_bench.h"))
+        self.assertTrue(generated, "expected bake_bench.h to be copied into the generated dir")
+
+    def test_bench_project_runs_cases_and_writes_json_report(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.bench.run.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"bench_run_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        self.bench_project_files(project_dir, project_id, ["add", "mul"])
+
+        report = project_dir / "report.json"
+        output = self.strip_ansi(self.bake(
+            ["--local-env=bench_run", "run", ".", "--",
+             "--time", "0.2", "--samples", "5", "--sample-time", "0.001",
+             "--json", str(report)],
+            cwd=project_dir))
+
+        self.assertIn("Alpha.add", output)
+        self.assertIn("Alpha.mul", output)
+        self.assertIn("ns/iter", output)
+        self.assertIn("ci95", output)
+        self.assertIn("outliers", output)
+
+        self.assertTrue(report.is_file(), f"missing report {report}")
+        data = json.loads(report.read_text())
+        self.assertEqual(data["project"], project_id)
+        self.assertEqual(data["tool"], "bake3")
+        self.assertTrue(data["tool_version"])
+        self.assertTrue(data["timestamp"].endswith("Z"))
+        self.assertIn(data["host"]["os"], {"Darwin", "Linux", "Windows"})
+        self.assertTrue(data["host"]["arch"])
+        self.assertGreaterEqual(data["host"]["cpu_count"], 1)
+        self.assertEqual(data["cases"], 2)
+        self.assertGreater(data["time_sec"], 0.0)
+
+        by_case = {b["case"]: b for b in data["benchmarks"]}
+        self.assertEqual(set(by_case), {"add", "mul"})
+        for name, case in by_case.items():
+            self.assertEqual(case["suite"], "Alpha")
+            self.assertGreaterEqual(case["iterations"], 1)
+            self.assertGreaterEqual(case["samples"], 1)
+            self.assertLessEqual(case["samples"], 5)
+            self.assertEqual(len(case["sample_ns"]), case["samples"])
+            self.assertEqual(
+                case["total_iterations"], case["iterations"] * case["samples"])
+            self.assertLessEqual(case["min_ns"], case["median_ns"])
+            self.assertLessEqual(case["median_ns"], case["max_ns"])
+            self.assertLessEqual(case["ci_low_ns"], case["mean_ns"])
+            self.assertLessEqual(case["mean_ns"], case["ci_high_ns"])
+            self.assertLessEqual(case["min_ns"], case["p95_ns"])
+            self.assertLessEqual(case["p95_ns"], case["p99_ns"])
+            self.assertGreaterEqual(case["stddev_ns"], 0.0)
+            self.assertEqual(case["ci_level"], 0.95)
+            self.assertTrue(case["ci_method"])
+            self.assertGreaterEqual(case["outliers"], 0)
+            self.assertGreaterEqual(case["outliers_severe"], 0)
+            self.assertGreater(case["time_sec"], 0.0)
+            self.assertGreater(min(case["sample_ns"]), 0.0)
+
+        self.assertEqual(by_case["add"]["items_per_iter"], 2)
+        self.assertGreater(by_case["add"]["items_per_sec"], 0.0)
+        counters = {c["name"]: c for c in by_case["add"]["counters"]}
+        self.assertIn("adds", counters)
+        self.assertGreater(counters["adds"]["total"], 0.0)
+        self.assertAlmostEqual(counters["adds"]["per_iter"], 1.0, places=3)
+        self.assertEqual(by_case["mul"]["counters"], [])
+
+    def test_bench_project_filters_cases(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.bench.filter.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"bench_filter_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        self.bench_project_files(project_dir, project_id, ["add", "mul"])
+
+        self.bake(["--local-env=bench_filter", "build", "."], cwd=project_dir)
+
+        filtered = project_dir / "filtered.json"
+        output = self.strip_ansi(self.bake(
+            ["--local-env=bench_filter", "run", ".", "--",
+             "--time", "0.1", "--samples", "3", "--sample-time", "0.001",
+             "--filter", "mul", "--json", str(filtered)],
+            cwd=project_dir))
+        self.assertIn("Alpha.mul", output)
+        self.assertNotIn("Alpha.add", output)
+        data = json.loads(filtered.read_text())
+        self.assertEqual([b["case"] for b in data["benchmarks"]], ["mul"])
+
+        single = project_dir / "single.json"
+        self.bake(
+            ["--local-env=bench_filter", "run", ".", "--", "Alpha.add",
+             "--time", "0.1", "--samples", "3", "--sample-time", "0.001",
+             "--json", str(single)],
+            cwd=project_dir)
+        data = json.loads(single.read_text())
+        self.assertEqual([b["case"] for b in data["benchmarks"]], ["add"])
+
+        self.bake_expect_failure(
+            ["--local-env=bench_filter", "run", ".", "--", "--filter", "nope",
+             "--time", "0.1", "--samples", "3", "--sample-time", "0.001"],
+            cwd=project_dir)
+
+    def test_bench_project_compares_against_baseline(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.bench.baseline.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"bench_baseline_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        self.bench_project_files(project_dir, project_id, ["add", "mul"])
+
+        baseline = project_dir / "baseline.json"
+        bench_args = [
+            "--time", "0.1", "--samples", "3", "--sample-time", "0.001"]
+        self.bake(
+            ["--local-env=bench_baseline", "run", ".", "--",
+             *bench_args, "--json", str(baseline)],
+            cwd=project_dir)
+
+        output = self.strip_ansi(self.bake(
+            ["--local-env=bench_baseline", "run", ".", "--",
+             *bench_args, "--baseline", str(baseline)],
+            cwd=project_dir))
+        self.assertIn("vs baseline", output)
+        self.assertIn("0 regression(s)", output)
+
+        faster = json.loads(baseline.read_text())
+        for case in faster["benchmarks"]:
+            case["median_ns"] = case["median_ns"] / 4.0
+        faster_path = project_dir / "faster.json"
+        faster_path.write_text(json.dumps(faster, indent=2))
+
+        output = self.strip_ansi(self.bake(
+            ["--local-env=bench_baseline", "run", ".", "--",
+             *bench_args, "--baseline", str(faster_path), "--threshold", "0.05"],
+            cwd=project_dir))
+        self.assertIn("(regression)", output)
+        self.assertIn("REGRESSION Alpha.add", output)
+        self.assertIn("2 regression(s)", output)
+
+        output = self.strip_ansi(self.bake_expect_failure(
+            ["--local-env=bench_baseline", "run", ".", "--",
+             *bench_args, "--baseline", str(faster_path),
+             "--fail-on-regression"],
+            cwd=project_dir))
+        self.assertIn("REGRESSION Alpha.mul", output)
+
     def test_setup_local_reinstalls_executable_bake_binary(self) -> None:
         installed_bake = self.bake_home / f"bake3{EXE_SUFFIX}"
         self.assertTrue(installed_bake.is_file(), f"Expected installed bake binary at {installed_bake}")
