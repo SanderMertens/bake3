@@ -2387,6 +2387,7 @@ class BakeTests(unittest.TestCase):
             installed_bake.stat().st_mode & stat.S_IXUSR,
             f"Test setup failed to remove execute bit from {installed_bake}",
         )
+        inode_before = installed_bake.stat().st_ino
 
         self.bake(["setup", "--local"])
 
@@ -2394,6 +2395,12 @@ class BakeTests(unittest.TestCase):
             installed_bake.stat().st_mode & stat.S_IXUSR,
             f"Expected setup to restore execute bit on {installed_bake}",
         )
+        self.assertNotEqual(
+            inode_before, installed_bake.stat().st_ino,
+            "setup must replace the installed binary instead of overwriting it "
+            "in place, which breaks processes that are running it",
+        )
+        self.run_cmd([str(installed_bake), "--help"])
 
     def test_local_env_routes_build_outputs_to_workspace_env(self) -> None:
         target = "test/projects/c/app_helloworld"

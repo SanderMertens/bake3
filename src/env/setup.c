@@ -112,7 +112,12 @@ int bake_env_setup(bake_context_t *ctx, const char *argv0) {
 
     int rc = 0;
     if (!bake_path_equal_normalized(src, dst)) {
-        rc = bake_os_file_copy(src, dst);
+        if (bake_remove_file_if_exists(dst) != 0) {
+            ecs_err("failed to remove installed bake executable at %s", dst);
+            rc = -1;
+        } else {
+            rc = bake_os_file_copy(src, dst);
+        }
     }
 
     if (rc == 0) {
