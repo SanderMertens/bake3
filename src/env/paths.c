@@ -1,5 +1,6 @@
 #include "bake/environment.h"
 #include "bake/os.h"
+#include "bake/ps.h"
 #include "env_internal.h"
 
 static char* bake_env_artefact_path_impl(
@@ -151,6 +152,52 @@ int bake_env_init_paths(bake_context_t *ctx) {
     }
 
     if (bake_env_ensure_local_test_templates(ctx) != 0) {
+        return -1;
+    }
+
+    return 0;
+}
+
+char* bake_env_name(const bake_context_t *ctx) {
+    if (!ctx || !ctx->bake_home || !ctx->bake_home[0]) {
+        return NULL;
+    }
+
+    char *name = NULL;
+    bake_ps_env_kind_t kind = bake_ps_env_from_home(ctx->bake_home, &name);
+    if (kind != BakePsEnvLocal) {
+        ecs_os_free(name);
+        return ecs_os_strdup(BAKE_PS_ENV_GLOBAL);
+    }
+
+    if (name && name[0]) {
+        return name;
+    }
+
+    ecs_os_free(name);
+    return ecs_os_strdup(BAKE_PS_ENV_LOCAL);
+}
+
+int bake_env_export_vars(const bake_context_t *ctx) {
+    if (!ctx || !ctx->bake_home) {
+        return -1;
+    }
+
+    if (bake_os_setenv("BAKE_HOME", ctx->bake_home) != 0) {
+        ecs_err("failed to set BAKE_HOME environment variable");
+        return -1;
+    }
+
+    char *name = bake_env_name(ctx);
+    if (!name) {
+        ecs_err("failed to resolve bake environment name");
+        return -1;
+    }
+
+    int rc = bake_os_setenv("BAKE_ENVIRONMENT", name);
+    ecs_os_free(name);
+    if (rc != 0) {
+        ecs_err("failed to set BAKE_ENVIRONMENT environment variable");
         return -1;
     }
 

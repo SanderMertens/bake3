@@ -18,6 +18,9 @@ int bake_env_sync_project(
     const BakeBuildRequest *req,
     bool rebuilt);
 
+char* bake_env_name(const bake_context_t *ctx);
+int bake_env_export_vars(const bake_context_t *ctx);
+
 bool bake_env_is_local(void);
 const char* bake_env_home(void);
 char* bake_env_etc_dir(const bake_context_t *ctx, const char *id);

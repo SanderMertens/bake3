@@ -1074,6 +1074,10 @@ static int bake_run_em_artefact(const char *artefact, int32_t requested_port) {
 int bake_build_run(bake_context_t *ctx) {
     int rc = 0;
 
+    if (bake_env_export_vars(ctx) != 0) {
+        return -1;
+    }
+
     char *target_path = NULL;
     if (bake_prepare_discovery(ctx, &target_path) != 0) {
         return -1;
