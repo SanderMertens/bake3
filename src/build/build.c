@@ -1,4 +1,5 @@
 #include "build_internal.h"
+#include "bake/build_report.h"
 #include "bake/bundle.h"
 #include "bake/environment.h"
 #include "bake/test_harness.h"
@@ -481,57 +482,100 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
             goto cleanup;
         }
 
-        if (cfg->kind == BAKE_PROJECT_BENCH) {
+        bool is_bench = cfg->kind == BAKE_PROJECT_BENCH;
+        int32_t harness_step = bake_report_open(ctx->report,
+            BAKE_REPORT_KIND_GENERATE,
+            is_bench ? "bench harness main" : "test harness main", cfg->id);
+
+        if (is_bench) {
             if (bake_bench_generate_harness(ctx, cfg, test_exe_path) != 0) {
+                bake_report_close(ctx->report, harness_step, false,
+                    "bench harness generation failed");
                 ecs_err("bench harness generation failed for %s", cfg->id);
                 goto cleanup;
             }
+            bake_report_close(ctx->report, harness_step, true, NULL);
 
             if (cfg->has_bench_spec) {
+                int32_t api_step = bake_report_open(ctx->report,
+                    BAKE_REPORT_KIND_GENERATE, "bench api", cfg->id);
                 if (bake_bench_generate_builtin_api(ctx, cfg, paths.gen_dir, &builtin_test_src) != 0) {
+                    bake_report_close(ctx->report, api_step, false,
+                        "bench api generation failed");
                     ecs_err("failed to generate bench API for %s", cfg->id);
                     goto cleanup;
                 }
+                bake_report_close(ctx->report, api_step, true, NULL);
             }
         } else {
             if (bake_test_generate_harness(ctx, cfg, test_exe_path) != 0) {
+                bake_report_close(ctx->report, harness_step, false,
+                    "test harness generation failed");
                 ecs_err("test harness generation failed for %s", cfg->id);
                 goto cleanup;
             }
+            bake_report_close(ctx->report, harness_step, true, NULL);
 
             if (cfg->has_test_spec) {
+                int32_t api_step = bake_report_open(ctx->report,
+                    BAKE_REPORT_KIND_GENERATE, "test api", cfg->id);
                 if (bake_test_generate_builtin_api(ctx, cfg, paths.gen_dir, &builtin_test_src) != 0) {
+                    bake_report_close(ctx->report, api_step, false,
+                        "test api generation failed");
                     ecs_err("failed to generate test API for %s", cfg->id);
                     goto cleanup;
                 }
+                bake_report_close(ctx->report, api_step, true, NULL);
             }
         }
     }
 
-    if (ecs_vec_count(&cfg->rules.vec) &&
-        bake_execute_rules(ctx->world, project_entity, cfg, &paths) != 0)
-    {
-        ecs_err("rule execution failed for %s", cfg->id);
-        goto cleanup;
+    if (ecs_vec_count(&cfg->rules.vec)) {
+        int32_t rules_step = bake_report_open(ctx->report,
+            BAKE_REPORT_KIND_GENERATE, "rules", cfg->id);
+        int rules_rc = bake_execute_rules(ctx->world, project_entity, cfg, &paths);
+        bake_report_close(ctx->report, rules_step, rules_rc == 0,
+            rules_rc == 0 ? NULL : "rule execution failed");
+        if (rules_rc != 0) {
+            ecs_err("rule execution failed for %s", cfg->id);
+            goto cleanup;
+        }
     }
 
     if (bake_amalgamate_list_count(&cfg->amalgamate) > 0) {
-        if (bake_generate_project_amalgamation(cfg) != 0) {
+        int32_t amalg_step = bake_report_open(ctx->report,
+            BAKE_REPORT_KIND_GENERATE, "amalgamate", cfg->id);
+        int amalg_rc = bake_generate_project_amalgamation(cfg);
+        bake_report_close(ctx->report, amalg_step, amalg_rc == 0,
+            amalg_rc == 0 ? NULL : "amalgamation failed");
+        if (amalg_rc != 0) {
             ecs_err("amalgamation failed for %s", cfg->id);
             goto cleanup;
         }
     }
 
-    if (bake_generate_config_header(ctx->world, cfg) != 0) {
-        ecs_err("bake_config.h generation failed for %s", cfg->id);
-        goto cleanup;
+    {
+        int32_t header_step = bake_report_open(ctx->report,
+            BAKE_REPORT_KIND_GENERATE, "bake_config.h", cfg->id);
+        int header_rc = bake_generate_config_header(ctx->world, cfg);
+        bake_report_close(ctx->report, header_step, header_rc == 0,
+            header_rc == 0 ? NULL : "bake_config.h generation failed");
+        if (header_rc != 0) {
+            ecs_err("bake_config.h generation failed for %s", cfg->id);
+            goto cleanup;
+        }
     }
 
     bool standalone = (request->standalone || cfg->standalone) &&
         (cfg->kind == BAKE_PROJECT_APPLICATION || bake_project_kind_is_harness(cfg->kind));
 
     if (standalone) {
-        if (bake_prepare_standalone_sources(ctx, project_entity, cfg) != 0) {
+        int32_t deps_step = bake_report_open(ctx->report,
+            BAKE_REPORT_KIND_GENERATE, "standalone deps", cfg->id);
+        int deps_rc = bake_prepare_standalone_sources(ctx, project_entity, cfg);
+        bake_report_close(ctx->report, deps_step, deps_rc == 0,
+            deps_rc == 0 ? NULL : "standalone amalgamation failed");
+        if (deps_rc != 0) {
             ecs_err("standalone amalgamation failed for %s", cfg->id);
             goto cleanup;
         }
@@ -639,10 +683,14 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 
     char *artefact = NULL;
     bool linked = false;
-    if (bake_link_project_binary(
+    int32_t link_step = bake_report_open(ctx->report, BAKE_REPORT_KIND_LINK,
+        "link", cfg->id);
+    int link_rc = bake_link_project_binary(
         ctx, project_entity, cfg, &paths, &units, &c_lang, &mode_ldflags,
-        flags_changed, standalone, &artefact, &linked) != 0)
-    {
+        flags_changed, standalone, &artefact, &linked);
+    bake_report_close(ctx->report, link_step, link_rc == 0,
+        link_rc == 0 ? NULL : "link command failed");
+    if (link_rc != 0) {
         ecs_err("link failed for %s", cfg->id);
         goto cleanup;
     }
@@ -795,11 +843,20 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
         if (!req) continue;
 
         const BakeProject *project = ecs_get(ctx->world, order[i], BakeProject);
-        if (project && project->cfg && !project->external) {
+        bool own_project = project && project->cfg && !project->external;
+        if (own_project) {
             bake_log_build_header(ctx, project->cfg);
         }
 
-        if (bake_build_one(ctx, order[i], req) != 0) {
+        int32_t project_step = own_project
+            ? bake_report_open(ctx->report, BAKE_REPORT_KIND_PROJECT,
+                project->cfg->id, project->cfg->id)
+            : BAKE_REPORT_NO_STEP;
+
+        int build_rc = bake_build_one(ctx, order[i], req);
+        bake_report_close(ctx->report, project_step, build_rc == 0, NULL);
+
+        if (build_rc != 0) {
             goto cleanup;
         }
     }
@@ -815,6 +872,8 @@ cleanup:
  * target_path_out so commands do not have to resolve it again. */
 static int bake_prepare_discovery(bake_context_t *ctx, char **target_path_out) {
     int rc = -1;
+    int32_t step = bake_report_open(ctx->report, BAKE_REPORT_KIND_DISCOVERY,
+        "discovery", NULL);
     const char *target = bake_effective_build_target(ctx);
     char *target_path = bake_resolve_target_path(ctx, target);
     char *target_root = NULL;
@@ -841,6 +900,8 @@ static int bake_prepare_discovery(bake_context_t *ctx, char **target_path_out) {
     rc = 0;
 
 cleanup:
+    bake_report_close(ctx->report, step, rc == 0,
+        rc == 0 ? NULL : "project discovery failed");
     if (rc == 0 && target_path_out) {
         *target_path_out = target_path;
         target_path = NULL;
@@ -1080,13 +1141,17 @@ int bake_build_run(bake_context_t *ctx) {
 
     char *target_path = NULL;
     if (bake_prepare_discovery(ctx, &target_path) != 0) {
+        bake_report_finish(ctx->report, false);
         return -1;
     }
 
     const char *effective_target = bake_effective_build_target(ctx);
     const char *target_resolved = target_path ? target_path : effective_target;
 
-    if (bake_execute_build_graph(ctx, target_resolved, true, ctx->opts.standalone) != 0) {
+    int build_rc = bake_execute_build_graph(
+        ctx, target_resolved, true, ctx->opts.standalone);
+    bake_report_finish(ctx->report, build_rc == 0);
+    if (build_rc != 0) {
         rc = -1;
         goto cleanup;
     }

@@ -1,3 +1,4 @@
+#include "bake/build_report.h"
 #include "bake/discovery.h"
 #include "bake/environment.h"
 #include "bake/os.h"
@@ -74,21 +75,29 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
 }
 
 static int bake_discovery_resolve_dependencies(bake_context_t *ctx) {
+    int32_t step = bake_report_open(ctx->report, BAKE_REPORT_KIND_DISCOVERY,
+        "resolve dependencies", NULL);
+    int rc = -1;
+
     if (bake_env_import_dependency_closure(ctx) < 0) {
-        return -1;
+        goto done;
     }
 
     bake_model_link_dependencies(ctx->world);
 
     if (bake_env_resolve_external_dependency_binaries(ctx) < 0) {
-        return -1;
+        goto done;
     }
 
     if (bake_model_refresh_resolved_deps(ctx->world, ctx->opts.mode) != 0) {
-        return -1;
+        goto done;
     }
 
-    return 0;
+    rc = 0;
+done:
+    bake_report_close(ctx->report, step, rc == 0,
+        rc == 0 ? NULL : "dependency resolution failed");
+    return rc;
 }
 
 int bake_discover_projects(
@@ -102,7 +111,13 @@ int bake_discover_projects(
         .skip_special_dirs = skip_special_dirs
     };
 
-    if (bake_dir_walk_recursive(start_path, bake_discovery_visit, &discovery) != 0) {
+    int32_t step = bake_report_open(ctx->report, BAKE_REPORT_KIND_DISCOVERY,
+        start_path, NULL);
+    int walk_rc = bake_dir_walk_recursive(start_path, bake_discovery_visit, &discovery);
+    bake_report_close(ctx->report, step, walk_rc == 0,
+        walk_rc == 0 ? NULL : "project scan failed");
+
+    if (walk_rc != 0) {
         return -1;
     }
 

@@ -1,4 +1,5 @@
 #include "build_internal.h"
+#include "bake/build_report.h"
 #include "compile_internal.h"
 #include "depcheck_internal.h"
 #include "bake/os.h"
@@ -242,6 +243,7 @@ typedef struct bake_compile_ctx_t {
     const bake_strlist_t *mode_cxxflags;
     bake_strlist_t dep_includes;
     bool *compile_mask;
+    int32_t report_parent;
     int32_t compile_total;
     int32_t compile_done;
     ecs_os_mutex_t print_lock;
@@ -302,6 +304,12 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
     }
     ecs_os_free(display_path);
 
+    char *source_path = bake_display_path(unit->src, ctx->cfg ? ctx->cfg->path : NULL);
+    int32_t step = bake_report_open_under(ctx->ctx->report, ctx->report_parent,
+        BAKE_REPORT_KIND_COMPILE, source_path, ctx->cfg ? ctx->cfg->id : NULL);
+    bake_report_set_object(ctx->ctx->report, step, unit->obj);
+    ecs_os_free(source_path);
+
     const bake_lang_cfg_t *lang = unit->cpp ? ctx->cpp_lang : ctx->c_lang;
     const bake_strlist_t *mode_flags = unit->cpp ? ctx->mode_cxxflags : ctx->mode_cflags;
 
@@ -324,6 +332,9 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
     char *command = ecs_strbuf_get(&cmd);
     int rc = bake_run_compiler_command(ctx->ctx, ctx->print_lock, command);
     ecs_os_free(command);
+
+    bake_report_close(ctx->ctx->report, step, rc == 0,
+        rc == 0 ? NULL : "compile command failed");
     return rc;
 }
 
@@ -384,6 +395,7 @@ int bake_compile_units_parallel(
         .cpp_lang = cpp_lang,
         .mode_cflags = mode_cflags,
         .mode_cxxflags = mode_cxxflags,
+        .report_parent = bake_report_current(ctx->report),
     };
 
     int rc = -1;

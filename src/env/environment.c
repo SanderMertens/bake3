@@ -1,3 +1,4 @@
+#include "bake/build_report.h"
 #include "bake/environment.h"
 #include "bake/os.h"
 #include "env_internal.h"
@@ -546,7 +547,16 @@ int bake_env_sync_project(
         return 0;
     }
 
-    if (bake_env_sync_etc(ctx, cfg) != 0) {
+    char *etc_install = bake_env_etc_install_path(ctx, cfg);
+    int32_t etc_step = etc_install
+        ? bake_report_open(ctx->report, BAKE_REPORT_KIND_ETC, "etc", cfg->id)
+        : BAKE_REPORT_NO_STEP;
+    ecs_os_free(etc_install);
+
+    int etc_rc = bake_env_sync_etc(ctx, cfg);
+    bake_report_close(ctx->report, etc_step, etc_rc == 0,
+        etc_rc == 0 ? NULL : "etc install failed");
+    if (etc_rc != 0) {
         return -1;
     }
 

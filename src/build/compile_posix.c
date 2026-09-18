@@ -1,5 +1,6 @@
 #include "build_internal.h"
 #include "compile_internal.h"
+#include "bake/build_report.h"
 #include "bake/os.h"
 
 #include <string.h>
@@ -196,6 +197,11 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
             }
         }
 
+        int32_t embed_step = ctx->lang->embed.count
+            ? bake_report_open(ctx->ctx->report, BAKE_REPORT_KIND_OTHER,
+                "embed", ctx->cfg->id)
+            : BAKE_REPORT_NO_STEP;
+
         for (int32_t i = 0; i < ctx->lang->embed.count; i++) {
             const char *entry = ctx->lang->embed.items[i];
             if (bake_path_is_abs(entry) || strchr(entry, '@')) {
@@ -208,6 +214,8 @@ int bake_compose_link_command_posix(const bake_link_cmd_ctx_t *ctx, ecs_strbuf_t
                 ecs_os_free(src);
             }
         }
+
+        bake_report_close(ctx->ctx->report, embed_step, true, NULL);
     }
 
     bake_strbuf_append_quoted_path(cmd, " -o ", ctx->artefact);

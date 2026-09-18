@@ -1,3 +1,4 @@
+#include "bake/build_report.h"
 #include "bake/bundle.h"
 #include "bake/discovery.h"
 #include "bake/environment.h"
@@ -808,6 +809,9 @@ static int bake_bundle_prepare_one(
         : ctx->opts.mode;
 
     int rc = -1;
+    int32_t step = bake_report_open(ctx->report, BAKE_REPORT_KIND_BUNDLE,
+        bundle->id, cfg->id);
+    const char *error = NULL;
     char *triplet = bake_host_triplet(ctx->opts.mode);
     char *root_dir = bake_bundle_root_dir(cfg, bundle);
     char *src_dir = bake_bundle_source_dir(root_dir);
@@ -856,8 +860,14 @@ static int bake_bundle_prepare_one(
         ecs_os_free(src_root);
 
         ecs_trace("#[green][#[normal] bundle#[green]]#[normal] fetching %s", bundle->id);
-        if (bake_bundle_clone(bundle, src_dir) != 0) {
+        int32_t fetch_step = bake_report_open(ctx->report,
+            BAKE_REPORT_KIND_BUNDLE, "fetch", cfg->id);
+        int clone_rc = bake_bundle_clone(bundle, src_dir);
+        bake_report_close(ctx->report, fetch_step, clone_rc == 0,
+            clone_rc == 0 ? NULL : "bundle fetch failed");
+        if (clone_rc != 0) {
             ecs_err("failed to clone bundle '%s'", bundle->id);
+            error = "bundle fetch failed";
             goto cleanup;
         }
     }
@@ -916,11 +926,16 @@ static int bake_bundle_prepare_one(
             }
 
             ecs_trace("#[green][#[normal] bundle#[green]]#[normal] building %s", bundle->id);
+            int32_t build_step = bake_report_open(ctx->report,
+                BAKE_REPORT_KIND_BUNDLE, "build", cfg->id);
             int build_rc = uses_cargo
                 ? bake_bundle_run_cargo(bundle, bundle_src_dir, install_dir, mode)
                 : bake_bundle_run_cmake(bundle, bundle_src_dir, build_dir, install_dir, mode);
+            bake_report_close(ctx->report, build_step, build_rc == 0,
+                build_rc == 0 ? NULL : "bundle build failed");
             if (build_rc != 0) {
                 ecs_err("failed to build bundle '%s'", bundle->id);
+                error = "bundle build failed";
                 ecs_os_free(fingerprint);
                 goto cleanup;
             }
@@ -940,6 +955,8 @@ static int bake_bundle_prepare_one(
     rc = 0;
 
 cleanup:
+    bake_report_close(ctx->report, step, rc == 0,
+        rc == 0 ? NULL : (error ? error : "bundle preparation failed"));
     bake_os_lock_release(&lock);
     ecs_os_free(lock_path);
     ecs_os_free(triplet);
