@@ -179,18 +179,44 @@ char* bake_env_find_test_template_source(void) {
     return NULL;
 }
 
+static bool bake_env_test_templates_stale(const char *src, const char *dst) {
+    if (!src) {
+        return false;
+    }
+
+    size_t template_count =
+        sizeof(bake_env_required_test_templates) / sizeof(bake_env_required_test_templates[0]);
+    for (size_t i = 0; i < template_count; i++) {
+        const char *name = bake_env_required_test_templates[i];
+        char *src_path = bake_path_join(src, name);
+        char *dst_path = bake_path_join(dst, name);
+        int64_t src_mtime = bake_os_file_mtime(src_path);
+        int64_t dst_mtime = bake_os_file_mtime(dst_path);
+        ecs_os_free(src_path);
+        ecs_os_free(dst_path);
+        if (src_mtime > dst_mtime) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 int bake_env_ensure_local_test_templates(const bake_context_t *ctx) {
     if (!(ctx && ctx->opts.local_env) && !bake_env_is_local()) {
         return 0;
     }
 
     char *test_dst = bake_path_join(ctx->bake_home, "test");
-    if (bake_env_has_required_test_templates(test_dst, NULL)) {
+    char *test_src = bake_env_find_test_template_source();
+    if (bake_env_has_required_test_templates(test_dst, NULL) &&
+        !bake_env_test_templates_stale(test_src, test_dst))
+    {
+        ecs_os_free(test_src);
         ecs_os_free(test_dst);
         return 0;
     }
 
-    char *test_src = bake_env_find_test_template_source();
     if (!test_src) {
         ecs_err(
             "failed to initialize local test harness templates at %s; "
