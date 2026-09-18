@@ -115,6 +115,7 @@ Options:
   --all-users         ps only: include processes of other users in the scan
   --full              ps only: print untruncated workspace and command columns
   --kill <pid|env>    ps only: stop a listed process, environment or env kind
+  --build-json <file> Write a json report of the build with per step timings
   --local-env[=<name>] Use ./.bake/local_env (or ./.bake/local_env/<name>) as isolated BAKE_HOME and build root
   --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)
   --standalone        Use amalgamated dependency sources in deps/
@@ -748,6 +749,141 @@ same field style as the test report:
 
 `items_per_sec` is only written when `bench_set_items` was called, and
 `baseline_median_ns` and `change` are added per case when `--baseline` is used.
+
+## Build reports
+`--build-json <file>` writes one json document that describes the build bake
+just ran, with a timing for every step. It is accepted by `bake`, `bake build`,
+`bake rebuild`, `bake run`, `bake test` and `bake bench`, and describes the
+build those commands trigger, not the program or the test run that follows:
+
+```sh
+bake3 build my_app --build-json /tmp/build.json
+bake3 test test/core --local-env --build-json /tmp/test-build.json -- -j 12
+```
+
+The path may be relative (it is resolved against the working directory) and
+missing parent directories are created. The report is written whether the build
+succeeds or fails: on a failure the top level `ok` is `false`, the step that
+failed has `"ok": false` and an `error`, and every step that contains it is
+`"ok": false` as well.
+
+```json
+{
+  "tool": "bake3",
+  "tool_version": "1.0.0",
+  "timestamp": "2026-09-18T07:50:34Z",
+  "host": {"os": "Darwin", "arch": "arm64", "cpu_count": 16},
+  "cfg": "debug",
+  "target": "arm64-Darwin",
+  "environment": "global",
+  "git": {"sha": "0c077ef...", "dirty": false, "branch": "main"},
+  "total_sec": 1.204312,
+  "ok": true,
+  "totals": {
+    "kind": {
+      "compile": 0.812044, "link": 0.238110, "bundle": 0.000000,
+      "discovery": 0.004301, "generate": 0.000512, "etc": 0.000188,
+      "other": 0.000000
+    },
+    "project": {
+      "my_app": {
+        "total_sec": 1.021355, "compile_sec": 0.812044,
+        "link_sec": 0.238110, "files": 12
+      }
+    }
+  },
+  "steps": [
+    {
+      "name": "discovery", "kind": "discovery", "project": null,
+      "start_sec": 0.000102, "duration_sec": 0.004301, "ok": true,
+      "children": [
+        {"name": "/home/me/work", "kind": "discovery", "project": null,
+         "start_sec": 0.000104, "duration_sec": 0.003912, "ok": true,
+         "children": []},
+        {"name": "resolve dependencies", "kind": "discovery", "project": null,
+         "start_sec": 0.004016, "duration_sec": 0.000387, "ok": true,
+         "children": []}
+      ]
+    },
+    {
+      "name": "my_app", "kind": "project", "project": "my_app",
+      "start_sec": 0.004501, "duration_sec": 1.021355, "ok": true,
+      "children": [
+        {"name": "bake_config.h", "kind": "generate", "project": "my_app",
+         "start_sec": 0.004612, "duration_sec": 0.000512, "ok": true,
+         "children": []},
+        {"name": "src/main.c", "kind": "compile", "project": "my_app",
+         "start_sec": 0.005230, "duration_sec": 0.412009, "ok": true,
+         "object": "/home/me/work/my_app/.bake/arm64-Darwin-debug/obj/src/main.c.o",
+         "children": []},
+        {"name": "link", "kind": "link", "project": "my_app",
+         "start_sec": 0.787620, "duration_sec": 0.238110, "ok": true,
+         "children": []},
+        {"name": "etc", "kind": "etc", "project": "my_app",
+         "start_sec": 1.025731, "duration_sec": 0.000188, "ok": true,
+         "children": []}
+      ]
+    }
+  ]
+}
+```
+
+Top level fields:
+
+- `tool`, `tool_version`: the tool that wrote the report.
+- `timestamp`: utc time the invocation started.
+- `host`: the machine bake ran on.
+- `cfg`: the build mode (`--cfg`, `debug` by default).
+- `target`: `em` for the emscripten target, otherwise the native `<arch>-<os>`
+  triplet the artefacts were built for.
+- `environment`: `global`, `local` for `--local-env`, or the name for
+  `--local-env=<name>`.
+- `git`: `sha`, `dirty` and `branch` of the working directory when it is inside
+  a git repository, `null` when it is not. `branch` is `HEAD` on a detached
+  head.
+- `total_sec`: wall clock of the invocation, from just after bake collected the
+  report header to the moment the build finished.
+- `ok`: whether the build succeeded.
+
+### Steps
+`steps` is a tree. Every step has `name`, `kind`, `project` (`null` when the
+step is not part of one project), `start_sec` (offset from the start of the
+invocation), `duration_sec`, `ok`, an optional `error`, and `children`. Steps
+are listed in the order they started, and a parallel compile keeps its own wall
+clock start and duration, so sibling compiles overlap.
+
+- `discovery`: the workspace scan (one per scanned root, named after the root)
+  and the `resolve dependencies` pass, nested under one `discovery` step.
+- `bundle`: one step per bundle of a project, with a `fetch` child when the
+  bundle was cloned and a `build` child when it was (re)built.
+- `project`: a container for everything bake did for one project. Its
+  `duration_sec` is the project's share of the build.
+- `generate`: generated code. `test harness main` / `bench harness main` and
+  `test api` / `bench api` for test and benchmark projects, `bake_config.h` for
+  every project, plus `rules`, `amalgamate` and `standalone deps` when the
+  project uses them.
+- `compile`: one step per source file that was actually compiled, named after
+  the source path relative to the project, with the `object` path it produced.
+  Files that were up to date do not appear.
+- `link`: the link (or `ar`) command of the project. For the emscripten target
+  it has an `embed` child when the project embeds assets: emcc embeds them as
+  part of the link, so that step records what is embedded and only times the
+  arguments bake composes for it.
+- `etc`: the install of the project's `etc` folder into the bake environment.
+
+### Totals
+`totals` repeats the same numbers in aggregated form, so a page can show
+summaries without walking the tree.
+
+`totals.kind` sums `duration_sec` per kind over the steps that have no
+children, so container steps (a `project`, a `bundle` with a fetch and a build)
+are never counted twice. Because parallel compiles are timed individually,
+`totals.kind.compile` is the sum of the compiles and can exceed the wall clock
+of the build.
+
+`totals.project` holds one entry per project: `total_sec` (the time of the
+steps bake spent on that project, which includes its bundles), `compile_sec`,
+`link_sec` and `files`, the number of source files that were compiled.
 
 ## Project discovery
 When bake is called on a directory, it will recursively discover all other bake projects in that directory. A bake project is identified as a project with a `project.json`. The command specified on the bake command line will then be executed for all discovered projects.
