@@ -8,6 +8,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import tempfile
 import time
 import unittest
 import urllib.request
@@ -2364,6 +2365,237 @@ class BakeTests(unittest.TestCase):
              "--fail-on-regression"],
             cwd=project_dir))
         self.assertIn("REGRESSION Alpha.mul", output)
+
+    @staticmethod
+    def report_steps(report: dict) -> list[dict]:
+        """Flatten the step tree of a build report into a list."""
+        found: list[dict] = []
+
+        def walk(steps: list[dict]) -> None:
+            for step in steps:
+                found.append(step)
+                walk(step["children"])
+
+        walk(report["steps"])
+        return found
+
+    def write_build_json_app(self, name: str) -> tuple[Path, str]:
+        project_dir, app_id = self.write_simple_app_project(
+            name,
+            "#include <stdio.h>\n"
+            "int helper(void);\n"
+            "int main(void) {\n"
+            '    printf("build json %d\\n", helper());\n'
+            "    return 0;\n"
+            "}\n",
+        )
+        (project_dir / "src" / "helper.c").write_text("int helper(void) { return 2; }\n")
+        return project_dir, app_id
+
+    def test_build_json_writes_a_native_build_report(self) -> None:
+        project_dir, app_id = self.write_build_json_app("build_json_native")
+        report_path = project_dir / "reports" / "build.json"
+
+        self.bake(["build", str(project_dir), "--build-json", str(report_path)])
+
+        self.assertTrue(report_path.is_file(), f"Expected build report at {report_path}")
+        report = json.loads(report_path.read_text())
+
+        self.assertEqual(report["tool"], "bake3")
+        self.assertTrue(report["tool_version"])
+        self.assertRegex(report["timestamp"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+        self.assertEqual(report["host"]["os"], platform.system())
+        self.assertEqual(report["host"]["arch"], self.host_arch())
+        self.assertGreater(report["host"]["cpu_count"], 0)
+        self.assertEqual(report["cfg"], "debug")
+        self.assertEqual(report["target"], f"{self.host_arch()}-{platform.system()}")
+        self.assertEqual(report["environment"], "global")
+        self.assertTrue(report["ok"])
+        self.assertGreater(report["total_sec"], 0.0)
+
+        steps = self.report_steps(report)
+        self.assertIn("discovery", {step["kind"] for step in steps})
+
+        compiles = [step for step in steps if step["kind"] == "compile"]
+        self.assertEqual(
+            sorted(step["name"] for step in compiles),
+            ["src/helper.c", "src/main.c"])
+        for step in compiles:
+            self.assertTrue(step["ok"])
+            self.assertEqual(step["project"], app_id)
+            self.assertGreater(step["duration_sec"], 0.0)
+            self.assertGreaterEqual(step["start_sec"], 0.0)
+            self.assertTrue(
+                step["object"].endswith(OBJ_SUFFIX),
+                f"Expected an object path on a compile step, got {step['object']}")
+
+        links = [step for step in steps if step["kind"] == "link"]
+        self.assertEqual(len(links), 1)
+        self.assertGreater(links[0]["duration_sec"], 0.0)
+
+        project_steps = [step for step in steps if step["kind"] == "project"]
+        self.assertEqual([step["name"] for step in project_steps], [app_id])
+        child_kinds = {child["kind"] for child in project_steps[0]["children"]}
+        self.assertIn("compile", child_kinds)
+        self.assertIn("link", child_kinds)
+
+        totals = report["totals"]
+        self.assertEqual(
+            set(totals["kind"]),
+            {"compile", "link", "bundle", "discovery", "generate", "etc", "other"})
+        self.assertGreater(totals["kind"]["compile"], 0.0)
+        self.assertGreater(totals["kind"]["link"], 0.0)
+
+        project_totals = totals["project"][app_id]
+        self.assertEqual(project_totals["files"], 2)
+        self.assertGreater(project_totals["compile_sec"], 0.0)
+        self.assertGreater(project_totals["link_sec"], 0.0)
+        self.assertGreater(project_totals["total_sec"], 0.0)
+
+    def test_build_json_reports_a_failing_compile(self) -> None:
+        project_dir, app_id = self.write_simple_app_project(
+            "build_json_failure",
+            "int main(void) { this is not c }\n",
+        )
+        report_path = project_dir / "build.json"
+
+        self.bake_expect_failure(
+            ["build", str(project_dir), "--build-json", str(report_path)])
+
+        self.assertTrue(report_path.is_file(), f"Expected build report at {report_path}")
+        report = json.loads(report_path.read_text())
+        self.assertFalse(report["ok"])
+
+        steps = self.report_steps(report)
+        failed = [
+            step for step in steps if step["kind"] == "compile" and not step["ok"]]
+        self.assertEqual([step["name"] for step in failed], ["src/main.c"])
+        self.assertTrue(failed[0]["error"], "Expected error text on the failing step")
+        self.assertEqual(failed[0]["project"], app_id)
+
+        project_step = next(step for step in steps if step["kind"] == "project")
+        self.assertFalse(project_step["ok"])
+
+    def test_build_json_records_git_of_the_workspace(self) -> None:
+        project_dir, _ = self.write_build_json_app("build_json_git")
+        report_path = project_dir / "build.json"
+
+        self.bake(["build", str(project_dir), "--build-json", str(report_path)])
+
+        report = json.loads(report_path.read_text())
+        sha = self.run_cmd(["git", "rev-parse", "HEAD"]).strip()
+        branch = self.run_cmd(["git", "rev-parse", "--abbrev-ref", "HEAD"]).strip()
+        self.assertEqual(report["git"]["sha"], sha)
+        self.assertEqual(report["git"]["branch"], branch)
+        self.assertIn(report["git"]["dirty"], (True, False))
+
+        outside = Path(tempfile.mkdtemp(prefix="bake_build_json_"))
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        (outside / "src").mkdir(parents=True)
+        (outside / "project.json").write_text(
+            '{\n    "id": "build_json_no_git",\n    "type": "application"\n}\n')
+        (outside / "src" / "main.c").write_text("int main(void) { return 0; }\n")
+
+        self.bake(["build", ".", "--build-json", "build.json"], cwd=outside)
+
+        outside_report = json.loads((outside / "build.json").read_text())
+        self.assertIsNone(
+            outside_report["git"],
+            "A workspace outside a git repository must report a null git field")
+
+    def test_build_json_is_accepted_by_run_and_test(self) -> None:
+        app_dir, _ = self.write_build_json_app("build_json_run")
+        run_report = app_dir / "run.json"
+
+        output = self.strip_ansi(
+            self.bake(["run", str(app_dir), "--build-json", str(run_report)]))
+        self.assertIn("build json 2", output)
+
+        report = json.loads(run_report.read_text())
+        self.assertTrue(report["ok"])
+        self.assertTrue(
+            [step for step in self.report_steps(report) if step["kind"] == "link"],
+            "Expected a link step in the report of a run command")
+
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"build_json_test_{stamp}"
+        test_dir = self.repo_root / "test" / "tmp" / f"build_json_test_{stamp}"
+        self.addCleanup(shutil.rmtree, test_dir, ignore_errors=True)
+        (test_dir / "src").mkdir(parents=True)
+        (test_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": project_id,
+                    "type": "test",
+                    "test": {"testsuites": [{"id": "Alpha", "testcases": ["ok"]}]},
+                },
+                indent=4,
+            ) + "\n"
+        )
+        (test_dir / "src" / "Alpha.c").write_text(
+            "#include <bake_test.h>\n"
+            "void Alpha_ok(void) { test_assert(true); }\n"
+        )
+
+        test_report = test_dir / "test.json"
+        self.bake(
+            ["--local-env=build_json_env", "test", ".",
+             "--build-json", str(test_report)],
+            cwd=test_dir)
+
+        report = json.loads(test_report.read_text())
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["environment"], "build_json_env")
+        generated = {
+            step["name"] for step in self.report_steps(report)
+            if step["kind"] == "generate"}
+        self.assertIn("test harness main", generated)
+        self.assertGreater(report["totals"]["project"][project_id]["files"], 0)
+
+    def test_build_json_is_rejected_for_other_commands(self) -> None:
+        report_path = self.repo_root / "test" / "tmp" / "unused_build_report.json"
+
+        output = self.strip_ansi(self.bake_expect_failure(
+            ["clean", "test", "--build-json", str(report_path)]))
+
+        self.assertIn("--build-json can only be used with", output)
+        self.assertFalse(report_path.exists())
+
+    @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
+    def test_build_json_reports_the_wasm_target(self) -> None:
+        if not self.emsdk_available():
+            self.skipTest("emscripten SDK not available")
+
+        project_dir, app_id = self.write_simple_app_project(
+            "build_json_em",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("hello wasm\\n");\n'
+            "    return 0;\n"
+            "}\n",
+            lang_c='{"embed": ["assets"]}',
+        )
+        (project_dir / "assets").mkdir()
+        (project_dir / "assets" / "data.txt").write_text("asset\n")
+        report_path = project_dir / "build.json"
+
+        self.bake(
+            ["--target", "em", "build", str(project_dir),
+             "--build-json", str(report_path)])
+
+        report = json.loads(report_path.read_text())
+        self.assertEqual(report["target"], "em")
+        self.assertTrue(report["ok"])
+
+        steps = self.report_steps(report)
+        compiles = [step for step in steps if step["kind"] == "compile"]
+        self.assertEqual([step["name"] for step in compiles], ["src/main.c"])
+
+        links = [step for step in steps if step["kind"] == "link"]
+        self.assertEqual(len(links), 1)
+        self.assertGreater(links[0]["duration_sec"], 0.0)
+        self.assertEqual([child["name"] for child in links[0]["children"]], ["embed"])
+        self.assertEqual(report["totals"]["project"][app_id]["files"], 1)
 
     def test_setup_local_reinstalls_executable_bake_binary(self) -> None:
         installed_bake = self.bake_home / f"bake3{EXE_SUFFIX}"
