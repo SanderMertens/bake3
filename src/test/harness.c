@@ -3,6 +3,7 @@
 #include "bake/ps.h"
 
 #include "harness_internal.h"
+#include "common/harness_util.h"
 
 #define BAKE_HARNESS_LOCK_TIMEOUT_SEC (10 * 60)
 
@@ -68,7 +69,7 @@ int bake_test_generate_harness(
         goto cleanup;
     }
 
-    char *main_src = bake_test_source_path(cfg, "main");
+    char *main_src = bake_harness_source_path(cfg, "main");
     bool main_missing = !bake_path_exists(main_src);
     ecs_os_free(main_src);
 

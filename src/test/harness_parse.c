@@ -3,6 +3,7 @@
 
 #include "parson.h"
 #include "common/json_helpers.h"
+#include "common/harness_util.h"
 
 static void bake_param_spec_fini(bake_param_spec_t *param) {
     if (!param) {
@@ -59,29 +60,6 @@ static void bake_suite_param_append(bake_suite_spec_t *suite, bake_param_spec_t 
     suite->params[suite->param_count++] = *param;
 }
 
-static bool bake_test_symbol_chars_valid(const char *name) {
-    if (!name || !name[0]) {
-        return false;
-    }
-    for (const char *p = name; *p; p++) {
-        if (!((*p >= 'a' && *p <= 'z') ||
-              (*p >= 'A' && *p <= 'Z') ||
-              (*p >= '0' && *p <= '9') ||
-              *p == '_'))
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-static bool bake_test_symbol_valid(const char *name) {
-    if (!name || (name[0] >= '0' && name[0] <= '9')) {
-        return false;
-    }
-    return bake_test_symbol_chars_valid(name);
-}
-
 static int bake_parse_test_cases(JSON_Array *tests, bake_suite_spec_t *suite) {
     size_t testcase_count = json_array_get_count(tests);
     for (size_t t = 0; t < testcase_count; t++) {
@@ -92,7 +70,7 @@ static int bake_parse_test_cases(JSON_Array *tests, bake_suite_spec_t *suite) {
                 suite->id, (int)t);
             return -1;
         }
-        if (!bake_test_symbol_chars_valid(name)) {
+        if (!bake_harness_symbol_chars_valid(name)) {
             ecs_err("testsuite '%s': testcase name '%s' contains invalid characters",
                 suite->id, name);
             ecs_os_free(name);
@@ -149,7 +127,7 @@ static int bake_parse_test_suite(const JSON_Object *suite_obj, bake_suite_list_t
         return -1;
     }
 
-    if (!bake_test_symbol_valid(id)) {
+    if (!bake_harness_symbol_valid(id)) {
         ecs_err("testsuite id '%s' is not a valid C identifier", id);
         bake_suite_spec_fini(&suite);
         return -1;
