@@ -94,6 +94,7 @@ Commands:
   build [target]      Build target project and dependencies (default)
   run [target]        Build and run executable target
   test [target]       Build and run test target
+  bench [target]      Build and run benchmark target
   clean [target]      Remove build artifacts
   rebuild [target]    Clean and build
   list                List projects in bake environment
@@ -565,6 +566,178 @@ bake3 run test/core --local-env -- -j 12 --json /tmp/core.json
 A case's `status` is `pass`, `fail`, `empty` (no test statements), `quarantined`
 or `error` (the case command could not be built). Parameterized runs add a
 `params` field.
+
+## Benchmarks
+A project with a `bench` section in its `project.json` is a benchmark project.
+It mirrors [test projects](#test-projects): each listed benchcase is a
+`void <Suite>_<case>(bench_t *b)` function in `src/<Suite>.c`, bake generates
+stubs for cases that are missing together with the harness `main`, and
+`bake3 run bench/<name>` (or `bake3 bench <name>`) builds and runs it. Cases run
+sequentially in one process, because parallel cases would disturb each other's
+measurements.
+
+```json
+{
+    "id": "core",
+    "type": "application",
+    "value": { "use": ["flecs"] },
+    "bench": {
+        "benchsuites": [{
+            "id": "Entity",
+            "benchcases": ["new", "add_component"],
+            "setup": true,
+            "teardown": true
+        }]
+    }
+}
+```
+
+`setup` and `teardown` are optional and generate `void <Suite>_setup(void)` /
+`void <Suite>_teardown(void)`, which run once around each benchcase (not around
+each sample). A project declares either `test` or `bench`, not both.
+
+### Writing a benchcase
+The framework owns the iteration count. A case loops until `bench_iter` returns
+false; everything inside the loop is measured:
+
+```c
+#include <bake_bench.h>
+
+void Entity_new(bench_t *b) {
+    ecs_world_t *world = ecs_init();
+
+    bench_set_items(b, 1);
+
+    while (bench_iter(b)) {
+        ecs_entity_t e = ecs_new(world);
+        bench_keep(e);
+        bench_counter(b, "entities", 1.0);
+    }
+
+    ecs_fini(world);
+}
+```
+
+The API lives in `bake_bench.h`, which bake copies into the project's generated
+directory (the same way `bake_test.h` is copied for tests):
+
+- `bool bench_iter(bench_t *b)`: hot loop condition. Inline; it warms up, scales
+  the iteration count and closes samples without leaving the loop.
+- `void bench_pause(bench_t *b)` / `void bench_resume(bench_t *b)`: exclude
+  per-iteration setup from the measured time. Time between a pause and a resume
+  is subtracted from the sample.
+- `bench_keep(value)`: barrier that keeps a value from being optimized away
+  (`asm volatile` with a memory clobber on gcc/clang, `_ReadWriteBarrier` plus a
+  volatile sink elsewhere, where the value must be an addressable lvalue).
+  `bench_do_not_optimize(value)` is an alias.
+- `bench_clobber()`: memory barrier that forces pending writes to be committed.
+- `void bench_counter(bench_t *b, const char *name, double value)`: user counter.
+  Values are summed over measured iterations and reported as a total and a
+  per-iteration average. Calls during warmup are ignored. Up to 16 counters.
+- `void bench_set_items(bench_t *b, int64_t items)`: items processed per
+  iteration, which adds an items/second figure to the line and the report.
+- `uint64_t bench_iterations(const bench_t *b)`: measured iterations so far.
+
+### How a case is measured
+Every timestamp comes from a monotonic clock (`CLOCK_MONOTONIC`,
+`QueryPerformanceCounter` on Windows).
+
+1. **Warm up**: run a round, double (up to 100x) the iteration count until a
+   round takes at least the sample target, then keep the size until two rounds
+   agree within 10%. Warmup is capped by its own budget (a quarter of the case
+   budget, at most 100 ms) and by 30 rounds.
+2. **Scale**: iterations per sample = sample target / the warmup estimate, so a
+   sample takes at least the target time (default 10 ms).
+3. **Sample**: collect samples of that size (default 100) until the sample count
+   or the per-case time budget (default 1 s) is reached. At least one sample is
+   always collected.
+
+Each sample contributes one number: nanoseconds per iteration. Over those
+samples bake reports mean, median, standard deviation, min, max, p95 and p99
+(linear interpolation), and a 95% confidence interval **for the mean**, computed
+as `mean ± 1.96 * stddev / sqrt(n)` from the sample standard deviation (a normal
+approximation, not a bootstrap). Outliers are counted with Tukey fences on the
+samples: `outliers` counts samples outside 1.5 IQR, `outliers_severe` outside
+3 IQR. One line is printed per case:
+
+```
+Entity.new                             25.310 ns/iter  ci95 [25.180, 25.440]  iters 397000  samples 100  outliers 4
+```
+
+`iters` is the iteration count of one sample; the report also carries the total.
+
+### Running benchmarks
+```sh
+bake3 run bench/core --local-env
+bake3 bench bench/core -- Entity.new --time 2 --samples 50
+```
+
+Arguments after `--` go to the benchmark binary:
+
+- `Suite` runs one suite, `Suite.case` runs one case.
+- `--filter <substr>` runs the cases whose `Suite.case` name contains `substr`.
+- `--time <sec>`: wall-clock budget per case (default 1).
+- `--samples <n>`: samples to collect per case (default 100).
+- `--sample-time <sec>`: target duration of one sample (default 0.01).
+- `--json <path>`: write the report below.
+- `--baseline <report.json>`: compare medians against an earlier report.
+- `--threshold <frac>`: relative change that counts as a regression or an
+  improvement (default 0.05).
+- `--fail-on-regression`: exit non-zero when a case regressed beyond the
+  threshold. Without it a regression is reported but the exit code stays 0.
+- `--list-benches`, `--list-suites`: print what the binary contains.
+
+A baseline comparison adds the relative change to each line and lists the
+regressions at the end:
+
+```
+Entity.new                             31.100 ns/iter  ci95 [30.900, 31.400]  iters 320000  samples 100  outliers 2  +22.9% vs baseline (regression)
+-----------------------------
+core: 1 benchmark(s) in 1.204s
+baseline old.json: 1 regression(s), 0 improvement(s) beyond 5.0%
+REGRESSION Entity.new +22.9%
+```
+
+### Report format
+`--json` writes every statistic in nanoseconds, plus the raw samples, in the
+same field style as the test report:
+
+```json
+{
+  "project": "core",
+  "tool": "bake3",
+  "tool_version": "1.0.0",
+  "timestamp": "2026-09-18T07:50:34Z",
+  "host": {"os": "Darwin", "arch": "arm64", "cpu_count": 16},
+  "samples": 100,
+  "time_budget_sec": 1.0,
+  "sample_target_sec": 0.01,
+  "cases": 1,
+  "time_sec": 1.204,
+  "benchmarks": [
+    {
+      "suite": "Entity",
+      "case": "new",
+      "iterations": 397000,
+      "samples": 100,
+      "total_iterations": 39700000,
+      "mean_ns": 25.402, "median_ns": 25.310, "stddev_ns": 0.641,
+      "min_ns": 24.900, "max_ns": 28.100,
+      "p95_ns": 26.400, "p99_ns": 27.800,
+      "ci_low_ns": 25.180, "ci_high_ns": 25.440,
+      "ci_level": 0.95, "ci_method": "normal-approx-stddev",
+      "outliers": 4, "outliers_severe": 1,
+      "items_per_iter": 1, "items_per_sec": 39366898.0,
+      "time_sec": 1.204,
+      "counters": [{"name": "entities", "total": 39700000.0, "per_iter": 1.0}],
+      "sample_ns": [25.31, 25.28, 25.44]
+    }
+  ]
+}
+```
+
+`items_per_sec` is only written when `bench_set_items` was called, and
+`baseline_median_ns` and `change` are added per case when `--baseline` is used.
 
 ## Project discovery
 When bake is called on a directory, it will recursively discover all other bake projects in that directory. A bake project is identified as a project with a `project.json`. The command specified on the bake command line will then be executed for all discovered projects.
