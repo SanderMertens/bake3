@@ -235,6 +235,16 @@ Bake projects store files in well known locations, to keep build configuration s
 - `include`: Directory that stores public include files. Files in this directory will be accessible to the project as well as dependees.
 - `etc`: Project assets. These will be accessible from the project binary when the project is ran.
 
+Every build of a public project installs its `etc` folder into the bake
+environment, at `$BAKE_HOME/etc/<project id>`. The install mirrors the project:
+changed files are refreshed, files that no longer exist in `<project>/etc` are
+removed from the installed copy, and other projects' folders are never touched.
+Projects with `"public": false`, and projects without an `etc` folder, install
+nothing. A process started with `bake run` finds the folder through `BAKE_HOME`
+(see [Bake Environment](#bake-environment)), which lets an installed package
+ship assets that are found no matter which directory the binary runs from. The
+install path of a project is printed by `bake info <project>`.
+
 When a project is built, the build artefacts will be stored in:
 
 - `.bake/arch-os-config`: Stores the executable or library binary
@@ -758,7 +768,19 @@ The bake environment has the following directories:
 - `<arch-os>/<config>/bin`: stores application binaries
 - `<arch-os>/<config>/lib`: stores library binaries
 - `include/<project>`: stores the `include` folder of a project
+- `etc/<project>`: stores the `etc` folder of a project
 - `meta/<project>`: stores project metadata
+
+Processes started by `bake run`, `bake test` and `bake bench` inherit two
+variables that tell them which environment they were started from:
+
+- `BAKE_HOME`: the environment root. `~/bake3` for the global environment,
+  `<workspace>/.bake/local_env` for `--local-env` and
+  `<workspace>/.bake/local_env/<name>` for `--local-env=<name>`. Assets of a
+  project are found at `$BAKE_HOME/etc/<project id>`.
+- `BAKE_ENVIRONMENT`: the name of the environment. The name for
+  `--local-env=<name>`, `local` for `--local-env` without a name, and `global`
+  for the global environment.
 
 ### Named local environments
 See [Orchestrating multiple agents](#orchestrating-multiple-agents) for how this
