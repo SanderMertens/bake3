@@ -519,6 +519,53 @@ python3 -m http.server 8080 -d <project>/.bake/wasm32-Emscripten-<cfg>
 
 Syncing an emscripten artefact into the bake environment copies the sibling `.wasm`, `.data` and `.js` files along with it, so an installed artefact is loadable.
 
+## Test projects
+A project with a `test` section in its `project.json` is a test project. Each
+listed test case is a `void <Suite>_<case>(void)` function in `src/<Suite>.c`;
+bake generates stubs for cases that are missing, together with the harness
+`main`. Every case runs in its own process, so a crash only takes down that case.
+
+```json
+{
+    "id": "core",
+    "type": "application",
+    "value": { "use": ["flecs"] },
+    "test": {
+        "testsuites": [{
+            "id": "Entity",
+            "testcases": ["new", "delete"]
+        }]
+    }
+}
+```
+
+The test binary accepts these arguments after `--`:
+
+- `Suite` runs a single suite, `Suite.case` runs a single case in-process.
+- `-j <count>` runs cases in parallel.
+- `--json <path>` writes a report with the outcome and wall-clock time of every case:
+
+```sh
+bake3 run test/core --local-env -- -j 12 --json /tmp/core.json
+```
+
+```json
+{
+  "project": "core",
+  "timestamp": "2026-09-17T20:15:03Z",
+  "pass": 2, "fail": 0, "empty": 0,
+  "elapsed": 0.412,
+  "tests": [
+    {"suite": "Entity", "case": "new", "status": "pass", "elapsed": 0.004},
+    {"suite": "Entity", "case": "delete", "status": "pass", "elapsed": 0.003}
+  ]
+}
+```
+
+A case's `status` is `pass`, `fail`, `empty` (no test statements), `quarantined`
+or `error` (the case command could not be built). Parameterized runs add a
+`params` field.
+
 ## Project discovery
 When bake is called on a directory, it will recursively discover all other bake projects in that directory. A bake project is identified as a project with a `project.json`. The command specified on the bake command line will then be executed for all discovered projects.
 

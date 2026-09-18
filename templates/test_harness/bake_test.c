@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #if !defined(_WIN32)
 #include <pthread.h>
 #include <sys/wait.h>
@@ -33,6 +34,19 @@ static int g_cli_param_count = 0;
 static char **g_failed_tests = NULL;
 static int g_failed_test_count = 0;
 static int g_failed_test_cap = 0;
+static const char *g_json_path = NULL;
+
+typedef struct bake_test_result_t {
+    char *suite;
+    char *testcase;
+    char *params;
+    const char *status;
+    double elapsed;
+} bake_test_result_t;
+
+static bake_test_result_t *g_results = NULL;
+static int g_result_count = 0;
+static int g_result_cap = 0;
 #if !defined(_WIN32)
 static pthread_mutex_t g_failed_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
@@ -173,6 +187,124 @@ static void bake_record_failure(const char *suite_id, const char *case_id, const
     }
     g_failed_tests[g_failed_test_count ++] = copy;
     bake_failed_unlock();
+}
+
+static double bake_time_now(void) {
+#if defined(_WIN32)
+    LARGE_INTEGER freq, now;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&now);
+    return (double)now.QuadPart / (double)freq.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
+}
+
+static char* bake_strdup(const char *str) {
+    size_t len = strlen(str) + 1;
+    char *copy = malloc(len);
+    if (copy) {
+        memcpy(copy, str, len);
+    }
+    return copy;
+}
+
+static void bake_record_result(
+    const char *suite_id,
+    const char *case_id,
+    const char *param_str,
+    const char *status,
+    double elapsed)
+{
+    if (!g_json_path) {
+        return;
+    }
+
+    bake_failed_lock();
+    if (g_result_count == g_result_cap) {
+        int cap = g_result_cap ? (g_result_cap * 2) : 64;
+        bake_test_result_t *tmp = realloc(g_results, (size_t)cap * sizeof(bake_test_result_t));
+        if (!tmp) {
+            bake_failed_unlock();
+            return;
+        }
+        g_results = tmp;
+        g_result_cap = cap;
+    }
+    bake_test_result_t *r = &g_results[g_result_count ++];
+    r->suite = bake_strdup(suite_id);
+    r->testcase = bake_strdup(case_id);
+    r->params = bake_strdup(param_str ? param_str : "");
+    r->status = status;
+    r->elapsed = elapsed;
+    bake_failed_unlock();
+}
+
+static void bake_json_string(FILE *f, const char *str) {
+    fputc('"', f);
+    for (const char *p = str ? str : ""; *p; p++) {
+        if (*p == '"' || *p == '\\') {
+            fputc('\\', f);
+            fputc(*p, f);
+        } else if ((unsigned char)*p < 0x20) {
+            fprintf(f, "\\u%04x", (unsigned char)*p);
+        } else {
+            fputc(*p, f);
+        }
+    }
+    fputc('"', f);
+}
+
+static int bake_write_json_report(
+    const char *test_id,
+    int pass,
+    int fail,
+    int empty,
+    double elapsed)
+{
+    if (!g_json_path) {
+        return 0;
+    }
+
+    FILE *f = fopen(g_json_path, "w");
+    if (!f) {
+        printf("failed to open json report '%s': %s\n", g_json_path, strerror(errno));
+        return -1;
+    }
+
+    time_t now = time(NULL);
+    char stamp[64] = {0};
+    strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
+
+    fputs("{\n", f);
+    fputs("  \"project\": ", f); bake_json_string(f, test_id); fputs(",\n", f);
+    fputs("  \"timestamp\": ", f); bake_json_string(f, stamp); fputs(",\n", f);
+    fprintf(f, "  \"pass\": %d,\n  \"fail\": %d,\n  \"empty\": %d,\n", pass, fail, empty);
+    fprintf(f, "  \"elapsed\": %.6f,\n", elapsed);
+    fputs("  \"tests\": [\n", f);
+    for (int i = 0; i < g_result_count; i++) {
+        bake_test_result_t *r = &g_results[i];
+        fputs("    {\"suite\": ", f); bake_json_string(f, r->suite);
+        fputs(", \"case\": ", f); bake_json_string(f, r->testcase);
+        if (r->params && r->params[0]) {
+            fputs(", \"params\": ", f); bake_json_string(f, r->params);
+        }
+        fputs(", \"status\": ", f); bake_json_string(f, r->status);
+        fprintf(f, ", \"elapsed\": %.6f}%s\n", r->elapsed, (i + 1) < g_result_count ? "," : "");
+        free(r->suite);
+        free(r->testcase);
+        free(r->params);
+    }
+    fputs("  ]\n}\n", f);
+    fclose(f);
+
+    free(g_results);
+    g_results = NULL;
+    g_result_count = 0;
+    g_result_cap = 0;
+    return 0;
 }
 
 static void bake_print_failed_tests(void) {
@@ -781,18 +913,23 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
             continue;
         }
 
+        double start = bake_time_now();
         int test_rc = bake_run_subprocess(cmd);
+        double elapsed = bake_time_now() - start;
         if (test_rc == 0) {
             pass ++;
+            bake_record_result(suite->id, suite->testcases[i].id, param_str, "pass", elapsed);
             continue;
         }
 
         if (test_rc == BAKE_TEST_QUARANTINED) {
+            bake_record_result(suite->id, suite->testcases[i].id, param_str, "quarantined", elapsed);
             continue;
         }
 
         if (test_rc == BAKE_TEST_EMPTY) {
             empty ++;
+            bake_record_result(suite->id, suite->testcases[i].id, param_str, "empty", elapsed);
             bake_print_status("EMPTY", BAKE_COLOR_YELLOW);
             printf(" %s.%s (add test statements)\n", suite->id, suite->testcases[i].id);
             bake_print_debug_command(exec, suite, &suite->testcases[i]);
@@ -801,6 +938,7 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
 
         fail ++;
         rc = -1;
+        bake_record_result(suite->id, suite->testcases[i].id, param_str, "fail", elapsed);
         bake_record_failure(suite->id, suite->testcases[i].id, param_str);
         bake_print_debug_command(exec, suite, &suite->testcases[i]);
     }
@@ -847,6 +985,7 @@ typedef struct bake_case_job_t {
     size_t output_size;
     int command_rc;
     int test_rc;
+    double elapsed;
 } bake_case_job_t;
 
 typedef struct bake_suite_run_t {
@@ -1083,13 +1222,16 @@ static int bake_parallel_plan_init(
 }
 
 static void bake_case_job_execute(bake_case_job_t *job) {
+    double start = bake_time_now();
     FILE *stream = tmpfile();
     if (!stream) {
         job->test_rc = bake_run_subprocess(job->cmd);
+        job->elapsed = bake_time_now() - start;
         return;
     }
 
     job->test_rc = bake_run_subprocess_to_stream(job->cmd, stream);
+    job->elapsed = bake_time_now() - start;
     fflush(stream);
     if (fseek(stream, 0, SEEK_END) == 0) {
         long end = ftell(stream);
@@ -1194,19 +1336,23 @@ static int bake_parallel_report(
             if (job->command_rc != 0) {
                 fail ++;
                 rc = -1;
+                bake_record_result(suite->id, job->testcase->id, run->param_str, "error", job->elapsed);
                 bake_record_failure(suite->id, job->testcase->id, run->param_str);
                 continue;
             }
 
             if (job->test_rc == 0) {
                 pass ++;
+                bake_record_result(suite->id, job->testcase->id, run->param_str, "pass", job->elapsed);
                 continue;
             }
             if (job->test_rc == BAKE_TEST_QUARANTINED) {
+                bake_record_result(suite->id, job->testcase->id, run->param_str, "quarantined", job->elapsed);
                 continue;
             }
             if (job->test_rc == BAKE_TEST_EMPTY) {
                 empty ++;
+                bake_record_result(suite->id, job->testcase->id, run->param_str, "empty", job->elapsed);
                 bake_print_status("EMPTY", BAKE_COLOR_YELLOW);
                 printf(" %s.%s (add test statements)\n", suite->id, job->testcase->id);
                 bake_print_debug_command(exec, suite, job->testcase);
@@ -1215,6 +1361,7 @@ static int bake_parallel_report(
 
             fail ++;
             rc = -1;
+            bake_record_result(suite->id, job->testcase->id, run->param_str, "fail", job->elapsed);
             bake_record_failure(suite->id, job->testcase->id, run->param_str);
             bake_print_debug_command(exec, suite, job->testcase);
         }
@@ -1418,6 +1565,15 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
             printf("missing value for -j\n");
             return -1;
         }
+        if (!strcmp(arg, "--json")) {
+            if ((i + 1) < argc) {
+                g_json_path = argv[i + 1];
+                i ++;
+                continue;
+            }
+            printf("missing value for --json\n");
+            return -1;
+        }
 
         if (strchr(arg, '.')) {
             single_test = arg;
@@ -1434,6 +1590,7 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
     int fail = 0;
     int empty = 0;
     int rc = 0;
+    double start = bake_time_now();
 
     if (suite_filter) {
         bake_test_suite *suite = bake_find_suite(suites, suite_count, suite_filter);
@@ -1471,6 +1628,10 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
         printf("-----------------------------\n");
         bake_print_report(test_id, "all", "", pass, fail, empty);
         bake_print_failed_tests();
+    }
+
+    if (bake_write_json_report(test_id, pass, fail, empty, bake_time_now() - start) != 0) {
+        rc = -1;
     }
 
     return rc;

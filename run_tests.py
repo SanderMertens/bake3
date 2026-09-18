@@ -1944,6 +1944,59 @@ class BakeTests(unittest.TestCase):
             f"serial={serial_elapsed:.3f}s parallel={parallel_elapsed:.3f}s",
         )
 
+    def test_test_harness_writes_json_report(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.harness.json.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_json_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": project_id,
+                    "type": "test",
+                    "test": {
+                        "testsuites": [
+                            {"id": "Alpha", "testcases": ["ok", "bad", "none"]},
+                        ]
+                    },
+                },
+                indent=4,
+            ) + "\n"
+        )
+        (src_dir / "Alpha.c").write_text(
+            "#include <bake_test.h>\n"
+            "void Alpha_ok(void) { test_assert(true); }\n"
+            "void Alpha_bad(void) { test_assert(false); }\n"
+            "void Alpha_none(void) { }\n"
+        )
+
+        local_env = "--local-env=json_report"
+        self.bake([local_env, "build", "."], cwd=project_dir)
+
+        for jobs in ("1", "3"):
+            report = project_dir / f"report_{jobs}.json"
+            self.bake_expect_failure(
+                [local_env, "run", ".", "--", "-j", jobs, "--json", str(report)],
+                cwd=project_dir)
+            self.assertTrue(report.is_file(), f"missing report {report}")
+            data = json.loads(report.read_text())
+            self.assertEqual(data["project"], project_id)
+            self.assertEqual(data["pass"], 1)
+            self.assertEqual(data["fail"], 1)
+            self.assertEqual(data["empty"], 1)
+            self.assertGreater(data["elapsed"], 0.0)
+            by_case = {t["case"]: t for t in data["tests"]}
+            self.assertEqual(set(by_case), {"ok", "bad", "none"})
+            self.assertEqual(by_case["ok"]["status"], "pass")
+            self.assertEqual(by_case["bad"]["status"], "fail")
+            self.assertEqual(by_case["none"]["status"], "empty")
+            for t in data["tests"]:
+                self.assertEqual(t["suite"], "Alpha")
+                self.assertGreater(t["elapsed"], 0.0)
+
     def test_setup_local_reinstalls_executable_bake_binary(self) -> None:
         installed_bake = self.bake_home / f"bake3{EXE_SUFFIX}"
         self.assertTrue(installed_bake.is_file(), f"Expected installed bake binary at {installed_bake}")
