@@ -1,13 +1,13 @@
-#include "bake/test_harness.h"
+#include "bake/bench_harness.h"
 #include "bake/os.h"
 #include "bake/ps.h"
 
-#include "harness_internal.h"
+#include "bench_internal.h"
 #include "common/harness_util.h"
 
-#define BAKE_HARNESS_LOCK_TIMEOUT_SEC (10 * 60)
+#define BAKE_BENCH_LOCK_TIMEOUT_SEC (10 * 60)
 
-static bool bake_should_generate_harness(const char *project_json, const char *exe_path) {
+static bool bake_bench_should_generate(const char *project_json, const char *exe_path) {
     if (!exe_path || !exe_path[0]) {
         return true;
     }
@@ -25,7 +25,7 @@ static bool bake_should_generate_harness(const char *project_json, const char *e
     return project_mtime > exe_mtime;
 }
 
-int bake_test_generate_harness(
+int bake_bench_generate_harness(
     bake_context_t *ctx,
     const bake_project_cfg_t *cfg,
     const char *exe_path)
@@ -33,7 +33,7 @@ int bake_test_generate_harness(
     BAKE_UNUSED(ctx);
 
     int rc = 0;
-    bake_suite_list_t suites = {0};
+    bake_benchsuite_list_t suites = {0};
     char *lock_path = NULL;
     bake_lock_t lock = {0};
     char *project_json = bake_path_join(cfg->path, "project.json");
@@ -46,41 +46,41 @@ int bake_test_generate_harness(
     bool main_missing = !bake_path_exists(main_src);
     ecs_os_free(main_src);
 
-    if (!main_missing && !bake_should_generate_harness(project_json, exe_path)) {
+    if (!main_missing && !bake_bench_should_generate(project_json, exe_path)) {
         goto cleanup;
     }
 
     lock_path = bake_path_join3(cfg->path, ".bake", "harness.lock");
-    if (bake_os_lock_acquire(lock_path, BAKE_HARNESS_LOCK_TIMEOUT_SEC, &lock) != 0) {
+    if (bake_os_lock_acquire(lock_path, BAKE_BENCH_LOCK_TIMEOUT_SEC, &lock) != 0) {
         rc = -1;
         goto cleanup;
     }
 
-    if (bake_parse_project_tests(project_json, &suites) != 0) {
+    if (bake_parse_project_benches(project_json, &suites) != 0) {
         rc = -1;
         goto cleanup;
     }
 
     for (int32_t i = 0; i < suites.count; i++) {
-        if (bake_generate_suite_file(cfg, &suites.items[i]) != 0) {
+        if (bake_generate_benchsuite_file(cfg, &suites.items[i]) != 0) {
             rc = -1;
             goto cleanup;
         }
     }
 
     if (suites.count) {
-        rc = bake_generate_main(cfg, &suites);
+        rc = bake_generate_bench_main(cfg, &suites);
     }
 
 cleanup:
     bake_os_lock_release(&lock);
     ecs_os_free(lock_path);
-    bake_suite_list_fini(&suites);
+    bake_benchsuite_list_fini(&suites);
     ecs_os_free(project_json);
     return rc;
 }
 
-int bake_test_generate_builtin_api(
+int bake_bench_generate_builtin_api(
     bake_context_t *ctx,
     const bake_project_cfg_t *cfg,
     const char *gen_dir,
@@ -90,10 +90,10 @@ int bake_test_generate_builtin_api(
     if (!gen_dir || !src_out) return -1;
 
     int rc = -1;
-    char *hdr_path = bake_path_join(gen_dir, "bake_test.h");
-    char *src_path = bake_path_join(gen_dir, "bake_test.c");
-    char *tmpl_hdr = bake_harness_template_file(ctx, "bake_test.h");
-    char *tmpl_src = bake_harness_template_file(ctx, "bake_test.c");
+    char *hdr_path = bake_path_join(gen_dir, "bake_bench.h");
+    char *src_path = bake_path_join(gen_dir, "bake_bench.c");
+    char *tmpl_hdr = bake_harness_template_file(ctx, "bake_bench.h");
+    char *tmpl_src = bake_harness_template_file(ctx, "bake_bench.c");
 
     if (tmpl_hdr && tmpl_src &&
         bake_os_file_copy(tmpl_hdr, hdr_path) == 0 &&
@@ -111,31 +111,22 @@ int bake_test_generate_builtin_api(
     return rc;
 }
 
-int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, const char *exe_path) {
-    char *old_threads = NULL;
-    const char *old_env = getenv("BAKE_TEST_THREADS");
-    if (old_env) {
-        old_threads = ecs_os_strdup(old_env);
-    }
-
-    if (ctx && ctx->opts.jobs > 0) {
-        char jobs_str[32];
-        ecs_os_snprintf(jobs_str, sizeof(jobs_str), "%d", ctx->opts.jobs);
-        bake_os_setenv("BAKE_TEST_THREADS", jobs_str);
-    }
-
+int bake_bench_run_project(
+    bake_context_t *ctx,
+    const bake_project_cfg_t *cfg,
+    const char *exe_path)
+{
     ecs_strbuf_t cmd = ECS_STRBUF_INIT;
     if (ctx && ctx->opts.run_prefix) {
         ecs_strbuf_append(&cmd, "%s ", ctx->opts.run_prefix);
     }
+
     char *abs_exe = bake_path_resolve(exe_path);
     char *quoted_exe = bake_shell_quote_arg(abs_exe ? abs_exe : exe_path);
     ecs_strbuf_appendstr(&cmd, quoted_exe);
     ecs_os_free(quoted_exe);
     ecs_os_free(abs_exe);
-    if (ctx && ctx->opts.jobs > 0) {
-        ecs_strbuf_append(&cmd, " -j %d", ctx->opts.jobs);
-    }
+
     for (int i = 0; ctx && i < ctx->opts.run_argc; i++) {
         char *quoted_arg = bake_shell_quote_arg(ctx->opts.run_argv[i]);
         ecs_strbuf_append(&cmd, " %s", quoted_arg);
@@ -154,21 +145,13 @@ int bake_test_run_project(bake_context_t *ctx, const bake_project_cfg_t *cfg, co
         .env_kind = env_kind,
         .bake_home = ctx ? ctx->bake_home : NULL,
         .workspace = ctx ? ctx->opts.cwd : NULL,
-        .kind = "test"
+        .kind = "bench"
     };
+
     int rc = bake_run_command_tracked(cmd_str, false, run_dir, &ps);
     ecs_os_free(env_name);
     ecs_os_free(run_dir);
     ecs_os_free(cmd_str);
-
-    if (ctx && ctx->opts.jobs > 0) {
-        if (old_threads) {
-            bake_os_setenv("BAKE_TEST_THREADS", old_threads);
-        } else {
-            bake_os_unsetenv("BAKE_TEST_THREADS");
-        }
-    }
-    ecs_os_free(old_threads);
 
     return rc;
 }

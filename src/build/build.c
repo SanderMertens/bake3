@@ -2,6 +2,7 @@
 #include "bake/bundle.h"
 #include "bake/environment.h"
 #include "bake/test_harness.h"
+#include "bake/bench_harness.h"
 #include "bake/os.h"
 #include "bake/ps.h"
 
@@ -471,24 +472,38 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         goto cleanup;
     }
 
-    if (cfg->kind == BAKE_PROJECT_TEST) {
+    if (bake_project_kind_is_harness(cfg->kind)) {
         char *artefact_name = bake_project_cfg_artefact_name(cfg);
         test_exe_path = artefact_name ? bake_path_join(paths.bin_dir, artefact_name) : NULL;
         ecs_os_free(artefact_name);
         if (!test_exe_path) {
-            ecs_err("failed to resolve test executable path for %s", cfg->id);
+            ecs_err("failed to resolve harness executable path for %s", cfg->id);
             goto cleanup;
         }
 
-        if (bake_test_generate_harness(ctx, cfg, test_exe_path) != 0) {
-            ecs_err("test harness generation failed for %s", cfg->id);
-            goto cleanup;
-        }
-
-        if (cfg->has_test_spec) {
-            if (bake_test_generate_builtin_api(ctx, cfg, paths.gen_dir, &builtin_test_src) != 0) {
-                ecs_err("failed to generate test API for %s", cfg->id);
+        if (cfg->kind == BAKE_PROJECT_BENCH) {
+            if (bake_bench_generate_harness(ctx, cfg, test_exe_path) != 0) {
+                ecs_err("bench harness generation failed for %s", cfg->id);
                 goto cleanup;
+            }
+
+            if (cfg->has_bench_spec) {
+                if (bake_bench_generate_builtin_api(ctx, cfg, paths.gen_dir, &builtin_test_src) != 0) {
+                    ecs_err("failed to generate bench API for %s", cfg->id);
+                    goto cleanup;
+                }
+            }
+        } else {
+            if (bake_test_generate_harness(ctx, cfg, test_exe_path) != 0) {
+                ecs_err("test harness generation failed for %s", cfg->id);
+                goto cleanup;
+            }
+
+            if (cfg->has_test_spec) {
+                if (bake_test_generate_builtin_api(ctx, cfg, paths.gen_dir, &builtin_test_src) != 0) {
+                    ecs_err("failed to generate test API for %s", cfg->id);
+                    goto cleanup;
+                }
             }
         }
     }
@@ -513,7 +528,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     bool standalone = (request->standalone || cfg->standalone) &&
-        (cfg->kind == BAKE_PROJECT_APPLICATION || cfg->kind == BAKE_PROJECT_TEST);
+        (cfg->kind == BAKE_PROJECT_APPLICATION || bake_project_kind_is_harness(cfg->kind));
 
     if (standalone) {
         if (bake_prepare_standalone_sources(ctx, project_entity, cfg) != 0) {
@@ -545,7 +560,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     bake_strlist_merge_unique(&c_lang.libpaths, &cpp_lang.libpaths);
     bake_strlist_merge_unique(&c_lang.embed, &cpp_lang.embed);
 
-    if (cfg->kind == BAKE_PROJECT_TEST) {
+    if (bake_project_kind_is_harness(cfg->kind)) {
         bake_strlist_append_unique(&c_lang.include_paths, paths.gen_dir);
         bake_strlist_append_unique(&cpp_lang.include_paths, paths.gen_dir);
     }
@@ -556,7 +571,7 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     bake_add_mode_flags(request->mode, ctx->compiler_kind, &mode_cflags, &mode_cxxflags, &mode_ldflags);
     bake_add_strict_flags(ctx->opts.strict, ctx->compiler_kind, &mode_cflags, &mode_cxxflags, &mode_ldflags);
 
-    if (cfg->kind == BAKE_PROJECT_TEST &&
+    if (bake_project_kind_is_harness(cfg->kind) &&
         ctx->compiler_kind != BAKE_COMPILER_MSVC &&
         !bake_target_is_emscripten())
     {
@@ -567,14 +582,14 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 
     bake_compile_list_init(&units);
     bool include_deps = true;
-    if (cfg->kind == BAKE_PROJECT_APPLICATION || cfg->kind == BAKE_PROJECT_TEST) {
+    if (cfg->kind == BAKE_PROJECT_APPLICATION || bake_project_kind_is_harness(cfg->kind)) {
         include_deps = standalone;
     }
 
     if (bake_collect_compile_units(
         cfg,
         &paths,
-        cfg->kind == BAKE_PROJECT_TEST,
+        bake_project_kind_is_harness(cfg->kind),
         include_deps,
         ctx->compiler_kind,
         &units) != 0)
@@ -589,12 +604,14 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
 #else
         const char *obj_ext = ".o";
 #endif
-        char *obj_name = flecs_asprintf("generated_bake_test%s", obj_ext);
+        const char *builtin_name = cfg->kind == BAKE_PROJECT_BENCH ?
+            "generated_bake_bench" : "generated_bake_test";
+        char *obj_name = flecs_asprintf("%s%s", builtin_name, obj_ext);
         char *obj_path = bake_path_join(paths.obj_dir, obj_name);
         if (bake_os_mkdirs(paths.obj_dir) != 0) {
             ecs_os_free(obj_name);
             ecs_os_free(obj_path);
-            ecs_err("failed to add generated test API source for %s", cfg->id);
+            ecs_err("failed to add generated harness API source for %s", cfg->id);
             goto cleanup;
         }
         bake_compile_list_append(&units, builtin_test_src, obj_path, NULL, false);
@@ -1087,6 +1104,11 @@ int bake_build_run(bake_context_t *ctx) {
     const BakeBuildResult *result = ecs_get(ctx->world, project_entity, BakeBuildResult);
     if (!result || !result->artefact) {
         rc = -1;
+        goto cleanup;
+    }
+
+    if (!strcmp(ctx->opts.command, "bench") || project->cfg->kind == BAKE_PROJECT_BENCH) {
+        rc = bake_bench_run_project(ctx, project->cfg, result->artefact);
         goto cleanup;
     }
 

@@ -215,6 +215,7 @@ int bake_context_init(bake_context_t *ctx, const bake_options_t *opts) {
         const char *cmd = opts->command;
         bool needs_toolchain = !cmd || !strcmp(cmd, "build") ||
             !strcmp(cmd, "run") || !strcmp(cmd, "test") ||
+            !strcmp(cmd, "bench") ||
             !strcmp(cmd, "rebuild");
         if (needs_toolchain && bake_emsdk_ensure_env() != 0) {
             bake_context_fini(ctx);

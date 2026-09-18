@@ -1,7 +1,7 @@
 #ifndef BAKE3_HARNESS_UTIL_H
 #define BAKE3_HARNESS_UTIL_H
 
-#include "bake/config.h"
+#include "bake/context.h"
 
 bool bake_harness_char_is_ident(char ch);
 
@@ -19,6 +19,8 @@ int bake_harness_suite_has_function(
 char* bake_harness_source_path(const bake_project_cfg_t *cfg, const char *base);
 
 char* bake_harness_project_header(const bake_project_cfg_t *cfg);
+
+char* bake_harness_template_file(const bake_context_t *ctx, const char *file);
 
 void bake_harness_append_separator(
     ecs_strbuf_t *out,

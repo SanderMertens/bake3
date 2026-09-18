@@ -378,7 +378,7 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
 
     bool standalone_local_headers =
         cfg->standalone &&
-        (cfg->kind == BAKE_PROJECT_APPLICATION || cfg->kind == BAKE_PROJECT_TEST);
+        (cfg->kind == BAKE_PROJECT_APPLICATION || bake_project_kind_is_harness(cfg->kind));
 
     bake_strlist_init(&public_deps);
 
@@ -430,6 +430,9 @@ int bake_generate_config_header(ecs_world_t *world, const bake_project_cfg_t *cf
     bake_append_dep_includes(&header, &public_deps, standalone_local_headers);
     if (cfg->kind == BAKE_PROJECT_TEST && cfg->has_test_spec) {
         ecs_strbuf_appendstr(&header, "#include <bake_test.h>\n");
+    }
+    if (cfg->kind == BAKE_PROJECT_BENCH && cfg->has_bench_spec) {
+        ecs_strbuf_appendstr(&header, "#include <bake_bench.h>\n");
     }
     ecs_strbuf_appendstr(&header, "\n");
 

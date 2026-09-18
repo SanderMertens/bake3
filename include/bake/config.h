@@ -9,6 +9,7 @@ typedef enum bake_project_kind_t {
     BAKE_PROJECT_PACKAGE,
     BAKE_PROJECT_CONFIG,
     BAKE_PROJECT_TEST,
+    BAKE_PROJECT_BENCH,
     BAKE_PROJECT_TEMPLATE
 } bake_project_kind_t;
 
@@ -87,6 +88,7 @@ struct bake_project_cfg_t {
     char *path;
     bake_project_kind_t kind;
     bool has_test_spec;
+    bool has_bench_spec;
     bool public_project;
     char *language;
     char *output_name;
@@ -114,6 +116,7 @@ struct bake_project_cfg_t {
 
 const char* bake_project_kind_str(bake_project_kind_t kind);
 bool bake_project_kind_has_artefact(bake_project_kind_t kind);
+bool bake_project_kind_is_harness(bake_project_kind_t kind);
 bake_project_kind_t bake_project_kind_parse(const char *value);
 char* bake_project_cfg_artefact_name(const bake_project_cfg_t *cfg);
 const char* bake_project_cfg_shell(const bake_project_cfg_t *cfg);

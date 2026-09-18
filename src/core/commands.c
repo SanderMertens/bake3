@@ -12,6 +12,7 @@ static const char *bake_help_text =
     "  build [target]      Build target project and dependencies (default)\n"
     "  run [target]        Build and run executable target\n"
     "  test [target]       Build and run test target\n"
+    "  bench [target]      Build and run benchmark target\n"
     "  clean [target]      Remove build artifacts\n"
     "  rebuild [target]    Clean and build\n"
     "  list                List projects in bake environment\n"
@@ -468,6 +469,7 @@ static const struct {
 } bake_command_table[] = {
     {"build", bake_build, true}, {"run", bake_build_run, true},
     {"test", bake_build_run, true},
+    {"bench", bake_build_run, true},
     {"clean", bake_build_clean, false}, {"rebuild", bake_build_rebuild, true},
     {"list", bake_list_projects, false}, {"info", bake_info_project, false},
     {"ps", bake_ps_command, false},

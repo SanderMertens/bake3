@@ -93,6 +93,7 @@ const char* bake_project_kind_str(bake_project_kind_t kind) {
     case BAKE_PROJECT_PACKAGE: return "package";
     case BAKE_PROJECT_CONFIG: return "config";
     case BAKE_PROJECT_TEST: return "test";
+    case BAKE_PROJECT_BENCH: return "bench";
     case BAKE_PROJECT_TEMPLATE: return "template";
     default: return "application";
     }
@@ -114,6 +115,9 @@ bake_project_kind_t bake_project_kind_parse(const char *value) {
     if (!strcmp(value, "test")) {
         return BAKE_PROJECT_TEST;
     }
+    if (!strcmp(value, "bench")) {
+        return BAKE_PROJECT_BENCH;
+    }
     if (!strcmp(value, "template")) {
         return BAKE_PROJECT_TEMPLATE;
     }
@@ -124,7 +128,12 @@ bake_project_kind_t bake_project_kind_parse(const char *value) {
 bool bake_project_kind_has_artefact(bake_project_kind_t kind) {
     return kind == BAKE_PROJECT_PACKAGE ||
         kind == BAKE_PROJECT_APPLICATION ||
-        kind == BAKE_PROJECT_TEST;
+        kind == BAKE_PROJECT_TEST ||
+        kind == BAKE_PROJECT_BENCH;
+}
+
+bool bake_project_kind_is_harness(bake_project_kind_t kind) {
+    return kind == BAKE_PROJECT_TEST || kind == BAKE_PROJECT_BENCH;
 }
 
 char* bake_project_run_dir(const bake_project_cfg_t *cfg) {
@@ -363,6 +372,7 @@ static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_depend
     memset(cfg, 0, sizeof(*cfg));
     cfg->kind = BAKE_PROJECT_APPLICATION;
     cfg->has_test_spec = false;
+    cfg->has_bench_spec = false;
     cfg->public_project = set_defaults;
     cfg->language = set_defaults ? ecs_os_strdup("c") : NULL;
 
@@ -434,7 +444,7 @@ void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
     X("embed", embed)
 
 #define BAKE_PROJECT_META_KEYS(X) \
-    X("id") X("type") X("value") X("test") X("rules") X("bundle") \
+    X("id") X("type") X("value") X("test") X("bench") X("rules") X("bundle") \
     X("dependee") X("lang") X("lang.c") X("lang.cpp")
 
 #define BAKE_PROJECT_VALUE_KEYS(X) \
@@ -766,6 +776,22 @@ static int bake_parse_project_cfg_object(
             }
         }
 
+        JSON_Value *bench_value = json_object_get_value(object, "bench");
+        if (bench_value) {
+            if (json_value_get_type(bench_value) != JSONObject) {
+                return -1;
+            }
+            if (cfg->has_test_spec) {
+                ecs_err("project declares both a 'test' and a 'bench' section, "
+                    "use separate projects for tests and benchmarks");
+                return -1;
+            }
+            cfg->has_bench_spec = true;
+            if (cfg->kind == BAKE_PROJECT_APPLICATION) {
+                cfg->kind = BAKE_PROJECT_BENCH;
+            }
+        }
+
         JSON_Value *rules_value = json_object_get_value(object, "rules");
         if (rules_value) {
             if (json_value_get_type(rules_value) != JSONArray) {
@@ -1012,7 +1038,7 @@ static void bake_lang_resolve_include_paths(
 }
 
 static void bake_project_cfg_finalize_defaults(const char *project_json_path, bake_project_cfg_t *cfg) {
-    if (cfg->kind == BAKE_PROJECT_TEST) {
+    if (bake_project_kind_is_harness(cfg->kind)) {
         cfg->public_project = false;
     }
 

@@ -464,7 +464,7 @@ static void bake_model_mark_build_recursive_inner(
     if (project && project->cfg &&
         (standalone || project->cfg->standalone) &&
         (project->cfg->kind == BAKE_PROJECT_APPLICATION ||
-         project->cfg->kind == BAKE_PROJECT_TEST))
+         bake_project_kind_is_harness(project->cfg->kind)))
     {
         return;
     }

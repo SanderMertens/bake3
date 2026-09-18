@@ -231,3 +231,31 @@ void bake_harness_append_separator(
 
     *appended = true;
 }
+
+char* bake_harness_template_file(const bake_context_t *ctx, const char *file) {
+    if (!ctx || !ctx->bake_home || !ctx->bake_home[0]) {
+        ecs_err("cannot resolve harness template '%s': BAKE_HOME is not initialized",
+            file ? file : "<null>");
+        return NULL;
+    }
+
+    if (!file || !file[0]) {
+        ecs_err("cannot resolve harness template: invalid file name");
+        return NULL;
+    }
+
+    char *template_root = bake_path_join(ctx->bake_home, "test");
+    char *candidate = bake_path_join(template_root, file);
+
+    if (!bake_path_exists(candidate)) {
+        ecs_err(
+            "missing harness template '%s' at '%s'; run 'bake setup' (or 'bake setup --local') to install templates into BAKE_HOME",
+            file,
+            candidate);
+        ecs_os_free(candidate);
+        candidate = NULL;
+    }
+
+    ecs_os_free(template_root);
+    return candidate;
+}
