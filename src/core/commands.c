@@ -1,4 +1,5 @@
 #include "bake/commands.h"
+#include "bake/build_report.h"
 #include "bake/bundle.h"
 #include "bake/discovery.h"
 #include "bake/environment.h"
@@ -33,6 +34,7 @@ static const char *bake_help_text =
     "  --all-users         ps only: include processes of other users in the scan\n"
     "  --full              ps only: print untruncated workspace and command columns\n"
     "  --kill <pid|env>    ps only: stop a listed process, environment or env kind\n"
+    "  --build-json <file> Write a json report of the build with per step timings\n"
     "  --port <n>          First port for the 'run --target em' web server (default 8080)\n"
     "  --local-env[=<name>] Use ./.bake/local_env (or ./.bake/local_env/<name>) as isolated BAKE_HOME and build root\n"
     "  --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)\n"
@@ -484,6 +486,12 @@ static const struct {
     {"reset", bake_env_reset, false}, {"cleanup", bake_env_cleanup_cmd, false},
 };
 
+bool bake_command_builds(const char *command) {
+    const char *cmd = (command && command[0]) ? command : "build";
+    return !strcmp(cmd, "build") || !strcmp(cmd, "rebuild") ||
+        !strcmp(cmd, "run") || !strcmp(cmd, "test") || !strcmp(cmd, "bench");
+}
+
 bool bake_is_command(const char *arg) {
     for (size_t i = 0; i < sizeof(bake_command_table) / sizeof(bake_command_table[0]); i++) {
         if (!strcmp(arg, bake_command_table[i].name)) return true;
@@ -491,17 +499,38 @@ bool bake_is_command(const char *arg) {
     return !strcmp(arg, "setup") || !strcmp(arg, "help");
 }
 
+static int bake_execute_command(
+    bake_context_t *ctx,
+    int (*fn)(bake_context_t*),
+    bool prepare_bundles)
+{
+    ctx->prepare_bundles = prepare_bundles;
+
+    if (ctx->opts.build_json && bake_command_builds(ctx->opts.command)) {
+        ctx->report = bake_report_new(ctx, ctx->opts.build_json);
+    }
+
+    int rc = fn(ctx);
+
+    if (ctx->report) {
+        bake_report_finish(ctx->report, rc == 0);
+        bake_report_free(ctx->report);
+        ctx->report = NULL;
+    }
+
+    return rc;
+}
+
 int bake_execute(bake_context_t *ctx, const char *argv0) {
     const char *cmd = ctx->opts.command;
     if (!cmd) {
-        ctx->prepare_bundles = true;
-        return bake_build(ctx);
+        return bake_execute_command(ctx, bake_build, true);
     }
 
     for (size_t i = 0; i < sizeof(bake_command_table) / sizeof(bake_command_table[0]); i++) {
         if (!strcmp(cmd, bake_command_table[i].name)) {
-            ctx->prepare_bundles = bake_command_table[i].prepare_bundles;
-            return bake_command_table[i].fn(ctx);
+            return bake_execute_command(ctx, bake_command_table[i].fn,
+                bake_command_table[i].prepare_bundles);
         }
     }
 

@@ -141,6 +141,7 @@ int main(int argc, char *argv[]) {
         VARG("--target", toolchain)
         VARG("--run-prefix", run_prefix)
         VARG("--kill", ps_kill)
+        VARG("--build-json", build_json)
 #undef VARG
 
         if (arg[0] == '-') {
@@ -220,6 +221,12 @@ int main(int argc, char *argv[]) {
     {
         ecs_err("--json, --all-users, --full and --kill can only be used with "
             "the ps command");
+        goto cleanup;
+    }
+
+    if (opts.build_json && !bake_command_builds(opts.command)) {
+        ecs_err("--build-json can only be used with the build, rebuild, run, "
+            "test and bench commands");
         goto cleanup;
     }
 

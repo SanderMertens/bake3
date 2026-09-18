@@ -5,6 +5,7 @@
 
 void bake_print_help(void);
 bool bake_is_command(const char *arg);
+bool bake_command_builds(const char *command);
 int bake_execute(bake_context_t *ctx, const char *argv0);
 
 #endif
