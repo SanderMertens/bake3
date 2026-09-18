@@ -701,6 +701,137 @@ class BakeTests(unittest.TestCase):
             hidden_id, state.package_names,
             '"public": false must keep a project out of the bake environment')
 
+    def write_etc_package(self, name: str, public: bool = True) -> tuple[Path, str]:
+        stamp = int(time.time() * 1_000_000)
+        pkg_id = f"{name}_{stamp}"
+        pkg_dir = self.repo_root / "test" / "tmp" / f"{name}_{stamp}"
+        self.addCleanup(shutil.rmtree, pkg_dir, ignore_errors=True)
+        (pkg_dir / "src").mkdir(parents=True)
+        (pkg_dir / "etc" / "shaders").mkdir(parents=True)
+        (pkg_dir / "project.json").write_text(
+            "{\n"
+            f'    "id": "{pkg_id}",\n'
+            '    "type": "package",\n'
+            f'    "value": {{"public": {"true" if public else "false"}}}\n'
+            "}\n"
+        )
+        (pkg_dir / "src" / "a.c").write_text(f"int {name}_value(void) {{ return 1; }}\n")
+        (pkg_dir / "etc" / "config.json").write_text('{"asset": 1}\n')
+        (pkg_dir / "etc" / "shaders" / "main.wgsl").write_text("// shader\n")
+        return pkg_dir, pkg_id
+
+    def test_etc_folder_installs_on_build_of_public_project(self) -> None:
+        pkg_dir, pkg_id = self.write_etc_package("etc_install")
+
+        self.bake(["build", str(pkg_dir)])
+
+        etc_root = self.bake_home / "etc" / pkg_id
+        self.assertTrue(etc_root.is_dir(), f"Expected installed etc folder at {etc_root}")
+        self.assertEqual((etc_root / "config.json").read_text(), '{"asset": 1}\n')
+        self.assertEqual((etc_root / "shaders" / "main.wgsl").read_text(), "// shader\n")
+
+    def test_etc_install_refreshes_changed_files_and_removes_stale_ones(self) -> None:
+        pkg_dir, pkg_id = self.write_etc_package("etc_refresh")
+        other_dir, other_id = self.write_etc_package("etc_other")
+
+        self.bake(["build", str(pkg_dir)])
+        self.bake(["build", str(other_dir)])
+
+        (pkg_dir / "etc" / "config.json").write_text('{"asset": 2}\n')
+        (pkg_dir / "etc" / "shaders" / "main.wgsl").unlink()
+        (pkg_dir / "etc" / "extra.txt").write_text("extra\n")
+
+        self.bake(["build", str(pkg_dir)])
+
+        etc_root = self.bake_home / "etc" / pkg_id
+        self.assertEqual(
+            (etc_root / "config.json").read_text(), '{"asset": 2}\n',
+            "A changed asset must be refreshed in the bake environment")
+        self.assertFalse(
+            (etc_root / "shaders" / "main.wgsl").exists(),
+            "A removed asset must be removed from the bake environment")
+        self.assertEqual((etc_root / "extra.txt").read_text(), "extra\n")
+
+        other_root = self.bake_home / "etc" / other_id
+        self.assertTrue(
+            (other_root / "shaders" / "main.wgsl").is_file(),
+            "Installing one project must not touch another project's etc folder")
+
+        shutil.rmtree(pkg_dir / "etc")
+        self.bake(["build", str(pkg_dir)])
+
+        self.assertFalse(
+            etc_root.exists(),
+            "Removing the etc folder must remove the installed copy")
+        self.assertTrue(other_root.is_dir(), f"Expected {other_root} to be kept")
+
+    def test_etc_install_skips_private_projects(self) -> None:
+        pkg_dir, pkg_id = self.write_etc_package("etc_private", public=False)
+
+        self.bake(["build", str(pkg_dir)])
+
+        self.assertFalse(
+            (self.bake_home / "etc" / pkg_id).exists(),
+            '"public": false must keep the etc folder out of the bake environment')
+
+    def test_etc_installs_into_the_local_environment(self) -> None:
+        pkg_dir, pkg_id = self.write_etc_package("etc_local_env")
+        env_name = "etc_named_env"
+        local_env_root = pkg_dir / ".bake" / "local_env"
+
+        self.bake([f"--local-env={env_name}", "build", "."], cwd=pkg_dir)
+
+        named_etc = local_env_root / env_name / "etc" / pkg_id
+        self.assertEqual((named_etc / "config.json").read_text(), '{"asset": 1}\n')
+        self.assertFalse(
+            (self.bake_home / "etc" / pkg_id).exists(),
+            "A local environment build must not install into the global environment")
+
+        self.bake(["--local-env", "build", "."], cwd=pkg_dir)
+
+        unnamed_etc = local_env_root / "etc" / pkg_id
+        self.assertEqual((unnamed_etc / "config.json").read_text(), '{"asset": 1}\n')
+
+    def test_run_process_receives_bake_home_and_environment(self) -> None:
+        project_dir, _ = self.write_simple_app_project(
+            "run_env_vars",
+            "#include <stdio.h>\n"
+            "#include <stdlib.h>\n"
+            "int main(void) {\n"
+            '    const char *home = getenv("BAKE_HOME");\n'
+            '    const char *env = getenv("BAKE_ENVIRONMENT");\n'
+            '    printf("BAKE_HOME=%s\\n", home ? home : "<unset>");\n'
+            '    printf("BAKE_ENVIRONMENT=%s\\n", env ? env : "<unset>");\n'
+            "    return 0;\n"
+            "}\n",
+        )
+        env_name = "run_env_named"
+        local_env_root = project_dir / ".bake" / "local_env"
+
+        output = self.strip_ansi(self.bake(["run", "."], cwd=project_dir))
+        self.assertIn(f"BAKE_HOME={self.bake_home}", output)
+        self.assertIn("BAKE_ENVIRONMENT=global", output)
+
+        output = self.strip_ansi(self.bake(["--local-env", "run", "."], cwd=project_dir))
+        self.assertIn(f"BAKE_HOME={local_env_root}", output)
+        self.assertIn("BAKE_ENVIRONMENT=local", output)
+
+        output = self.strip_ansi(
+            self.bake([f"--local-env={env_name}", "run", "."], cwd=project_dir))
+        self.assertIn(f"BAKE_HOME={local_env_root / env_name}", output)
+        self.assertIn(f"BAKE_ENVIRONMENT={env_name}", output)
+
+    def test_info_prints_the_etc_install_path(self) -> None:
+        pkg_dir, pkg_id = self.write_etc_package("etc_info")
+        private_dir, _ = self.write_etc_package("etc_info_private", public=False)
+
+        info = self.strip_ansi(self.bake(["info", "."], cwd=pkg_dir))
+        expected = str(self.bake_home / "etc" / pkg_id)
+        self.assertRegex(info, rf"(?m)^etc:\s+{re.escape(expected)}$")
+
+        info = self.strip_ansi(self.bake(["info", "."], cwd=private_dir))
+        self.assertRegex(info, r"(?m)^etc:\s+<none>$")
+
     def test_arch_conditional_applies_for_the_host_architecture(self) -> None:
         stamp = int(time.time() * 1_000_000)
         root = self.repo_root / "test" / "tmp" / f"arch_cond_{stamp}"
