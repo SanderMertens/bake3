@@ -450,6 +450,10 @@ static int bake_info_project(bake_context_t *ctx) {
     printf("output:      %s\n", cfg->output_name ? cfg->output_name : "<none>");
     printf("external:    %s\n", project->external ? "true" : "false");
 
+    char *etc_path = bake_env_etc_install_path(ctx, cfg);
+    printf("etc:         %s\n", etc_path ? etc_path : "<none>");
+    ecs_os_free(etc_path);
+
     bake_print_cfg_strlist("use:", &cfg->use, 12);
     bake_print_cfg_strlist("use-private:", &cfg->use_private, 12);
 
