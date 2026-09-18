@@ -77,7 +77,7 @@ int bake_env_copy_tree_recursive(const char *src, const char *dst) {
     return 0;
 }
 
-static bool bake_env_paths_overlap(const char *src, const char *dst) {
+bool bake_env_paths_overlap(const char *src, const char *dst) {
     if (!src || !dst || !src[0] || !dst[0]) {
         return false;
     }

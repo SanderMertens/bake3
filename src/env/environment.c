@@ -546,6 +546,10 @@ int bake_env_sync_project(
         return 0;
     }
 
+    if (bake_env_sync_etc(ctx, cfg) != 0) {
+        return -1;
+    }
+
     const char *mode = (req && req->mode)
         ? req->mode
         : bake_effective_mode(ctx->opts.mode);
@@ -645,6 +649,7 @@ static int bake_env_remove_project_artefacts(const bake_context_t *ctx, const ba
         if (!strcmp(platform_dir->name, "meta") ||
             !strcmp(platform_dir->name, "include") ||
             !strcmp(platform_dir->name, "template") ||
+            !strcmp(platform_dir->name, "etc") ||
             !strcmp(platform_dir->name, "bin"))
         {
             continue;
@@ -682,6 +687,7 @@ static int bake_env_remove_project_entry(const bake_context_t *ctx, const char *
     char *meta_dir = bake_env_meta_project_dir(ctx, id);
     char *include_dir = bake_path_join3(ctx->bake_home, "include", id);
     char *template_dir = bake_path_join3(ctx->bake_home, "template", id);
+    char *etc_dir = bake_path_join3(ctx->bake_home, "etc", id);
 
     bake_project_cfg_t cfg;
     bake_project_cfg_init(&cfg);
@@ -695,7 +701,8 @@ static int bake_env_remove_project_entry(const bake_context_t *ctx, const char *
 
     if (bake_os_rmtree(meta_dir) != 0 ||
         bake_os_rmtree(include_dir) != 0 ||
-        bake_os_rmtree(template_dir) != 0)
+        bake_os_rmtree(template_dir) != 0 ||
+        bake_os_rmtree(etc_dir) != 0)
     {
         goto cleanup_cfg;
     }
@@ -711,6 +718,7 @@ static int bake_env_remove_project_entry(const bake_context_t *ctx, const char *
 cleanup_cfg:
     bake_project_cfg_fini(&cfg);
     ecs_os_free(meta_dir); ecs_os_free(include_dir); ecs_os_free(template_dir);
+    ecs_os_free(etc_dir);
     return rc;
 }
 

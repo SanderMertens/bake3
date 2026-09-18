@@ -20,6 +20,10 @@ int bake_env_sync_project(
 
 bool bake_env_is_local(void);
 const char* bake_env_home(void);
+char* bake_env_etc_dir(const bake_context_t *ctx, const char *id);
+char* bake_env_etc_install_path(
+    const bake_context_t *ctx,
+    const bake_project_cfg_t *cfg);
 
 bool bake_local_env_name_chars_valid(const char *name);
 bool bake_local_env_name_reserved(const char *name);
