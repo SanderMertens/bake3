@@ -3,6 +3,8 @@
 
 #include "bake/config.h"
 
+typedef struct bake_build_report_t bake_build_report_t;
+
 typedef struct bake_options_t {
     const char *command;
     const char *target;
@@ -15,6 +17,7 @@ typedef struct bake_options_t {
     const char *cxx;
     const char *run_prefix;
     const char *ps_kill;
+    const char *build_json;
     bool json;
     bool all_users;
     bool ps_full;
@@ -34,6 +37,7 @@ typedef struct bake_context_t {
     ecs_world_t *world;
     bake_options_t opts;
     char *bake_home;
+    bake_build_report_t *report;
     bake_compiler_kind_t compiler_kind;
     bool prepare_bundles;
     int32_t thread_count;

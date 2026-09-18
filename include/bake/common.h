@@ -29,6 +29,8 @@
 
 #define BAKE_UNUSED(x) (void)(x)
 
+#define BAKE_VERSION "1.0.0"
+
 struct bake_ps_info_t;
 
 int bake_run_command(const char *cmd, bool log_command);
