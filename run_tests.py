@@ -290,6 +290,12 @@ class BakeTests(unittest.TestCase):
         self.assertIn("flecs", state.package_names)
         self.assertIn("flecs.components.graphics", state.package_names)
 
+    def test_info_accepts_relative_target(self) -> None:
+        project_dir = self.repo_root / "test" / "projects" / "c" / "app_helloworld"
+        info = self.strip_ansi(self.bake(["info", "."], cwd=project_dir))
+        self.assertRegex(info, r"(?m)^id:\s+examples\.c\.app_helloworld$")
+        self.assertRegex(info, r"(?m)^kind:\s+application$")
+
     def test_build_projects_target(self) -> None:
         self.bake(["build", "test/projects"])
         state = self.list_state()

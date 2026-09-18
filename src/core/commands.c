@@ -417,7 +417,10 @@ static const BakeProject* bake_find_project_for_target(
         abs = bake_path_join(ctx->opts.cwd, target);
     }
 
-    project = bake_model_find_project_by_path(ctx->world, abs, entity_out);
+    char *resolved = bake_path_resolve(abs);
+    project = bake_model_find_project_by_path(
+        ctx->world, resolved ? resolved : abs, entity_out);
+    ecs_os_free(resolved);
     ecs_os_free(abs);
     return project;
 }
