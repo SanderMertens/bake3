@@ -7,7 +7,10 @@
 #include <string.h>
 #include <time.h>
 #if !defined(_WIN32)
+#include <fcntl.h>
+#include <poll.h>
 #include <pthread.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #else
@@ -18,6 +21,8 @@
 #define BAKE_TEST_PARAM_MAX (128)
 #define BAKE_TEST_EMPTY (2)
 #define BAKE_TEST_QUARANTINED (3)
+#define BAKE_TEST_DEFAULT_TIMEOUT (60.0)
+#define BAKE_TEST_WAIT_SLICE_MS (200)
 #define BAKE_COLOR_GREEN "\033[32m"
 #define BAKE_COLOR_YELLOW "\033[33m"
 #define BAKE_COLOR_RED "\033[31m"
@@ -35,6 +40,9 @@ static char **g_failed_tests = NULL;
 static int g_failed_test_count = 0;
 static int g_failed_test_cap = 0;
 static const char *g_json_path = NULL;
+static double g_cli_timeout = 0;
+static bool g_cli_timeout_set = false;
+static int g_timeout_count = 0;
 
 typedef struct bake_test_result_t {
     char *suite;
@@ -162,9 +170,16 @@ static void bake_print_debug_command(const char *exec, bake_test_suite *suite, b
     printf("\n\n");
 }
 
-static void bake_record_failure(const char *suite_id, const char *case_id, const char *param_str) {
+static void bake_record_failure(
+    const char *suite_id,
+    const char *case_id,
+    const char *param_str,
+    const char *reason)
+{
     char name[1024];
-    snprintf(name, sizeof(name), "%s.%s%s", suite_id, case_id, param_str ? param_str : "");
+    snprintf(name, sizeof(name), "%s.%s%s%s%s%s",
+        suite_id, case_id, param_str ? param_str : "",
+        reason ? " (" : "", reason ? reason : "", reason ? ")" : "");
 
     size_t len = strlen(name) + 1;
     char *copy = malloc(len);
@@ -281,7 +296,8 @@ static int bake_write_json_report(
     fputs("{\n", f);
     fputs("  \"project\": ", f); bake_json_string(f, test_id); fputs(",\n", f);
     fputs("  \"timestamp\": ", f); bake_json_string(f, stamp); fputs(",\n", f);
-    fprintf(f, "  \"pass\": %d,\n  \"fail\": %d,\n  \"empty\": %d,\n", pass, fail, empty);
+    fprintf(f, "  \"pass\": %d,\n  \"fail\": %d,\n  \"empty\": %d,\n  \"timeout\": %d,\n",
+        pass, fail, empty, g_timeout_count);
     fprintf(f, "  \"elapsed\": %.6f,\n", elapsed);
     fputs("  \"tests\": [\n", f);
     for (int i = 0; i < g_result_count; i++) {
@@ -445,7 +461,101 @@ static int bake_parse_cmd(const char *cmd, char ***argv_out, int *argc_out) {
     return 0;
 }
 
-static int bake_run_subprocess_to_stream(const char *cmd, FILE *stream) {
+static double bake_case_timeout(const bake_test_suite *suite) {
+    if (g_cli_timeout_set) {
+        return g_cli_timeout;
+    }
+    if (suite && suite->timeout > 0) {
+        return suite->timeout;
+    }
+    return BAKE_TEST_DEFAULT_TIMEOUT;
+}
+
+#if !defined(_WIN32)
+static int bake_wait_for_child(
+    pid_t pid,
+    int wait_fd,
+    double timeout,
+    bool group,
+    bool *timed_out,
+    int *status_out)
+{
+    double start = bake_time_now();
+    bool killed = false;
+
+    for (;;) {
+        int status = 0;
+        pid_t rc = waitpid(pid, &status, WNOHANG);
+        if (rc == pid) {
+            *status_out = status;
+            return 0;
+        }
+        if (rc < 0 && errno != EINTR) {
+            return -1;
+        }
+
+        int wait_ms = BAKE_TEST_WAIT_SLICE_MS;
+        if (timeout > 0 && !killed) {
+            double remaining = timeout - (bake_time_now() - start);
+            if (remaining <= 0) {
+                killed = true;
+                if (timed_out) {
+                    *timed_out = true;
+                }
+                if (group) {
+                    kill(-pid, SIGKILL);
+                } else {
+                    kill(pid, SIGKILL);
+                }
+                continue;
+            }
+            if ((remaining * 1000.0) < (double)wait_ms) {
+                wait_ms = (int)(remaining * 1000.0) + 1;
+            }
+        }
+
+        struct pollfd pfd = { .fd = wait_fd, .events = POLLIN, .revents = 0 };
+        int poll_rc = poll(&pfd, 1, wait_ms);
+        if (poll_rc < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return -1;
+        }
+        if (!poll_rc) {
+            continue;
+        }
+
+        char buf[64];
+        ssize_t count = read(wait_fd, buf, sizeof(buf));
+        if (count > 0) {
+            continue;
+        }
+        if (count < 0 && (errno == EINTR || errno == EAGAIN)) {
+            continue;
+        }
+
+        for (;;) {
+            pid_t wait_rc = waitpid(pid, &status, 0);
+            if (wait_rc == pid) {
+                *status_out = status;
+                return 0;
+            }
+            if (wait_rc < 0 && errno == EINTR) {
+                continue;
+            }
+            return -1;
+        }
+    }
+}
+#endif
+
+static int bake_run_subprocess_to_stream(
+    const char *cmd,
+    FILE *stream,
+    double timeout,
+    bool *timed_out)
+{
 #if defined(_WIN32)
     STARTUPINFOA si;
     PROCESS_INFORMATION pi;
@@ -500,8 +610,9 @@ static int bake_run_subprocess_to_stream(const char *cmd, FILE *stream) {
         return -1;
     }
 
+    HANDLE job = CreateJobObjectA(NULL, NULL);
     BOOL ok = CreateProcessA(
-        NULL, cmd_copy, NULL, NULL, inherit_handles, 0,
+        NULL, cmd_copy, NULL, NULL, inherit_handles, CREATE_SUSPENDED,
         NULL, NULL, &si, &pi);
     free(cmd_copy);
     if (child_input) {
@@ -511,25 +622,62 @@ static int bake_run_subprocess_to_stream(const char *cmd, FILE *stream) {
         CloseHandle(child_output);
     }
     if (!ok) {
+        if (job) {
+            CloseHandle(job);
+        }
         return -1;
     }
 
-    DWORD wait_rc = WaitForSingleObject(pi.hProcess, INFINITE);
+    if (job) {
+        AssignProcessToJobObject(job, pi.hProcess);
+    }
+    ResumeThread(pi.hThread);
+
+    DWORD wait_ms = INFINITE;
+    if (timeout > 0) {
+        double ms = timeout * 1000.0;
+        wait_ms = (ms >= (double)INFINITE) ? (INFINITE - 1) : (DWORD)ms;
+    }
+
+    DWORD wait_rc = WaitForSingleObject(pi.hProcess, wait_ms);
+    if (wait_rc == WAIT_TIMEOUT) {
+        if (timed_out) {
+            *timed_out = true;
+        }
+        if (job) {
+            TerminateJobObject(job, 1);
+        } else {
+            TerminateProcess(pi.hProcess, 1);
+        }
+        wait_rc = WaitForSingleObject(pi.hProcess, INFINITE);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+        if (job) {
+            CloseHandle(job);
+        }
+        return -1;
+    }
+
     if (wait_rc != WAIT_OBJECT_0) {
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
+        if (job) {
+            CloseHandle(job);
+        }
         return -1;
     }
 
     DWORD exit_code = 0;
-    if (!GetExitCodeProcess(pi.hProcess, &exit_code)) {
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
-        return -1;
-    }
+    BOOL have_code = GetExitCodeProcess(pi.hProcess, &exit_code);
 
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
+    if (job) {
+        CloseHandle(job);
+    }
+    if (!have_code) {
+        return -1;
+    }
     return (int)exit_code;
 #else
     char **argv = NULL;
@@ -547,13 +695,27 @@ static int bake_run_subprocess_to_stream(const char *cmd, FILE *stream) {
         }
     }
 
+    int wait_pipe[2];
+    if (pipe(wait_pipe) != 0) {
+        bake_free_argv(argv, argc);
+        return -1;
+    }
+
+    fcntl(wait_pipe[0], F_SETFD, FD_CLOEXEC);
+    fcntl(wait_pipe[1], F_SETFD, FD_CLOEXEC);
+
     pid_t pid = fork();
     if (pid < 0) {
+        close(wait_pipe[0]);
+        close(wait_pipe[1]);
         bake_free_argv(argv, argc);
         return -1;
     }
 
     if (pid == 0) {
+        close(wait_pipe[0]);
+        setpgid(0, 0);
+        fcntl(wait_pipe[1], F_SETFD, 0);
         if (stream_fd >= 0) {
             if (dup2(stream_fd, STDOUT_FILENO) < 0 ||
                 dup2(stream_fd, STDERR_FILENO) < 0)
@@ -566,16 +728,16 @@ static int bake_run_subprocess_to_stream(const char *cmd, FILE *stream) {
     }
 
     bake_free_argv(argv, argc);
+    close(wait_pipe[1]);
+
+    bool group = setpgid(pid, pid) == 0 || errno == EACCES;
 
     int status = 0;
-    for (;;) {
-        pid_t rc = waitpid(pid, &status, 0);
-        if (rc == pid) {
-            break;
-        }
-        if (errno == EINTR) {
-            continue;
-        }
+    int wait_rc = bake_wait_for_child(
+        pid, wait_pipe[0], timeout, group, timed_out, &status);
+    close(wait_pipe[0]);
+
+    if (wait_rc != 0) {
         return -1;
     }
 
@@ -586,8 +748,8 @@ static int bake_run_subprocess_to_stream(const char *cmd, FILE *stream) {
 #endif
 }
 
-static int bake_run_subprocess(const char *cmd) {
-    return bake_run_subprocess_to_stream(cmd, NULL);
+static int bake_run_subprocess(const char *cmd, double timeout, bool *timed_out) {
+    return bake_run_subprocess_to_stream(cmd, NULL, timeout, timed_out);
 }
 
 static void bake_set_failure(const char *file, int line, const char *msg) {
@@ -909,13 +1071,27 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
         if (bake_build_case_command(cmd, sizeof(cmd), exec, suite, &suite->testcases[i], NULL) != 0) {
             fail ++;
             rc = -1;
-            bake_record_failure(suite->id, suite->testcases[i].id, param_str);
+            bake_record_failure(suite->id, suite->testcases[i].id, param_str, NULL);
             continue;
         }
 
+        double timeout = bake_case_timeout(suite);
+        bool timed_out = false;
         double start = bake_time_now();
-        int test_rc = bake_run_subprocess(cmd);
+        int test_rc = bake_run_subprocess(cmd, timeout, &timed_out);
         double elapsed = bake_time_now() - start;
+        if (timed_out) {
+            fail ++;
+            rc = -1;
+            g_timeout_count ++;
+            bake_record_result(suite->id, suite->testcases[i].id, param_str, "timeout", elapsed);
+            bake_record_failure(suite->id, suite->testcases[i].id, param_str, "timeout");
+            bake_print_status("TIMEOUT", BAKE_COLOR_RED);
+            printf(" %s.%s (exceeded %g seconds)\n", suite->id, suite->testcases[i].id, timeout);
+            bake_print_debug_command(exec, suite, &suite->testcases[i]);
+            continue;
+        }
+
         if (test_rc == 0) {
             pass ++;
             bake_record_result(suite->id, suite->testcases[i].id, param_str, "pass", elapsed);
@@ -939,7 +1115,7 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
         fail ++;
         rc = -1;
         bake_record_result(suite->id, suite->testcases[i].id, param_str, "fail", elapsed);
-        bake_record_failure(suite->id, suite->testcases[i].id, param_str);
+        bake_record_failure(suite->id, suite->testcases[i].id, param_str, NULL);
         bake_print_debug_command(exec, suite, &suite->testcases[i]);
     }
 
@@ -985,6 +1161,8 @@ typedef struct bake_case_job_t {
     size_t output_size;
     int command_rc;
     int test_rc;
+    double timeout;
+    bool timed_out;
     double elapsed;
 } bake_case_job_t;
 
@@ -1154,6 +1332,7 @@ static int bake_parallel_plan_add_run(
             job->cmd, sizeof(job->cmd), exec, suite, job->testcase,
             run->param_values);
         job->test_rc = -1;
+        job->timeout = bake_case_timeout(suite);
     }
 
     return 0;
@@ -1225,12 +1404,13 @@ static void bake_case_job_execute(bake_case_job_t *job) {
     double start = bake_time_now();
     FILE *stream = tmpfile();
     if (!stream) {
-        job->test_rc = bake_run_subprocess(job->cmd);
+        job->test_rc = bake_run_subprocess(job->cmd, job->timeout, &job->timed_out);
         job->elapsed = bake_time_now() - start;
         return;
     }
 
-    job->test_rc = bake_run_subprocess_to_stream(job->cmd, stream);
+    job->test_rc = bake_run_subprocess_to_stream(
+        job->cmd, stream, job->timeout, &job->timed_out);
     job->elapsed = bake_time_now() - start;
     fflush(stream);
     if (fseek(stream, 0, SEEK_END) == 0) {
@@ -1337,7 +1517,20 @@ static int bake_parallel_report(
                 fail ++;
                 rc = -1;
                 bake_record_result(suite->id, job->testcase->id, run->param_str, "error", job->elapsed);
-                bake_record_failure(suite->id, job->testcase->id, run->param_str);
+                bake_record_failure(suite->id, job->testcase->id, run->param_str, NULL);
+                continue;
+            }
+
+            if (job->timed_out) {
+                fail ++;
+                rc = -1;
+                g_timeout_count ++;
+                bake_record_result(suite->id, job->testcase->id, run->param_str, "timeout", job->elapsed);
+                bake_record_failure(suite->id, job->testcase->id, run->param_str, "timeout");
+                bake_print_status("TIMEOUT", BAKE_COLOR_RED);
+                printf(" %s.%s (exceeded %g seconds)\n",
+                    suite->id, job->testcase->id, job->timeout);
+                bake_print_debug_command(exec, suite, job->testcase);
                 continue;
             }
 
@@ -1362,7 +1555,7 @@ static int bake_parallel_report(
             fail ++;
             rc = -1;
             bake_record_result(suite->id, job->testcase->id, run->param_str, "fail", job->elapsed);
-            bake_record_failure(suite->id, job->testcase->id, run->param_str);
+            bake_record_failure(suite->id, job->testcase->id, run->param_str, NULL);
             bake_print_debug_command(exec, suite, job->testcase);
         }
 
@@ -1563,6 +1756,22 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
                 continue;
             }
             printf("missing value for -j\n");
+            return -1;
+        }
+        if (!strcmp(arg, "--timeout")) {
+            if ((i + 1) < argc) {
+                char *end = NULL;
+                double parsed = strtod(argv[i + 1], &end);
+                if (end && end != argv[i + 1] && !end[0] && parsed >= 0) {
+                    g_cli_timeout = parsed;
+                    g_cli_timeout_set = true;
+                    i ++;
+                    continue;
+                }
+                printf("invalid value for --timeout\n");
+                return -1;
+            }
+            printf("missing value for --timeout\n");
             return -1;
         }
         if (!strcmp(arg, "--json")) {

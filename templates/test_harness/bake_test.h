@@ -29,6 +29,7 @@ typedef struct bake_test_suite {
     bake_test_case *testcases;
     uint32_t param_count;
     bake_test_param *params;
+    double timeout;
     uint32_t assert_count;
 } bake_test_suite;
 
