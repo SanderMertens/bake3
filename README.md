@@ -551,10 +551,26 @@ bake generates stubs for cases that are missing, together with the harness
 }
 ```
 
+A case that runs longer than its timeout is killed, together with the processes
+it spawned, and reported as a timeout. The default is 60 seconds per case; a
+suite sets its own with a `"timeout"` field (in seconds) next to its
+`testcases`:
+
+```json
+{
+    "id": "Entity",
+    "testcases": ["new", "delete"],
+    "timeout": 300
+}
+```
+
 The test binary accepts these arguments after `--`:
 
 - `Suite` runs a single suite, `Suite.case` runs a single case in-process.
 - `-j <count>` runs cases in parallel.
+- `--timeout <seconds>` overrides the timeout of every case, whatever the suites
+  declare. `--timeout 0` disables timeouts. A case that is killed counts as a
+  failure, so the run exits non-zero.
 - `--json <path>` writes a report with the outcome and wall-clock time of every case:
 
 ```sh
@@ -565,18 +581,22 @@ bake3 run test/core --local-env -- -j 12 --json /tmp/core.json
 {
   "project": "core",
   "timestamp": "2026-09-17T20:15:03Z",
-  "pass": 2, "fail": 0, "empty": 0,
-  "elapsed": 0.412,
+  "pass": 2, "fail": 1, "empty": 0, "timeout": 1,
+  "elapsed": 60.412,
   "tests": [
     {"suite": "Entity", "case": "new", "status": "pass", "elapsed": 0.004},
-    {"suite": "Entity", "case": "delete", "status": "pass", "elapsed": 0.003}
+    {"suite": "Entity", "case": "delete", "status": "pass", "elapsed": 0.003},
+    {"suite": "Entity", "case": "hang", "status": "timeout", "elapsed": 60.001}
   ]
 }
 ```
 
-A case's `status` is `pass`, `fail`, `empty` (no test statements), `quarantined`
-or `error` (the case command could not be built). Parameterized runs add a
-`params` field.
+A case's `status` is `pass`, `fail`, `timeout` (killed after exceeding its
+timeout), `empty` (no test statements), `quarantined` or `error` (the case
+command could not be built). Parameterized runs add a `params` field.
+
+`fail` counts every failed case, including the timed out ones; `timeout` counts
+how many of those were killed by the timeout.
 
 ## Benchmarks
 A project with a `bench` section in its `project.json` is a benchmark project.
@@ -694,6 +714,10 @@ Arguments after `--` go to the benchmark binary:
 - `--baseline <report.json>`: compare medians against an earlier report.
 - `--threshold <frac>`: relative change that counts as a regression or an
   improvement (default 0.05).
+- `--timeout <sec>`: wall-clock limit for a single case, including its `setup`
+  and `teardown` (default 600, `0` disables it). A case that exceeds it prints
+  `TIMEOUT <Suite>.<case>` and ends the run with a non-zero exit code; because
+  benchcases share one process, the run cannot continue past a hung case.
 - `--fail-on-regression`: exit non-zero when a case regressed beyond the
   threshold. Without it a regression is reported but the exit code stays 0.
 - `--list-benches`, `--list-suites`: print what the binary contains.
