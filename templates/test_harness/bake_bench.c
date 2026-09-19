@@ -9,9 +9,12 @@
 #if defined(_WIN32)
 #include <windows.h>
 #else
+#include <signal.h>
+#include <sys/time.h>
 #include <unistd.h>
 #endif
 
+#define BAKE_BENCH_DEFAULT_TIMEOUT (600.0)
 #define BAKE_BENCH_DEFAULT_SAMPLES (100)
 #define BAKE_BENCH_DEFAULT_TIME (1.0)
 #define BAKE_BENCH_DEFAULT_SAMPLE_TIME (0.010)
@@ -67,6 +70,7 @@ static double g_time = BAKE_BENCH_DEFAULT_TIME;
 static double g_sample_time = BAKE_BENCH_DEFAULT_SAMPLE_TIME;
 static double g_threshold = BAKE_BENCH_DEFAULT_THRESHOLD;
 static int32_t g_samples = BAKE_BENCH_DEFAULT_SAMPLES;
+static double g_timeout = BAKE_BENCH_DEFAULT_TIMEOUT;
 static bool g_fail_on_regression = false;
 
 static bake_bench_result_t *g_results = NULL;
@@ -816,6 +820,78 @@ static bool bake_bench_case_selected(
     return true;
 }
 
+static char g_timeout_msg[256];
+static size_t g_timeout_msg_len = 0;
+
+#if defined(_WIN32)
+static HANDLE g_timeout_timer = NULL;
+
+static VOID CALLBACK bake_bench_timeout_fired(PVOID arg, BOOLEAN fired) {
+    (void)arg;
+    (void)fired;
+    DWORD written = 0;
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), g_timeout_msg,
+        (DWORD)g_timeout_msg_len, &written, NULL);
+    ExitProcess(1);
+}
+#else
+static void bake_bench_timeout_fired(int sig) {
+    (void)sig;
+    ssize_t written = write(STDOUT_FILENO, g_timeout_msg, g_timeout_msg_len);
+    (void)written;
+    _exit(1);
+}
+#endif
+
+/* A benchcase runs in the process that measures it, so the timeout cannot be a
+ * thread: an extra thread changes what the case measures. It is a kernel timer
+ * that writes its message and ends the run when it fires. */
+static void bake_bench_timeout_arm(const char *suite, const char *name) {
+    if (g_timeout <= 0) {
+        return;
+    }
+
+    int len = snprintf(g_timeout_msg, sizeof(g_timeout_msg),
+        "TIMEOUT %s.%s (exceeded %g seconds)\n", suite, name, g_timeout);
+    g_timeout_msg_len = (len > 0) ? (size_t)len : 0;
+    fflush(stdout);
+
+#if defined(_WIN32)
+    CreateTimerQueueTimer(&g_timeout_timer, NULL, bake_bench_timeout_fired,
+        NULL, (DWORD)(g_timeout * 1000.0), 0, WT_EXECUTEDEFAULT);
+#else
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_handler = bake_bench_timeout_fired;
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGALRM, &action, NULL);
+
+    struct itimerval timer;
+    memset(&timer, 0, sizeof(timer));
+    timer.it_value.tv_sec = (time_t)g_timeout;
+    timer.it_value.tv_usec = (suseconds_t)(
+        (g_timeout - (double)(time_t)g_timeout) * 1e6);
+    setitimer(ITIMER_REAL, &timer, NULL);
+#endif
+}
+
+static void bake_bench_timeout_disarm(void) {
+    if (g_timeout <= 0) {
+        return;
+    }
+
+#if defined(_WIN32)
+    if (g_timeout_timer) {
+        DeleteTimerQueueTimer(NULL, g_timeout_timer, NULL);
+        g_timeout_timer = NULL;
+    }
+#else
+    struct itimerval timer;
+    memset(&timer, 0, sizeof(timer));
+    setitimer(ITIMER_REAL, &timer, NULL);
+#endif
+}
+
 static int bake_bench_run_case(
     bake_bench_suite *suite,
     bake_bench_case *benchcase)
@@ -835,6 +911,7 @@ static int bake_bench_run_case(
     }
 
     uint64_t start = bake_bench_now_ns();
+    bake_bench_timeout_arm(suite->id, benchcase->id);
     if (suite->setup) {
         suite->setup();
     }
@@ -842,6 +919,7 @@ static int bake_bench_run_case(
     if (suite->teardown) {
         suite->teardown();
     }
+    bake_bench_timeout_disarm();
     double elapsed = (double)(bake_bench_now_ns() - start) / 1e9;
 
     int rc = 0;
@@ -943,7 +1021,8 @@ static int bake_bench_parse_args(int argc, char *argv[], const char **single, co
         if (!strcmp(arg, "--json") || !strcmp(arg, "--baseline") ||
             !strcmp(arg, "--filter") || !strcmp(arg, "--time") ||
             !strcmp(arg, "--sample-time") || !strcmp(arg, "--samples") ||
-            !strcmp(arg, "--threshold") || !strcmp(arg, "-j"))
+            !strcmp(arg, "--threshold") || !strcmp(arg, "--timeout") ||
+            !strcmp(arg, "-j"))
         {
             if (!value) {
                 printf("missing value for %s\n", arg);
@@ -964,6 +1043,8 @@ static int bake_bench_parse_args(int argc, char *argv[], const char **single, co
                 g_samples = atoi(value);
             } else if (!strcmp(arg, "--threshold")) {
                 g_threshold = atof(value);
+            } else if (!strcmp(arg, "--timeout")) {
+                g_timeout = atof(value);
             }
 
             i ++;
@@ -998,6 +1079,9 @@ static int bake_bench_parse_args(int argc, char *argv[], const char **single, co
     }
     if (g_threshold < 0.0) {
         g_threshold = BAKE_BENCH_DEFAULT_THRESHOLD;
+    }
+    if (g_timeout < 0.0) {
+        g_timeout = BAKE_BENCH_DEFAULT_TIMEOUT;
     }
 
     return 0;
