@@ -96,4 +96,9 @@ int bake_link_project_binary(
 int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir);
 int bake_generate_project_amalgamation(const bake_project_cfg_t *cfg);
 
+void bake_report_collect_loc(
+    bake_context_t *ctx,
+    const ecs_entity_t *order,
+    int32_t count);
+
 #endif

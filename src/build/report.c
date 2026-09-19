@@ -17,6 +17,12 @@ typedef struct bake_report_step_t {
     double duration_sec;
     bool ok;
     bool open;
+    bool has_loc;
+    int32_t loc_files;
+    int32_t loc_code;
+    int32_t loc_comment;
+    int32_t loc_blank;
+    char *loc_by_language;
 } bake_report_step_t;
 
 struct bake_build_report_t {
@@ -39,6 +45,13 @@ struct bake_build_report_t {
     int32_t capacity;
     int32_t current;
     bool written;
+    bool workspace_has_loc;
+    int32_t workspace_loc_files;
+    int32_t workspace_loc_code;
+    int32_t workspace_loc_comment;
+    int32_t workspace_loc_blank;
+    char *workspace_loc_by_language;
+    char *loc_note;
 };
 
 typedef struct bake_report_project_total_t {
@@ -47,6 +60,12 @@ typedef struct bake_report_project_total_t {
     double compile_sec;
     double link_sec;
     int32_t files;
+    bool has_loc;
+    int32_t loc_files;
+    int32_t loc_code;
+    int32_t loc_comment;
+    int32_t loc_blank;
+    const char *loc_by_language;
 } bake_report_project_total_t;
 
 static double bake_report_round(double value) {
@@ -195,6 +214,7 @@ void bake_report_free(bake_build_report_t *report) {
         ecs_os_free(step->project);
         ecs_os_free(step->object);
         ecs_os_free(step->error);
+        ecs_os_free(step->loc_by_language);
     }
 
     if (report->lock) {
@@ -209,6 +229,8 @@ void bake_report_free(bake_build_report_t *report) {
     ecs_os_free(report->environment);
     ecs_os_free(report->git_sha);
     ecs_os_free(report->git_branch);
+    ecs_os_free(report->workspace_loc_by_language);
+    ecs_os_free(report->loc_note);
     ecs_os_free(report);
 }
 
@@ -314,6 +336,65 @@ void bake_report_close(
     if (report->current == step) {
         report->current = entry->parent;
     }
+    ecs_os_mutex_unlock(report->lock);
+}
+
+void bake_report_set_loc(
+    bake_build_report_t *report,
+    int32_t step,
+    int32_t files,
+    int32_t code,
+    int32_t comment,
+    int32_t blank,
+    const char *by_language_json)
+{
+    if (!report || step < 0 || step >= report->count) {
+        return;
+    }
+
+    ecs_os_mutex_lock(report->lock);
+    bake_report_step_t *entry = &report->steps[step];
+    entry->has_loc = true;
+    entry->loc_files = files;
+    entry->loc_code = code;
+    entry->loc_comment = comment;
+    entry->loc_blank = blank;
+    ecs_os_free(entry->loc_by_language);
+    entry->loc_by_language = ecs_os_strdup(by_language_json ? by_language_json : "{}");
+    ecs_os_mutex_unlock(report->lock);
+}
+
+void bake_report_set_workspace_loc(
+    bake_build_report_t *report,
+    int32_t files,
+    int32_t code,
+    int32_t comment,
+    int32_t blank,
+    const char *by_language_json)
+{
+    if (!report) {
+        return;
+    }
+
+    ecs_os_mutex_lock(report->lock);
+    report->workspace_has_loc = true;
+    report->workspace_loc_files = files;
+    report->workspace_loc_code = code;
+    report->workspace_loc_comment = comment;
+    report->workspace_loc_blank = blank;
+    ecs_os_free(report->workspace_loc_by_language);
+    report->workspace_loc_by_language = ecs_os_strdup(by_language_json ? by_language_json : "{}");
+    ecs_os_mutex_unlock(report->lock);
+}
+
+void bake_report_set_loc_note(bake_build_report_t *report, const char *note) {
+    if (!report || !note) {
+        return;
+    }
+
+    ecs_os_mutex_lock(report->lock);
+    ecs_os_free(report->loc_note);
+    report->loc_note = ecs_os_strdup(note);
     ecs_os_mutex_unlock(report->lock);
 }
 
@@ -458,6 +539,7 @@ static const char* bake_report_total_kinds[] = {
     BAKE_REPORT_KIND_DISCOVERY,
     BAKE_REPORT_KIND_GENERATE,
     BAKE_REPORT_KIND_ETC,
+    BAKE_REPORT_KIND_LOC,
     BAKE_REPORT_KIND_OTHER
 };
 
@@ -500,6 +582,21 @@ static void bake_report_append_kind_totals(
     ecs_os_free(totals);
 }
 
+static void bake_report_append_loc_value(
+    ecs_strbuf_t *buf,
+    int32_t files,
+    int32_t code,
+    int32_t comment,
+    int32_t blank,
+    const char *by_language_json)
+{
+    ecs_strbuf_append(buf, "{\"files\": %d, \"code\": %d, \"comment\": %d, "
+        "\"blank\": %d, \"by_language\": ", files, code, comment, blank);
+    ecs_strbuf_appendstr(buf,
+        (by_language_json && by_language_json[0]) ? by_language_json : "{}");
+    ecs_strbuf_appendstr(buf, "}");
+}
+
 static void bake_report_append_project_totals(
     const bake_build_report_t *report,
     ecs_strbuf_t *buf)
@@ -524,6 +621,19 @@ static void bake_report_append_project_totals(
         if (!entry) {
             entry = &totals[total_count++];
             entry->project = step->project;
+        }
+
+        if (!strcmp(step->kind, BAKE_REPORT_KIND_LOC)) {
+            if (step->has_loc) {
+                entry->has_loc = true;
+                entry->loc_files = step->loc_files;
+                entry->loc_code = step->loc_code;
+                entry->loc_comment = step->loc_comment;
+                entry->loc_blank = step->loc_blank;
+                entry->loc_by_language = step->loc_by_language;
+            }
+
+            continue;
         }
 
         const bake_report_step_t *parent = step->parent >= 0
@@ -551,18 +661,46 @@ static void bake_report_append_project_totals(
         bake_report_append_string(buf, entry->project);
         ecs_strbuf_append(buf,
             ": {\"total_sec\": %.6f, \"compile_sec\": %.6f, "
-            "\"link_sec\": %.6f, \"files\": %d}",
+            "\"link_sec\": %.6f, \"files\": %d",
             bake_report_round(entry->total_sec),
             bake_report_round(entry->compile_sec),
             bake_report_round(entry->link_sec),
             entry->files);
+        if (entry->has_loc) {
+            ecs_strbuf_appendstr(buf, ", \"loc\": ");
+            bake_report_append_loc_value(buf, entry->loc_files, entry->loc_code,
+                entry->loc_comment, entry->loc_blank, entry->loc_by_language);
+        }
+        ecs_strbuf_appendstr(buf, "}");
     }
     if (total_count) {
         ecs_strbuf_appendstr(buf, "\n    ");
     }
-    ecs_strbuf_appendstr(buf, "}\n");
+    ecs_strbuf_appendstr(buf, "},\n");
 
     ecs_os_free(totals);
+}
+
+static void bake_report_append_workspace_loc(
+    const bake_build_report_t *report,
+    ecs_strbuf_t *buf)
+{
+    ecs_strbuf_appendstr(buf, "    \"loc\": ");
+
+    if (report->workspace_has_loc) {
+        bake_report_append_loc_value(buf,
+            report->workspace_loc_files, report->workspace_loc_code,
+            report->workspace_loc_comment, report->workspace_loc_blank,
+            report->workspace_loc_by_language);
+    } else if (report->loc_note) {
+        ecs_strbuf_appendstr(buf, "{\"note\": ");
+        bake_report_append_string(buf, report->loc_note);
+        ecs_strbuf_appendstr(buf, "}");
+    } else {
+        ecs_strbuf_appendstr(buf, "null");
+    }
+
+    ecs_strbuf_appendstr(buf, "\n");
 }
 
 static char* bake_report_serialize(const bake_build_report_t *report, bool ok) {
@@ -613,6 +751,7 @@ static char* bake_report_serialize(const bake_build_report_t *report, bool ok) {
     ecs_strbuf_appendstr(&buf, "  \"totals\": {\n");
     bake_report_append_kind_totals(report, &buf);
     bake_report_append_project_totals(report, &buf);
+    bake_report_append_workspace_loc(report, &buf);
     ecs_strbuf_appendstr(&buf, "  },\n");
 
     ecs_strbuf_appendstr(&buf, "  \"steps\": [");

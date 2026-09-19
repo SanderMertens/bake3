@@ -838,6 +838,8 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
 
     if (bake_validate_build_graph_dependencies(ctx->world, order, count) != 0) goto cleanup;
 
+    bake_report_collect_loc(ctx, order, count);
+
     for (int32_t i = 0; i < count; i++) {
         const BakeBuildRequest *req = ecs_get(ctx->world, order[i], BakeBuildRequest);
         if (!req) continue;

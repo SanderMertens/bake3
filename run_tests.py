@@ -2665,7 +2665,7 @@ class BakeTests(unittest.TestCase):
         totals = report["totals"]
         self.assertEqual(
             set(totals["kind"]),
-            {"compile", "link", "bundle", "discovery", "generate", "etc", "other"})
+            {"compile", "link", "bundle", "discovery", "generate", "etc", "loc", "other"})
         self.assertGreater(totals["kind"]["compile"], 0.0)
         self.assertGreater(totals["kind"]["link"], 0.0)
 
@@ -2819,6 +2819,65 @@ class BakeTests(unittest.TestCase):
         self.assertGreater(links[0]["duration_sec"], 0.0)
         self.assertEqual([child["name"] for child in links[0]["children"]], ["embed"])
         self.assertEqual(report["totals"]["project"][app_id]["files"], 1)
+
+    def test_build_json_reports_lines_of_code(self) -> None:
+        project_dir, app_id = self.write_build_json_app("build_json_loc")
+        (project_dir / "include").mkdir()
+        (project_dir / "include" / "helper.h").write_text(
+            "#ifndef HELPER_H\n#define HELPER_H\n\nint helper(void);\n\n#endif\n")
+        report_path = project_dir / "build.json"
+
+        self.bake(["build", str(project_dir), "--build-json", str(report_path)])
+
+        report = json.loads(report_path.read_text())
+        self.assertTrue(report["ok"])
+
+        steps = self.report_steps(report)
+        loc_steps = [step for step in steps if step["kind"] == "loc"]
+        self.assertEqual([step["project"] for step in loc_steps], [app_id])
+        self.assertTrue(loc_steps[0]["ok"])
+        self.assertGreater(loc_steps[0]["duration_sec"], 0.0)
+
+        self.assertIn("loc", report["totals"]["kind"])
+        self.assertGreater(report["totals"]["kind"]["loc"], 0.0)
+
+        project_loc = report["totals"]["project"][app_id]["loc"]
+        self.assertEqual(project_loc["files"], 3)
+        self.assertGreater(project_loc["code"], 0)
+        self.assertIn("C", project_loc["by_language"])
+
+        workspace_loc = report["totals"]["loc"]
+        self.assertEqual(workspace_loc["files"], project_loc["files"])
+        self.assertEqual(workspace_loc["code"], project_loc["code"])
+        self.assertEqual(workspace_loc["by_language"], project_loc["by_language"])
+
+    def test_build_json_reports_a_note_when_cloc_is_unavailable(self) -> None:
+        project_dir, app_id = self.write_build_json_app("build_json_loc_missing")
+        report_path = project_dir / "build.json"
+
+        cloc_path = shutil.which("cloc")
+        cloc_dir = os.path.realpath(os.path.dirname(cloc_path)) if cloc_path else None
+        parts = [
+            entry for entry in self.env.get("PATH", "").split(os.pathsep)
+            if entry and os.path.realpath(entry) != cloc_dir
+        ]
+        env = dict(self.env)
+        env["PATH"] = os.pathsep.join(parts)
+
+        self.bake(
+            ["build", str(project_dir), "--build-json", str(report_path)],
+            env=env)
+
+        report = json.loads(report_path.read_text())
+        self.assertTrue(report["ok"])
+        self.assertNotIn("loc", report["totals"]["project"][app_id])
+        self.assertEqual(report["totals"]["loc"], {"note": "cloc not found"})
+
+        steps = self.report_steps(report)
+        loc_steps = [step for step in steps if step["kind"] == "loc"]
+        self.assertEqual(len(loc_steps), 1)
+        self.assertFalse(loc_steps[0]["ok"])
+        self.assertEqual(loc_steps[0]["error"], "cloc not found")
 
     def test_setup_local_reinstalls_executable_bake_binary(self) -> None:
         installed_bake = self.bake_home / f"bake3{EXE_SUFFIX}"
