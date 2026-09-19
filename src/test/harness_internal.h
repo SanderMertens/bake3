@@ -12,6 +12,7 @@ typedef struct bake_suite_spec_t {
     char *id;
     bool setup;
     bool teardown;
+    double timeout;
     bake_strlist_t testcases;
     bake_param_spec_t *params;
     int32_t param_count;

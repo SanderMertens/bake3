@@ -215,41 +215,39 @@ int bake_generate_main(const bake_project_cfg_t *cfg, const bake_suite_list_t *s
         char *setup_name = suite->setup ? flecs_asprintf("%s_setup", suite->id) : NULL;
         char *teardown_name = suite->teardown ? flecs_asprintf("%s_teardown", suite->id) : NULL;
 
+        ecs_strbuf_append(&out,
+            "    {\n"
+            "        \"%s\",\n"
+            "        %s,\n"
+            "        %s,\n"
+            "        %d,\n"
+            "        %s_testcases",
+            suite->id,
+            setup_name ? setup_name : "NULL",
+            teardown_name ? teardown_name : "NULL",
+            suite->testcases.count,
+            suite->id);
+
         if (suite->param_count) {
             ecs_strbuf_append(&out,
-                "    {\n"
-                "        \"%s\",\n"
-                "        %s,\n"
-                "        %s,\n"
+                ",\n"
                 "        %d,\n"
-                "        %s_testcases,\n"
-                "        %d,\n"
-                "        %s_params\n"
-                "    }%s\n",
-                suite->id,
-                setup_name ? setup_name : "NULL",
-                teardown_name ? teardown_name : "NULL",
-                suite->testcases.count,
-                suite->id,
+                "        %s_params",
                 suite->param_count,
-                suite->id,
-                (i + 1) < suites->count ? "," : "");
-        } else {
-            ecs_strbuf_append(&out,
-                "    {\n"
-                "        \"%s\",\n"
-                "        %s,\n"
-                "        %s,\n"
-                "        %d,\n"
-                "        %s_testcases\n"
-                "    }%s\n",
-                suite->id,
-                setup_name ? setup_name : "NULL",
-                teardown_name ? teardown_name : "NULL",
-                suite->testcases.count,
-                suite->id,
-                (i + 1) < suites->count ? "," : "");
+                suite->id);
+        } else if (suite->timeout > 0) {
+            ecs_strbuf_appendstr(&out,
+                ",\n"
+                "        0,\n"
+                "        NULL");
         }
+
+        if (suite->timeout > 0) {
+            ecs_strbuf_append(&out, ",\n        %g", suite->timeout);
+        }
+
+        ecs_strbuf_append(&out, "\n    }%s\n",
+            (i + 1) < suites->count ? "," : "");
 
         ecs_os_free(setup_name);
         ecs_os_free(teardown_name);

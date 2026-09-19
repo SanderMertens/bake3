@@ -144,6 +144,19 @@ static int bake_parse_test_suite(const JSON_Object *suite_obj, bake_suite_list_t
     suite.setup = json_object_get_boolean(suite_obj, "setup") == 1;
     suite.teardown = json_object_get_boolean(suite_obj, "teardown") == 1;
 
+    JSON_Value *timeout_value = json_object_get_value(suite_obj, "timeout");
+    if (timeout_value) {
+        if (json_value_get_type(timeout_value) != JSONNumber ||
+            json_value_get_number(timeout_value) < 0)
+        {
+            ecs_err("testsuite '%s': timeout must be a positive number of seconds",
+                id);
+            bake_suite_spec_fini(&suite);
+            return -1;
+        }
+        suite.timeout = json_value_get_number(timeout_value);
+    }
+
     if (bake_parse_test_cases(tests, &suite) != 0) {
         bake_suite_spec_fini(&suite);
         return -1;
