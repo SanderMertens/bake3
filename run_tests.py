@@ -2135,6 +2135,188 @@ class BakeTests(unittest.TestCase):
                 self.assertEqual(t["suite"], "Alpha")
                 self.assertGreater(t["elapsed"], 0.0)
 
+    def timeout_project_files(self, project_dir: Path, project_id: str) -> None:
+        """Write a test project with a hung case, a slow case and a quiet case."""
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": project_id,
+                    "type": "test",
+                    "test": {
+                        "testsuites": [
+                            {"id": "Alpha", "testcases": ["quick", "hang", "quiet"]},
+                            {"id": "Beta", "testcases": ["hang"], "timeout": 2},
+                        ]
+                    },
+                },
+                indent=4,
+            ) + "\n"
+        )
+
+        case_header = (
+            "#include <bake_test.h>\n"
+            "#include <stdio.h>\n"
+            "#include <stdlib.h>\n"
+            "#include <string.h>\n"
+            "#if defined(_WIN32)\n"
+            "#include <process.h>\n"
+            "#include <windows.h>\n"
+            "#define case_sleep(sec) Sleep((DWORD)(sec) * 1000)\n"
+            "#define case_pid() ((long)_getpid())\n"
+            "#else\n"
+            "#include <unistd.h>\n"
+            "#define case_sleep(sec) sleep(sec)\n"
+            "#define case_pid() ((long)getpid())\n"
+            "#endif\n"
+            "static void write_pid(const char *name, long pid) {\n"
+            "    const char *dir = getenv(\"BAKE_TIMEOUT_PID_DIR\");\n"
+            "    char path[1024];\n"
+            "    snprintf(path, sizeof(path), \"%s/%s\", dir ? dir : \".\", name);\n"
+            "    FILE *f = fopen(path, \"w\");\n"
+            "    if (f) { fprintf(f, \"%ld\\n\", pid); fclose(f); }\n"
+            "}\n"
+        )
+
+        (src_dir / "Alpha.c").write_text(
+            case_header +
+            "void Alpha_quick(void) { test_assert(true); }\n"
+            "void Alpha_hang(void) {\n"
+            "#if !defined(_WIN32)\n"
+            "    pid_t child = fork();\n"
+            "    if (!child) { case_sleep(300); _exit(0); }\n"
+            "    write_pid(\"hang_child.pid\", (long)child);\n"
+            "#endif\n"
+            "    write_pid(\"hang_case.pid\", case_pid());\n"
+            "    case_sleep(300);\n"
+            "    test_assert(true);\n"
+            "}\n"
+            "void Alpha_quiet(void) {\n"
+            "    case_sleep(2);\n"
+            "    printf(\"QUIET DONE\\n\");\n"
+            "    test_assert(true);\n"
+            "}\n"
+        )
+        (src_dir / "Beta.c").write_text(
+            case_header +
+            "void Beta_hang(void) {\n"
+            "    case_sleep(300);\n"
+            "    test_assert(true);\n"
+            "}\n"
+        )
+
+    def test_test_harness_times_out_hung_cases(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.harness.timeout.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_timeout_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        self.timeout_project_files(project_dir, project_id)
+
+        local_env = "--local-env=case_timeout"
+        self.bake([local_env, "build", "."], cwd=project_dir)
+
+        env = self.env.copy()
+        env["BAKE_TIMEOUT_PID_DIR"] = str(project_dir)
+
+        report = project_dir / "report.json"
+        start = time.monotonic()
+        output = self.strip_ansi(self.bake_expect_failure(
+            [local_env, "run", ".", "--",
+             "-j", "4", "--timeout", "4", "--json", str(report)],
+            cwd=project_dir, env=env))
+        elapsed = time.monotonic() - start
+
+        self.assertLess(elapsed, 30.0, f"run took {elapsed:.1f}s, output:\n{output}")
+        self.assertIn("TIMEOUT Alpha.hang (exceeded 4 seconds)", output)
+        self.assertIn("TIMEOUT Beta.hang (exceeded 4 seconds)", output)
+        self.assertIn(" - Alpha.hang (timeout)", output)
+        self.assertIn("QUIET DONE", output)
+
+        data = json.loads(report.read_text())
+        self.assertEqual(data["fail"], 2)
+        self.assertEqual(data["timeout"], 2)
+        by_case = {(t["suite"], t["case"]): t for t in data["tests"]}
+        self.assertEqual(by_case[("Alpha", "hang")]["status"], "timeout")
+        self.assertEqual(by_case[("Beta", "hang")]["status"], "timeout")
+        self.assertEqual(by_case[("Alpha", "quick")]["status"], "pass")
+        self.assertEqual(by_case[("Alpha", "quiet")]["status"], "pass")
+        self.assertLess(by_case[("Alpha", "hang")]["elapsed"], 20.0)
+
+        if platform.system() != "Windows":
+            for name in ("hang_case.pid", "hang_child.pid"):
+                pid = int((project_dir / name).read_text().strip())
+                with self.assertRaises(
+                        ProcessLookupError, msg=f"{name} {pid} still running"):
+                    os.kill(pid, 0)
+
+        start = time.monotonic()
+        suite_output = self.strip_ansi(self.bake_expect_failure(
+            [local_env, "run", ".", "--", "Beta"], cwd=project_dir, env=env))
+        suite_elapsed = time.monotonic() - start
+
+        self.assertIn("TIMEOUT Beta.hang (exceeded 2 seconds)", suite_output)
+        self.assertLess(suite_elapsed, 30.0, f"suite run took {suite_elapsed:.1f}s")
+
+    def test_test_harness_waits_for_cases_without_burning_cpu(self) -> None:
+        if platform.system() == "Windows":
+            self.skipTest("getrusage is not available on Windows")
+
+        import resource
+
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.harness.idle.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_idle_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        cases = [f"sleep_{i}" for i in range(1, 5)]
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": project_id,
+                    "type": "test",
+                    "value": {"output": "harness_idle"},
+                    "test": {"testsuites": [{"id": "Sleeper", "testcases": cases}]},
+                },
+                indent=4,
+            ) + "\n"
+        )
+        (src_dir / "Sleeper.c").write_text(
+            "#include <bake_test.h>\n"
+            "#include <unistd.h>\n"
+            + "".join(
+                f"void Sleeper_{case}(void) {{ sleep(4); test_assert(true); }}\n"
+                for case in cases
+            )
+        )
+
+        local_env = "--local-env=case_idle"
+        self.bake([local_env, "build", "."], cwd=project_dir)
+        binaries = sorted(
+            path for path in project_dir.rglob(f"harness_idle{EXE_SUFFIX}")
+            if path.is_file())
+        self.assertTrue(binaries, "test binary was not built")
+        exe = binaries[0]
+
+        before = resource.getrusage(resource.RUSAGE_CHILDREN)
+        start = time.monotonic()
+        proc = subprocess.run(
+            [str(exe), "-j", "4", "--timeout", "60"],
+            cwd=str(project_dir), env=self.env, text=True,
+            capture_output=True, check=False)
+        elapsed = time.monotonic() - start
+        after = resource.getrusage(resource.RUSAGE_CHILDREN)
+
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertGreater(elapsed, 3.0)
+        cpu = (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime)
+        self.assertLess(
+            cpu, 1.0,
+            f"runner used {cpu:.3f}s of cpu while waiting {elapsed:.1f}s on sleeping cases")
+
     def bench_project_files(self, project_dir: Path, project_id: str, cases: list[str]) -> None:
         """Write a bench project with hand written benchcase bodies."""
         src_dir = project_dir / "src"
@@ -2224,6 +2406,47 @@ class BakeTests(unittest.TestCase):
 
         generated = sorted(project_dir.glob("**/generated/bake_bench.h"))
         self.assertTrue(generated, "expected bake_bench.h to be copied into the generated dir")
+
+    def test_bench_harness_times_out_hung_cases(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.bench.timeout.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"bench_timeout_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": project_id,
+                    "type": "application",
+                    "bench": {
+                        "benchsuites": [{"id": "Alpha", "benchcases": ["hang"]}]
+                    },
+                },
+                indent=4,
+            ) + "\n"
+        )
+        (src_dir / "Alpha.c").write_text(
+            "#include <bake_bench.h>\n"
+            "#if defined(_WIN32)\n"
+            "#include <windows.h>\n"
+            "#define case_sleep(sec) Sleep((DWORD)(sec) * 1000)\n"
+            "#else\n"
+            "#include <unistd.h>\n"
+            "#define case_sleep(sec) sleep(sec)\n"
+            "#endif\n"
+            "void Alpha_hang(bench_t *b) { (void)b; case_sleep(300); }\n"
+        )
+
+        start = time.monotonic()
+        output = self.strip_ansi(self.bake_expect_failure(
+            ["--local-env=bench_timeout", "run", ".", "--", "--timeout", "2"],
+            cwd=project_dir))
+        elapsed = time.monotonic() - start
+
+        self.assertIn("TIMEOUT Alpha.hang (exceeded 2 seconds)", output)
+        self.assertLess(elapsed, 60.0, f"bench run took {elapsed:.1f}s")
 
     def test_bench_project_runs_cases_and_writes_json_report(self) -> None:
         stamp = int(time.time() * 1_000_000)
