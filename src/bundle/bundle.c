@@ -68,6 +68,7 @@ static bool bake_bundle_cargo_release(const char *mode);
 static char* bake_bundle_fingerprint(
     const bake_bundle_t *bundle,
     const char *bundle_src_dir,
+    const char *install_dir,
     const char *mode)
 {
     ecs_strbuf_t buf = ECS_STRBUF_INIT;
@@ -82,6 +83,7 @@ static char* bake_bundle_fingerprint(
     ecs_strbuf_append(&buf, "subdir=%s\n", bundle->subdir ? bundle->subdir : "");
     ecs_strbuf_append(&buf, "library=%s\n", bundle->library ? bundle->library : "");
     ecs_strbuf_append(&buf, "header_only=%d\n", bundle->header_only ? 1 : 0);
+    ecs_strbuf_append(&buf, "install_dir=%s\n", install_dir ? install_dir : "");
     for (int32_t i = 0; i < bundle->cmake_args.count; i++) {
         ecs_strbuf_append(&buf, "cmake_arg=%s\n", bundle->cmake_args.items[i]);
     }
@@ -903,7 +905,8 @@ static int bake_bundle_prepare_one(
             }
         }
 
-        char *fingerprint = bake_bundle_fingerprint(bundle, bundle_src_dir, mode);
+        char *fingerprint = bake_bundle_fingerprint(
+            bundle, bundle_src_dir, install_dir, mode);
 
         char *built = bake_file_read(marker, NULL);
         bool up_to_date = built && !strcmp(built, fingerprint);

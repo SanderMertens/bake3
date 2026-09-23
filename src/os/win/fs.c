@@ -89,14 +89,20 @@ int64_t bake_os_file_size(const char *path) {
     return (int64_t)size.QuadPart;
 }
 
-int bake_file_sync_mode(const char *src, const char *dst) {
+static int bake_file_sync_mode_impl(
+    const char *src,
+    const char *dst,
+    bool log_errors)
+{
     if (!src || !dst) {
         return -1;
     }
 
     struct _stat st;
     if (_stat(src, &st) != 0) {
-        bake_log_errno_last("stat file", src);
+        if (log_errors) {
+            bake_log_errno_last("stat file", src);
+        }
         return -1;
     }
 
@@ -106,11 +112,21 @@ int bake_file_sync_mode(const char *src, const char *dst) {
 #endif
 
     if (_chmod(dst, mode) != 0) {
-        bake_log_errno_last("set file mode", dst);
+        if (log_errors) {
+            bake_log_errno_last("set file mode", dst);
+        }
         return -1;
     }
 
     return 0;
+}
+
+int bake_file_sync_mode(const char *src, const char *dst) {
+    return bake_file_sync_mode_impl(src, dst, true);
+}
+
+int bake_file_sync_mode_silent(const char *src, const char *dst) {
+    return bake_file_sync_mode_impl(src, dst, false);
 }
 
 int bake_path_is_dir(const char *path) {

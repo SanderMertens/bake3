@@ -99,7 +99,11 @@ int64_t bake_os_tree_newest_mtime(const char *root) {
     return ctx.newest;
 }
 
-static int bake_os_mkdir_component(const char *full_path, const char *component) {
+static int bake_os_mkdir_component(
+    const char *full_path,
+    const char *component,
+    bool log_errors)
+{
 #if defined(_WIN32)
     /* Drive roots like "D:" cannot be created and do not stat reliably. */
     if (component[0] && component[1] == ':' && !component[2]) {
@@ -119,20 +123,26 @@ static int bake_os_mkdir_component(const char *full_path, const char *component)
     }
 
     if (errno == EEXIST) {
-        ecs_err(
-            "failed to create directory '%s': path component '%s' is not a directory",
-            full_path,
-            component);
+        if (log_errors) {
+            ecs_err(
+                "failed to create directory '%s': path component '%s' is not a directory",
+                full_path,
+                component);
+        }
         return -1;
     }
 
-    bake_log_errno_last("create directory", component);
+    if (log_errors) {
+        bake_log_errno_last("create directory", component);
+    }
     return -1;
 }
 
-int bake_os_mkdirs(const char *path) {
+static int bake_os_mkdirs_impl(const char *path, bool log_errors) {
     if (!path || !path[0]) {
-        ecs_err("failed to create directory: invalid path");
+        if (log_errors) {
+            ecs_err("failed to create directory: invalid path");
+        }
         return -1;
     }
 
@@ -148,18 +158,26 @@ int bake_os_mkdirs(const char *path) {
             char prev = tmp[i];
             tmp[i] = '\0';
             if (tmp[0]) {
-                rc = bake_os_mkdir_component(path, tmp);
+                rc = bake_os_mkdir_component(path, tmp, log_errors);
             }
             tmp[i] = prev;
         }
     }
 
     if (rc == 0) {
-        rc = bake_os_mkdir_component(path, tmp);
+        rc = bake_os_mkdir_component(path, tmp, log_errors);
     }
 
     ecs_os_free(tmp);
     return rc;
+}
+
+int bake_os_mkdirs(const char *path) {
+    return bake_os_mkdirs_impl(path, true);
+}
+
+int bake_os_mkdirs_silent(const char *path) {
+    return bake_os_mkdirs_impl(path, false);
 }
 
 int bake_os_rmtree(const char *path) {
