@@ -400,7 +400,7 @@ void bake_project_cfg_init(bake_project_cfg_t *cfg) {
 
 static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_dependee) {
 #define F(n) ecs_os_free(cfg->n)
-    F(id); F(path); F(language); F(output_name);
+    F(id); F(path); F(language); F(output_name); F(lint.command);
 #undef F
 
 #define F(n) bake_strlist_fini(&cfg->n)
@@ -445,7 +445,7 @@ void bake_project_cfg_fini(bake_project_cfg_t *cfg) {
 
 #define BAKE_PROJECT_META_KEYS(X) \
     X("id") X("type") X("value") X("test") X("bench") X("rules") X("bundle") \
-    X("dependee") X("lang") X("lang.c") X("lang.cpp")
+    X("lint") X("dependee") X("lang") X("lang.c") X("lang.cpp")
 
 #define BAKE_PROJECT_VALUE_KEYS(X) \
     X("language") X("output") X("private") X("public") X("standalone") \
@@ -472,6 +472,11 @@ static const char *bake_bundle_object_keys[] = {
     "repository", "branch", "tag", "commit", "subdir", "library",
     "build-system", "profile", "header-only", "include", "sources",
     "cmake-args", "cargo-args", "lib", "ldflags",
+    NULL
+};
+
+static const char *bake_lint_object_keys[] = {
+    "command", "action",
     NULL
 };
 
@@ -647,6 +652,60 @@ static int bake_parse_amalgamate(
     return -1;
 }
 
+const char* bake_lint_action_str(bake_lint_action_t action) {
+    switch (action) {
+    case BAKE_LINT_LOG: return "log";
+    case BAKE_LINT_AUTOFIX: return "autofix";
+    case BAKE_LINT_ERROR: break;
+    }
+
+    return "error";
+}
+
+static int bake_parse_lint(
+    const JSON_Object *object,
+    bake_lint_cfg_t *lint)
+{
+    JSON_Value *value = json_object_get_value(object, "lint");
+    if (!value) {
+        return 0;
+    }
+
+    const JSON_Object *lint_obj = json_value_get_object(value);
+    if (!lint_obj) {
+        ecs_err("'lint' must be an object");
+        return -1;
+    }
+
+    bake_warn_similar_keys(lint_obj, bake_lint_object_keys, "lint");
+
+    ecs_os_free(lint->command);
+    lint->command = NULL;
+    if (bake_json_get_string(lint_obj, "command", &lint->command) < 0) return -1;
+    if (!lint->command || !lint->command[0]) {
+        ecs_err("'lint' requires a non-empty 'command'");
+        return -1;
+    }
+
+    char *action = NULL;
+    if (bake_json_get_string(lint_obj, "action", &action) < 0) return -1;
+    lint->action = BAKE_LINT_ERROR;
+    if (action) {
+        if (!strcmp(action, "log")) {
+            lint->action = BAKE_LINT_LOG;
+        } else if (!strcmp(action, "autofix")) {
+            lint->action = BAKE_LINT_AUTOFIX;
+        } else if (strcmp(action, "error")) {
+            ecs_err("invalid lint action '%s', expected log, error or autofix", action);
+            ecs_os_free(action);
+            return -1;
+        }
+        ecs_os_free(action);
+    }
+
+    return 0;
+}
+
 static int bake_parse_project_value_cfg(
     const JSON_Object *object,
     bake_project_cfg_t *cfg)
@@ -799,6 +858,8 @@ static int bake_parse_project_cfg_object(
             }
             if (bake_parse_rules(json_value_get_array(rules_value), &cfg->rules) != 0) return -1;
         }
+
+        if (bake_parse_lint(object, &cfg->lint) != 0) return -1;
     }
 
     if (bake_parse_project_value_cfg(object, cfg) != 0) return -1;

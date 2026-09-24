@@ -40,6 +40,7 @@ static const char *bake_help_text =
     "  --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)\n"
     "  --standalone        Use amalgamated dependency sources in deps/\n"
     "  --strict            Enable strict compiler warnings and checks\n"
+    "  --fix-lint          Run the lint command of projects with the autofix action\n"
     "  --trace             Echo compiler and linker commands\n"
     "  -j <count>          Number of parallel jobs for build/test execution\n"
     "  -r                  Recursive clean/rebuild\n"

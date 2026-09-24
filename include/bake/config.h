@@ -62,6 +62,17 @@ typedef struct bake_amalgamate_list_t {
     ecs_vec_t vec;
 } bake_amalgamate_list_t;
 
+typedef enum bake_lint_action_t {
+    BAKE_LINT_ERROR = 0,
+    BAKE_LINT_LOG,
+    BAKE_LINT_AUTOFIX
+} bake_lint_action_t;
+
+typedef struct bake_lint_cfg_t {
+    char *command;
+    bake_lint_action_t action;
+} bake_lint_cfg_t;
+
 typedef struct bake_project_cfg_t bake_project_cfg_t;
 
 typedef struct bake_dependee_cfg_t {
@@ -106,6 +117,7 @@ struct bake_project_cfg_t {
 
     bake_rule_list_t rules;
     bake_bundle_list_t bundles;
+    bake_lint_cfg_t lint;
 
     bake_strlist_t bundle_includes;
     bake_strlist_t bundle_libpaths;
@@ -150,6 +162,8 @@ void bake_project_cfg_init(bake_project_cfg_t *cfg);
 void bake_project_cfg_fini(bake_project_cfg_t *cfg);
 int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t *cfg);
 void bake_project_cfg_set_eval_context(const char *mode, const char *target);
+
+const char* bake_lint_action_str(bake_lint_action_t action);
 
 bool bake_language_is_cpp(const bake_project_cfg_t *cfg);
 

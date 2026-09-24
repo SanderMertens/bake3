@@ -57,6 +57,7 @@ int main(int argc, char *argv[]) {
         BFLAG("-r", recursive)
         BFLAG("--standalone", standalone)
         BFLAG("--strict", strict)
+        BFLAG("--fix-lint", fix_lint)
         BFLAG("--trace", trace)
         BFLAG("--local", setup_local)
         BFLAG("--json", json)

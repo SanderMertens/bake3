@@ -24,6 +24,7 @@ typedef struct bake_options_t {
     bool recursive;
     bool standalone;
     bool strict;
+    bool fix_lint;
     bool trace;
     bool setup_local;
     bool local_env;

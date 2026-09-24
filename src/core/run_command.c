@@ -346,6 +346,57 @@ int bake_run_command_tracked(
     return 0;
 }
 
+int bake_run_command_status(
+    const char *cmd,
+    const char *cwd,
+    const char *output_path,
+    int *exit_code)
+{
+    *exit_code = -1;
+    if (!cmd || !cmd[0]) {
+        return -1;
+    }
+
+    bake_cmd_line_t parsed;
+    if (bake_parse_command_line(cmd, &parsed) != 0) {
+        ecs_err("invalid command line: %s", cmd);
+        return -1;
+    }
+
+    parsed.stdio_cfg.cwd = cwd;
+    if (output_path) {
+        ecs_os_free((char*)parsed.stdio_cfg.stdout_path);
+        parsed.stdio_cfg.stdout_path = ecs_os_strdup(output_path);
+        parsed.stdio_cfg.stdout_append = false;
+        parsed.stdio_cfg.stderr_to_stdout = true;
+    }
+
+    bake_process_result_t result = {0};
+    int rc = bake_proc_run(
+        (const char *const*)parsed.argv,
+        &parsed.stdio_cfg,
+        &result);
+    bake_cmd_line_fini(&parsed);
+
+    if (rc != 0) {
+        ecs_err("failed to start command: %s", cmd);
+        return -1;
+    }
+
+    if (result.interrupted) {
+        ecs_err("command interrupted: %s", cmd);
+        return -1;
+    }
+
+    if (result.term_signal) {
+        ecs_err("command terminated by signal %d: %s", result.term_signal, cmd);
+        return -1;
+    }
+
+    *exit_code = result.exit_code;
+    return 0;
+}
+
 int bake_run_command_in_dir(const char *cmd, bool log_command, const char *cwd) {
     return bake_run_command_tracked(cmd, log_command, cwd, NULL);
 }

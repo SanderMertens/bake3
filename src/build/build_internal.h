@@ -8,6 +8,7 @@ typedef struct bake_compile_unit_t {
     char *obj;
     char *dep;
     bool cpp;
+    bool lint;
 } bake_compile_unit_t;
 
 typedef struct bake_compile_list_t {

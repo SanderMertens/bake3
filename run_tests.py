@@ -8,6 +8,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -3741,6 +3742,113 @@ class BakeTests(unittest.TestCase):
             "unknown project key 'use_private', did you mean 'use-private'?", output)
         self.assertIn(
             "unknown language config key 'includes', did you mean 'include'?", output)
+
+    def _make_lint_project(self, name: str, action: str | None) -> tuple[Path, Path]:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"{name}_{stamp}"
+        (root / "src").mkdir(parents=True)
+        log = root / "lint.log"
+        (root / "lint.py").write_text(
+            "import sys\n"
+            "path, action = sys.argv[1], sys.argv[2]\n"
+            "with open('lint.log', 'a') as f:\n"
+            "    f.write(path + ' ' + action + '\\n')\n"
+            "text = open(path).read()\n"
+            "if action == 'autofix':\n"
+            "    text = text.replace('LINT_BAD', 'LINT_OK')\n"
+            "    open(path, 'w').write(text)\n"
+            "failed = 'LINT_BAD' in text or 'LINT_WARN' in text\n"
+            "if failed:\n"
+            "    print('src/x.c:1: found a lint marker')\n"
+            "sys.exit(1 if failed else 0)\n"
+        )
+        lint = {"command": f'"{Path(sys.executable).as_posix()}" lint.py'}
+        if action is not None:
+            lint["action"] = action
+        (root / "project.json").write_text(json.dumps({
+            "id": f"{name}_{stamp}",
+            "type": "application",
+            "value": {"public": False},
+            "lint": lint,
+        }, indent=4))
+        (root / "src" / "main.c").write_text("int main(void) { return 0; }\n")
+        return root, log
+
+    def test_lint_error_fails_build(self) -> None:
+        root, log = self._make_lint_project("lint_error", None)
+        (root / "src" / "bad.c").write_text("int LINT_BAD = 0;\n")
+
+        output = self.strip_ansi(self.bake_expect_failure(["build", str(root)]))
+        bad = (root / "src" / "bad.c").resolve()
+        self.assertIn("lint failed for src/bad.c", output)
+        self.assertIn("lint: src/x.c:1: found a lint marker", output)
+        self.assertIn(f"{bad} error", log.read_text().splitlines())
+
+        (root / "src" / "bad.c").write_text("int LINT_OK = 0;\n")
+        log.unlink()
+        self.bake(["build", str(root)])
+        lines = log.read_text().splitlines()
+        self.assertIn(f"{bad} error", lines)
+        self.assertIn(f"{(root / 'src' / 'main.c').resolve()} error", lines)
+
+        log.unlink()
+        self.bake(["build", str(root)])
+        self.assertFalse(log.exists())
+
+    def test_lint_log_reports_and_continues(self) -> None:
+        root, log = self._make_lint_project("lint_log", "log")
+        (root / "src" / "warn.c").write_text("int LINT_WARN = 0;\n")
+
+        output = self.strip_ansi(self.bake(["build", str(root)]))
+        self.assertIn("lint reported problems in src/warn.c", output)
+        warn = (root / "src" / "warn.c").resolve()
+        self.assertIn(f"{warn} log", log.read_text().splitlines())
+
+    def test_lint_autofix_rewrites_before_compile(self) -> None:
+        root, log = self._make_lint_project("lint_autofix", "autofix")
+        (root / "src" / "fix.c").write_text("int LINT_BAD = 0;\n")
+
+        self.bake(["build", str(root)])
+        self.assertEqual((root / "src" / "fix.c").read_text(), "int LINT_OK = 0;\n")
+        fix = (root / "src" / "fix.c").resolve()
+        self.assertIn(f"{fix} autofix", log.read_text().splitlines())
+
+    def test_fix_lint_option_overrides_action(self) -> None:
+        root, log = self._make_lint_project("lint_fix_option", "error")
+        (root / "src" / "fix.c").write_text("int LINT_BAD = 0;\n")
+
+        self.bake(["build", str(root), "--fix-lint"])
+        self.assertEqual((root / "src" / "fix.c").read_text(), "int LINT_OK = 0;\n")
+        fix = (root / "src" / "fix.c").resolve()
+        self.assertIn(f"{fix} autofix", log.read_text().splitlines())
+
+    def test_lint_invalid_action_is_rejected(self) -> None:
+        root, _ = self._make_lint_project("lint_invalid", "fix")
+
+        output = self.strip_ansi(self.bake_expect_failure(["build", str(root)]))
+        self.assertIn("invalid lint action 'fix'", output)
+
+    def test_lint_skips_generated_test_main(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"lint_harness_{stamp}"
+        (root / "src").mkdir(parents=True)
+        (root / "lint.py").write_text(
+            "import sys\n"
+            "with open('lint.log', 'a') as f:\n"
+            "    f.write(sys.argv[1] + '\\n')\n"
+        )
+        (root / "project.json").write_text(json.dumps({
+            "id": f"lint_harness_{stamp}",
+            "type": "application",
+            "value": {"public": False},
+            "lint": {"command": f'"{Path(sys.executable).as_posix()}" lint.py'},
+            "test": {"testsuites": [{"id": "Suite", "testcases": ["case"]}]},
+        }, indent=4))
+
+        self.bake(["build", str(root)])
+        linted = [Path(l).name for l in (root / "lint.log").read_text().splitlines()]
+        self.assertIn("Suite.c", linted)
+        self.assertNotIn("main.c", linted)
 
     def test_similar_bundle_and_amalgamate_keys_are_reported(self) -> None:
         """A misspelled bundle key is ignored, so the build fails on the

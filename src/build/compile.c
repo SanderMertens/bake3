@@ -291,6 +291,108 @@ static char* bake_compile_display_path(const bake_project_cfg_t *cfg, const char
     return path;
 }
 
+static void bake_lint_print_line(const char *line, const char *color) {
+    const char *colon = strchr(line, ':');
+    const char *num = colon ? colon + 1 : NULL;
+    const char *p = num;
+    while (p && *p >= '0' && *p <= '9') {
+        p++;
+    }
+
+    if (num && p != num && *p == ':') {
+        int loc_len = (int)(p - line + 1);
+        ecs_trace("#[%s]lint: #[bold]%.*s#[normal]%s", color, loc_len, line, p + 1);
+    } else {
+        ecs_trace("#[%s]lint: #[normal]%s", color, line);
+    }
+}
+
+static void bake_lint_print_output(
+    bake_compile_ctx_t *ctx,
+    const char *output_path,
+    const char *color)
+{
+    char *output = bake_file_read(output_path, NULL);
+    bake_remove_file_if_exists(output_path);
+    if (!output) {
+        return;
+    }
+
+    if (ctx->print_lock) {
+        ecs_os_mutex_lock(ctx->print_lock);
+    }
+
+    char *line = output;
+    while (line && *line) {
+        char *next = strchr(line, '\n');
+        if (next) {
+            *next = '\0';
+            next++;
+        }
+        size_t len = strlen(line);
+        if (len && line[len - 1] == '\r') {
+            line[len - 1] = '\0';
+        }
+        if (line[0]) {
+            bake_lint_print_line(line, color);
+        }
+        line = next;
+    }
+
+    if (ctx->print_lock) {
+        ecs_os_mutex_unlock(ctx->print_lock);
+    }
+
+    ecs_os_free(output);
+}
+
+static int bake_lint_single(bake_compile_ctx_t *ctx, const bake_compile_unit_t *unit) {
+    const bake_lint_cfg_t *lint = &ctx->cfg->lint;
+    bake_lint_action_t action = ctx->ctx->opts.fix_lint ? BAKE_LINT_AUTOFIX : lint->action;
+    char *file = bake_shell_quote_arg(unit->src);
+    char *command = flecs_asprintf("%s %s %s",
+        lint->command, file, bake_lint_action_str(action));
+    ecs_os_free(file);
+
+    if (ctx->ctx->opts.trace) {
+        if (ctx->print_lock) {
+            ecs_os_mutex_lock(ctx->print_lock);
+        }
+        ecs_trace("%s", command);
+        if (ctx->print_lock) {
+            ecs_os_mutex_unlock(ctx->print_lock);
+        }
+    }
+
+    char *output_path = flecs_asprintf("%s.lint", unit->obj);
+    int exit_code = 0;
+    int rc = bake_run_command_status(command, ctx->cfg->path, output_path, &exit_code);
+    ecs_os_free(command);
+
+    bool failed = rc == 0 && exit_code != 0 && action == BAKE_LINT_ERROR;
+    bake_lint_print_output(ctx, output_path, failed ? "red" : "yellow");
+    ecs_os_free(output_path);
+
+    if (rc != 0) {
+        return -1;
+    }
+
+    if (exit_code == 0) {
+        return 0;
+    }
+
+    char *display_path = bake_display_path(unit->src, ctx->cfg->path);
+    if (failed) {
+        ecs_err("lint failed for %s (exit code %d)", display_path, exit_code);
+        rc = -1;
+    } else {
+        ecs_warn("lint reported problems in %s (exit code %d)", display_path, exit_code);
+    }
+    ecs_os_free(display_path);
+
+    return rc;
+}
+
 static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_t *unit) {
     if (ctx->print_lock) {
         ecs_os_mutex_lock(ctx->print_lock);
@@ -309,6 +411,11 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
         BAKE_REPORT_KIND_COMPILE, source_path, ctx->cfg ? ctx->cfg->id : NULL);
     bake_report_set_object(ctx->ctx->report, step, unit->obj);
     ecs_os_free(source_path);
+
+    if (unit->lint && bake_lint_single(ctx, unit) != 0) {
+        bake_report_close(ctx->ctx->report, step, false, "lint failed");
+        return -1;
+    }
 
     const bake_lang_cfg_t *lang = unit->cpp ? ctx->cpp_lang : ctx->c_lang;
     const bake_strlist_t *mode_flags = unit->cpp ? ctx->mode_cxxflags : ctx->mode_cflags;

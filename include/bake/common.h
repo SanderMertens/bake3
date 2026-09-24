@@ -35,6 +35,11 @@ struct bake_ps_info_t;
 
 int bake_run_command(const char *cmd, bool log_command);
 int bake_run_command_in_dir(const char *cmd, bool log_command, const char *cwd);
+int bake_run_command_status(
+    const char *cmd,
+    const char *cwd,
+    const char *output_path,
+    int *exit_code);
 int bake_run_command_tracked(
     const char *cmd,
     bool log_command,

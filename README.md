@@ -120,6 +120,7 @@ Options:
   --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)
   --standalone        Use amalgamated dependency sources in deps/
   --strict            Enable strict compiler warnings and checks
+  --fix-lint          Run the lint command of projects with the autofix action
   --trace             Enable trace logging (Flecs log level 0)
   -j <count>          Number of parallel jobs for build/test execution
   -r                  Apply command recursively to project and project dependencies
@@ -301,6 +302,45 @@ The following options are supported:
 - `amalgamate-path`: Destination path for the output of the amalgamation process.
 - `output`: Name of the build artefact. Defaults to the project id.
 - `standalone`: When true, this will copy all amalgamated sources from dependencies to a `deps` folder in the project, and include those in the project build rather than relying on linking with dependency binaries. This allows for the project to be easily shared, without having to also share the dependencies. The sources in `deps` are refreshed automatically when a dependency changes. When the dependency sources are not available (for example on a machine that only has the standalone project), the existing sources in `deps` are used as is.
+
+## Linting
+A project can run a linter on every source file bake compiles by adding a
+`lint` section to its configuration:
+
+```json
+{
+    "id": "my_app",
+    "type": "application",
+    "lint": {
+        "command": "python3 tools/lint.py",
+        "action": "error"
+    }
+}
+```
+
+Before compiling a file, bake runs `<command> <file> <action>` from the project
+directory, where `<file>` is the absolute path of the source file and `<action>`
+is one of:
+
+- `error` (default): a non-zero exit code of the lint command fails the build.
+- `log`: a non-zero exit code is reported as a warning and the build continues.
+- `autofix`: the lint command may rewrite the file before it is compiled. A
+  non-zero exit code is reported as a warning and the build continues.
+
+The lint command runs for the files under `src` and `test` that bake compiles,
+so files that are up to date are not linted again. Sources in `deps`, bundle
+sources and the generated `main.c` of test and benchmark projects are not
+linted. A file that fails the lint is not compiled, so the next build lints it
+again.
+
+Everything the lint command writes to stdout and stderr is printed after it
+exits, one line at a time with a `lint: ` prefix. The prefix is red when the
+file fails the build and yellow otherwise, and a leading `file:line:` location
+is printed in bold.
+
+`--fix-lint` runs the lint command with the `autofix` action, whatever action
+the projects configure. Like the lint itself it only covers the files bake
+compiles, so use `bake rebuild --fix-lint` to fix every file of a project.
 
 ## Language configuration
 Projects can configure options that are specific to the programming language of the project by adding a `lang.c` or `lang.cpp` section to the project configuration. For example:
@@ -888,7 +928,9 @@ clock start and duration, so sibling compiles overlap.
   project uses them.
 - `compile`: one step per source file that was actually compiled, named after
   the source path relative to the project, with the `object` path it produced.
-  Files that were up to date do not appear.
+  Files that were up to date do not appear. When the project has a `lint`
+  section the step includes the lint command, and a file that fails the lint
+  has `ok` set to false with the error `lint failed`.
 - `link`: the link (or `ar`) command of the project. For the emscripten target
   it has an `embed` child when the project embeds assets: emcc embeds them as
   part of the link, so that step records what is embedded and only times the

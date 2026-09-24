@@ -77,6 +77,7 @@ int bake_compile_list_append(
     unit->obj = ecs_os_strdup(obj);
     unit->dep = dep ? ecs_os_strdup(dep) : NULL;
     unit->cpp = cpp;
+    unit->lint = false;
     list->count++;
     return 0;
 }
@@ -119,6 +120,7 @@ typedef struct bake_collect_ctx_t {
     const bake_build_paths_t *paths;
     bake_compile_list_t *units;
     bake_compiler_kind_t compiler_kind;
+    bool lint;
 } bake_collect_ctx_t;
 
 static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
@@ -148,6 +150,9 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         }
     }
 
+    bool lint = ctx->lint && ctx->cfg->lint.command &&
+        !(bake_project_kind_is_harness(ctx->cfg->kind) && !strcmp(rel, "src/main.c"));
+
 #if defined(_WIN32)
     const char *obj_ext = ".obj";
 #else
@@ -174,6 +179,9 @@ static int bake_collect_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
     }
 
     int rc = bake_compile_list_append(ctx->units, entry->path, obj_path, dep_path, cpp);
+    if (rc == 0) {
+        ctx->units->items[ctx->units->count - 1].lint = lint;
+    }
     ecs_os_free(dep_path);
     ecs_os_free(obj_path);
     return rc;
@@ -194,16 +202,17 @@ int bake_collect_compile_units(
         .compiler_kind = compiler_kind
     };
 
-    struct { const char *name; bool enabled; } dirs[] = {
-        { "src", true },
-        { "deps", include_deps },
-        { "test", include_tests }
+    struct { const char *name; bool enabled; bool lint; } dirs[] = {
+        { "src", true, true },
+        { "deps", include_deps, false },
+        { "test", include_tests, true }
     };
 
     for (size_t d = 0; d < sizeof(dirs) / sizeof(dirs[0]); d++) {
         if (!dirs[d].enabled) {
             continue;
         }
+        ctx.lint = dirs[d].lint;
         char *dir = bake_path_join(cfg->path, dirs[d].name);
         if (bake_path_exists(dir)) {
             if (bake_dir_walk_recursive(dir, bake_collect_visit, &ctx) != 0) {
@@ -214,6 +223,7 @@ int bake_collect_compile_units(
         ecs_os_free(dir);
     }
 
+    ctx.lint = false;
     for (int32_t i = 0; i < cfg->bundle_sources.count; i++) {
         const char *path = cfg->bundle_sources.items[i];
         char *base = bake_path_basename(path);
