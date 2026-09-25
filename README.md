@@ -120,6 +120,7 @@ Options:
   --local             Setup only: install into BAKE_HOME (skip /usr/local/bin)
   --standalone        Use amalgamated dependency sources in deps/
   --strict            Enable strict compiler warnings and checks
+  --coverage          Build with coverage instrumentation (clang only)
   --fix-lint          Run the lint command of projects with the autofix action
   --trace             Enable trace logging (Flecs log level 0)
   -j <count>          Number of parallel jobs for build/test execution
@@ -637,6 +638,69 @@ command could not be built). Parameterized runs add a `params` field.
 
 `fail` counts every failed case, including the timed out ones; `timeout` counts
 how many of those were killed by the timeout.
+
+### Coverage
+`--coverage` builds every project with clang source-based coverage
+instrumentation (`-fprofile-instr-generate -fcoverage-mapping`). It is accepted
+by `build`, `rebuild`, `run`, `test` and `bench`, and requires clang: bake
+fails with an error for other compilers (use `--cc clang --cxx clang++`) and on
+Windows and emscripten. The flags are part of the build fingerprint, so turning
+`--coverage` on or off rebuilds the affected projects.
+
+When a test project built with `--coverage` runs with `--json <path>`, the
+harness also writes a coverage report next to the test report. The `.json`
+extension of the path is replaced by `.coverage.json`:
+
+```sh
+bake3 run test/core --local-env --coverage -- -j 12 --json /tmp/core.json
+# writes /tmp/core.json and /tmp/core.coverage.json
+```
+
+```json
+{
+  "project": "core",
+  "timestamp": "2026-09-25T16:22:29Z",
+  "lines": {"count": 16, "covered": 8, "percent": 50.00},
+  "functions": {"count": 3, "covered": 1, "percent": 33.33},
+  "branches": {"count": 4, "covered": 3, "percent": 75.00},
+  "files": [
+    {"file": "/home/me/work/lib/src/lib.c",
+     "lines": {"count": 16, "covered": 8, "percent": 50.00},
+     "functions": {"count": 3, "covered": 1, "percent": 33.33},
+     "branches": {"count": 4, "covered": 3, "percent": 75.00},
+     "uncovered_lines": [[9, 9], [11, 17]],
+     "uncovered_functions": [{"name": "lib_unused", "line": 14}]}
+  ]
+}
+```
+
+- `lines`, `functions` and `branches` hold totals over all files, and the same
+  counts per file. `percent` is `100.00` when there is nothing to count.
+- `uncovered_lines` lists the lines that never ran as inclusive `[first, last]`
+  ranges. A range spans lines without code (blank lines, comments), so it
+  describes a block that did not run.
+- `uncovered_functions` lists the functions that were never called, with the
+  line they start on.
+- Sources of the test project itself and generated harness sources are left
+  out, so the report covers the code under test.
+
+Every case process writes its profile to `coverage/` in the build directory of
+the test project (`.bake/<arch-os-config>/coverage`, or
+`.bake/local_env/<name>/build/<project>/<arch-os-config>/coverage` with
+`--local-env`). A run of all cases or of a suite starts by removing the
+profiles of the previous run. After the run the harness merges the profiles
+into `coverage.profdata` with `llvm-profdata`, exports them to
+`coverage.lcov` with `llvm-cov` and converts that into the report. Both tools
+are looked up with `<cc> -print-prog-name`, so they match the compiler that
+instrumented the code. The merged files stay in the coverage directory for
+other tools, such as `llvm-cov show`. A case that is killed by its timeout
+does not write a profile.
+
+`bake run` and `bake bench` of a project built with `--coverage` also send
+profiles to that directory, so instrumented binaries do not leave
+`default.profraw` files in the project. `bake clean` removes the coverage
+directory together with the rest of the build output, and a `default.profraw`
+in the project directory.
 
 ## Benchmarks
 A project with a `bench` section in its `project.json` is a benchmark project.
