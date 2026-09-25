@@ -15,6 +15,7 @@ static const char *bake_help_text =
     "  test [target]       Build and run test target\n"
     "  bench [target]      Build and run benchmark target\n"
     "  clean [target]      Remove build artifacts\n"
+    "  coverage-report [target] Merge test coverage into a browsable report\n"
     "  rebuild [target]    Clean and build\n"
     "  list                List projects in bake environment\n"
     "  ps                  List processes started by bake\n"
@@ -484,6 +485,7 @@ static const struct {
     {"clean", bake_build_clean, false}, {"rebuild", bake_build_rebuild, true},
     {"list", bake_list_projects, false}, {"info", bake_info_project, false},
     {"ps", bake_ps_command, false},
+    {"coverage-report", bake_build_coverage_report, false},
     {"bundle", bake_bundle_update_command, false},
     {"reset", bake_env_reset, false}, {"cleanup", bake_env_cleanup_cmd, false},
 };

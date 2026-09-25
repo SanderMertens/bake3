@@ -44,6 +44,7 @@ typedef struct bake_context_t {
     char *coverage_profdata;
     char *coverage_cov;
     bool prepare_bundles;
+    bool discover_tests;
     int32_t thread_count;
 } bake_context_t;
 

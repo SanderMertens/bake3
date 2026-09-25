@@ -2226,8 +2226,30 @@ class BakeTests(unittest.TestCase):
         env_root = root / ".bake" / "local_env" / "coverage" / "build"
         self.assertTrue(list(env_root.glob("**/coverage/*.profraw")))
 
+        output = self.bake([local_env, "coverage-report"], cwd=root)
+        self.assertIn(f"coverage of 1 test project: {test_id}", output)
+        self.assertRegex(output, r"lib/src\s+66\.67%\s+6/9")
+        self.assertRegex(output, r"total\s+66\.67%\s+6/9\s+50\.00%\s+1/2")
+        report_dir = root / ".bake" / "local_env" / "coverage" / "coverage_report"
+        self.assertIn(str(report_dir / "index.html"), output)
+        index = (report_dir / "index.html").read_text()
+        self.assertNotIn("/*BAKE_COVERAGE_DATA*/", index)
+        self.assertIn('"files": [\n["lib/src/covlib.c",[6,9],[1,2],', index)
+        file_data = (report_dir / "files" / "0.js").read_text()
+        self.assertTrue(file_data.startswith("bakeCoverageFile(0, {"))
+        self.assertIn('"covlib_unused",8,0', file_data)
+        self.assertIn("[9,0]", file_data)
+        combined = json.loads((report_dir / "coverage.json").read_text())
+        self.assertEqual(combined["projects"], [test_id])
+        self.assertEqual(combined["lines"], data["lines"])
+        self.assertEqual(combined["files"][0]["uncovered_lines"], [[8, 10]])
+
         self.bake([local_env, "clean", "test"], cwd=root)
         self.assertEqual(list(env_root.glob("**/coverage/*")), [])
+        self.assertFalse(report_dir.exists())
+
+        output = self.bake_expect_failure([local_env, "coverage-report"], cwd=root)
+        self.assertIn("no coverage data found", output)
 
         coverage.unlink()
         self.bake([local_env, "run", "test", "--", "--json", str(report)],

@@ -96,6 +96,7 @@ Commands:
   test [target]       Build and run test target
   bench [target]      Build and run benchmark target
   clean [target]      Remove build artifacts
+  coverage-report [target] Merge test coverage into a browsable report
   rebuild [target]    Clean and build
   list                List projects in bake environment
   ps                  List processes started by bake
@@ -701,6 +702,49 @@ profiles to that directory, so instrumented binaries do not leave
 `default.profraw` files in the project. `bake clean` removes the coverage
 directory together with the rest of the build output, and a `default.profraw`
 in the project directory.
+
+### Coverage reports
+`bake coverage-report [target]` merges the coverage of every test project in
+the target (the current directory by default) into one report. Unlike
+`build`, it looks inside `test` and `tests` directories, so running it in the
+root of a repository picks up all of its test projects. A target that is not a
+directory selects a single test project by id. The report uses the profiles
+the last test run of each project left behind, so run the tests with
+`--coverage` first, using the same `--local-env`, `--cfg` and `--cc` as the
+report:
+
+```sh
+bake3 run test/core --local-env --coverage -- -j 12
+bake3 run test/query --local-env --coverage -- -j 12
+bake3 coverage-report --local-env
+```
+
+The command prints a summary with the line, function and branch coverage of
+every directory and the total, and writes the report to
+`.bake/local_env/coverage_report` (`.bake/local_env/<name>/coverage_report`
+with `--local-env=<name>`, `.bake/coverage_report` in the current directory
+without `--local-env`):
+
+- `index.html`: a page for browsing the report. It opens from disk, without a
+  web server. The overview has the totals and sortable tables of directories
+  and files. The sidebar lists every file as a tree, which can be filtered,
+  limited to files with uncovered lines, and sorted by coverage. A file shows
+  its source with the execution count of every line: covered lines are green,
+  lines that never ran are red, and lines with a branch that was never taken
+  are yellow, with the number of taken branches next to them. `n` and `p` jump
+  between uncovered blocks, functions that were never called link to their
+  line, and every line has a link that can be shared.
+- `files/<n>.js`: source and line data of one file, loaded when the file is
+  opened.
+- `coverage.json`: the report in the format of the test harness report, with a
+  `projects` array that lists the test projects it combines.
+- `coverage.profdata` and `coverage.lcov`: the merged profile and its lcov
+  export, for use with other tools.
+
+When test projects share code, such as a library they all link, the counts of
+that code are added up, so a line is covered when any of the test projects ran
+it. Sources of the test projects themselves and files without code are left
+out. `bake clean` removes the report.
 
 ## Benchmarks
 A project with a `bench` section in its `project.json` is a benchmark project.

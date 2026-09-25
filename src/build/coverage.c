@@ -44,8 +44,8 @@ static char* bake_coverage_tool(const bake_context_t *ctx, const char *tool) {
     return path;
 }
 
-int bake_coverage_prepare(bake_context_t *ctx) {
-    if (!ctx->opts.coverage || ctx->coverage_profdata) {
+int bake_coverage_init_tools(bake_context_t *ctx) {
+    if (ctx->coverage_profdata) {
         return 0;
     }
 
@@ -77,6 +77,13 @@ int bake_coverage_prepare(bake_context_t *ctx) {
     ctx->coverage_cov = bake_coverage_tool(ctx, "llvm-cov");
     return 0;
 #endif
+}
+
+int bake_coverage_prepare(bake_context_t *ctx) {
+    if (!ctx->opts.coverage) {
+        return 0;
+    }
+    return bake_coverage_init_tools(ctx);
 }
 
 void bake_add_coverage_flags(

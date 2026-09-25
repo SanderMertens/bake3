@@ -1004,6 +1004,13 @@ static int bake_build_clean_prepared(bake_context_t *ctx, const char *target) {
         }
     }
 
+    char *report_dir = bake_coverage_report_dir();
+    if (report_dir && bake_path_is_dir(report_dir) && bake_os_rmtree(report_dir) != 0) {
+        ecs_os_free(report_dir);
+        goto cleanup;
+    }
+    ecs_os_free(report_dir);
+
     rc = 0;
 cleanup:
     ecs_os_free(order);
@@ -1020,6 +1027,18 @@ int bake_build_clean(bake_context_t *ctx) {
         ? target_path
         : bake_effective_build_target(ctx);
     int rc = bake_build_clean_prepared(ctx, target);
+    ecs_os_free(target_path);
+    return rc;
+}
+
+int bake_build_coverage_report(bake_context_t *ctx) {
+    char *target_path = NULL;
+    ctx->discover_tests = true;
+    if (bake_prepare_discovery(ctx, &target_path) != 0) {
+        return -1;
+    }
+
+    int rc = bake_coverage_report_generate(ctx, target_path);
     ecs_os_free(target_path);
     return rc;
 }
