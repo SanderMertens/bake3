@@ -84,6 +84,13 @@ static bool bake_use_colors(void) {
         return false;
     }
 
+    const char *force_color = getenv("BAKE_TEST_COLOR");
+    if (force_color && force_color[0]) {
+        enabled = true;
+        initialized = 1;
+        return true;
+    }
+
 #if defined(_WIN32)
     enabled = _isatty(_fileno(stdout)) != 0;
 #else
@@ -91,6 +98,17 @@ static bool bake_use_colors(void) {
 #endif
     initialized = 1;
     return enabled;
+}
+
+static void bake_export_colors(void) {
+    if (!bake_use_colors()) {
+        return;
+    }
+#if defined(_WIN32)
+    _putenv_s("BAKE_TEST_COLOR", "1");
+#else
+    setenv("BAKE_TEST_COLOR", "1", 1);
+#endif
 }
 
 static void bake_print_status(const char *status, const char *color) {
@@ -756,11 +774,17 @@ static void bake_set_failure(const char *file, int line, const char *msg) {
     g_failed = true;
     if (g_current_suite && g_current_case) {
         bake_print_status("FAIL", BAKE_COLOR_RED);
-        printf(": %s.%s:%d: %s\n", g_current_suite->id, g_current_case->id, line, msg);
+        printf(": %s.%s:", g_current_suite->id, g_current_case->id);
     } else {
         bake_print_status("FAIL", BAKE_COLOR_RED);
-        printf(": %s:%d: %s\n", file, line, msg);
+        printf(": %s:", file);
     }
+    if (bake_use_colors()) {
+        printf("%s%d%s", BAKE_COLOR_GREEN, line, BAKE_COLOR_RESET);
+    } else {
+        printf("%d", line);
+    }
+    printf(": %s\n", msg);
 }
 
 static const char* bake_lookup_param(const char *name) {
@@ -1903,6 +1927,8 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
             suite_filter = arg;
         }
     }
+
+    bake_export_colors();
 
 #ifdef BAKE_TEST_COVERAGE_DIR
     bake_coverage_init(!single_test);
