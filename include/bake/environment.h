@@ -23,7 +23,10 @@ int bake_env_export_vars(const bake_context_t *ctx);
 
 bool bake_env_is_local(void);
 const char* bake_env_home(void);
-char* bake_env_etc_dir(const bake_context_t *ctx, const char *id);
+const char* bake_env_project_home(
+    const bake_context_t *ctx,
+    const bake_project_cfg_t *cfg);
+char* bake_env_etc_dir(const char *home, const char *id);
 char* bake_env_etc_install_path(
     const bake_context_t *ctx,
     const bake_project_cfg_t *cfg);

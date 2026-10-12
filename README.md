@@ -1293,12 +1293,14 @@ If one of the discovered projects have a dependency on a project that is not dis
 
 If the project also cannot be found in the bake environment, the build cannot proceed, and an error will be thrown.
 
+If the project is found in the bake environment but has no binary for the requested build configuration (for example `--cfg sanitize` when only a `debug` binary was installed), bake builds it from the source location recorded in the environment for that configuration, in dependency order, before the projects that depend on it. The binary is then installed into the bake environment the project was resolved from. If the source location no longer exists, an error is thrown.
+
 ## Bake Environment
 When a project is built with bake, an entry for it will be stored in the bake environment. The location of the bake environment is read from the `BAKE_HOME` environment variable. If the variable is not set, `~/bake3` is used.
 
 When `--local-env` is used, bake overrides `BAKE_HOME` for that invocation to `./.bake/local_env`. When `--local-env=<name>` is used, bake overrides it to `./.bake/local_env/<name>`.
 
-Dependencies that are not discovered in the workspace are first looked up in the local environment, and then in the global environment: the `BAKE_HOME` that was set before `--local-env` overrode it, or `~/bake3` when it was not set. A dependency found in the global environment is used in place (its metadata, headers and library are read from the global environment) and is not copied into the local environment. A local environment never writes to the global environment.
+Dependencies that are not discovered in the workspace are first looked up in the local environment, and then in the global environment: the `BAKE_HOME` that was set before `--local-env` overrode it, or `~/bake3` when it was not set. A dependency is used from the first environment that has a binary for the requested build configuration, and is used in place (its metadata, headers and library are read from that environment). When neither environment has a binary for the configuration, the dependency is built from source and installed into the global environment (when the global environment has the dependency), so that other workspaces and local environments can use it. Object files of the dependency are stored in the build root of the local environment.
 
 The bake environment has the following directories:
 

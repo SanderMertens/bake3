@@ -4543,6 +4543,182 @@ class BakeTests(unittest.TestCase):
         finally:
             self._rm_tree(root)
 
+    def test_dependency_is_built_for_missing_mode(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"dep_missing_mode_{stamp}"
+        pkg = root / "pkg"
+        app = root / "app"
+        pkg_id = f"tmp.mode.dep.{stamp}"
+        app_id = f"tmp.mode.consumer.{stamp}"
+
+        (pkg / "src").mkdir(parents=True, exist_ok=True)
+        (pkg / "include").mkdir(parents=True, exist_ok=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{pkg_id}\",\n"
+            "    \"type\": \"package\"\n"
+            "}\n"
+        )
+        (pkg / "include" / "mode_dep.h").write_text(
+            "#ifndef MODE_DEP_H\n"
+            "#define MODE_DEP_H\n"
+            "int mode_dep_value(void);\n"
+            "#endif\n"
+        )
+        (pkg / "src" / "lib.c").write_text(
+            "#include \"mode_dep.h\"\n"
+            "int mode_dep_value(void) { return 42; }\n"
+        )
+
+        (app / "src").mkdir(parents=True, exist_ok=True)
+        (app / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{app_id}\",\n"
+            "    \"type\": \"application\",\n"
+            f"    \"value\": {{ \"use\": [\"{pkg_id}\"] }}\n"
+            "}\n"
+        )
+        (app / "src" / "main.c").write_text(
+            "#include <mode_dep.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) { printf(\"value=%d\\n\", mode_dep_value()); return 0; }\n"
+        )
+
+        try:
+            self.bake(["build", "."], cwd=pkg)
+            self.assertFalse(any(self.bake_home.glob(f"*/release/lib/{pkg_id}/*")))
+
+            output = self.strip_ansi(self.bake(["run", ".", "--cfg", "release"], cwd=app))
+            self.assertIn("value=42", output)
+            self.assertTrue(
+                any(self.bake_home.glob(f"*/release/lib/{pkg_id}/*")),
+                "The dependency should be built and installed for the requested mode",
+            )
+        finally:
+            self._rm_tree(root)
+
+    def test_local_env_builds_missing_dependency_mode_into_global_env(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"local_env_dep_missing_mode_{stamp}"
+        pkg = root / "pkg"
+        app = root / "app"
+        pkg_id = f"tmp.localmode.dep.{stamp}"
+        app_id = f"tmp.localmode.consumer.{stamp}"
+
+        (pkg / "src").mkdir(parents=True, exist_ok=True)
+        (pkg / "include").mkdir(parents=True, exist_ok=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{pkg_id}\",\n"
+            "    \"type\": \"package\"\n"
+            "}\n"
+        )
+        (pkg / "include" / "mode_dep.h").write_text(
+            "#ifndef MODE_DEP_H\n"
+            "#define MODE_DEP_H\n"
+            "int mode_dep_value(void);\n"
+            "#endif\n"
+        )
+        (pkg / "src" / "lib.c").write_text(
+            "#include \"mode_dep.h\"\n"
+            "int mode_dep_value(void) { return 42; }\n"
+        )
+
+        (app / "src").mkdir(parents=True, exist_ok=True)
+        (app / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{app_id}\",\n"
+            "    \"type\": \"application\",\n"
+            f"    \"value\": {{ \"use\": [\"{pkg_id}\"] }}\n"
+            "}\n"
+        )
+        (app / "src" / "main.c").write_text(
+            "#include <mode_dep.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) { printf(\"value=%d\\n\", mode_dep_value()); return 0; }\n"
+        )
+
+        try:
+            self.bake(["build", "."], cwd=pkg)
+
+            output = self.strip_ansi(
+                self.bake(["--local-env", "run", ".", "--cfg", "release"], cwd=app))
+            self.assertIn("value=42", output)
+
+            local_env = app / ".bake" / "local_env"
+            self.assertTrue(
+                any(self.bake_home.glob(f"*/release/lib/{pkg_id}/*")),
+                "The dependency should be installed into the global environment",
+            )
+            self.assertFalse(
+                (local_env / "meta" / pkg_id).exists(),
+                "The dependency must not be installed into the local environment",
+            )
+            self.assertFalse(any(local_env.glob(f"*/*/lib/{pkg_id}/*")))
+            self.assertFalse((local_env / "include" / pkg_id).exists())
+
+            output = self.strip_ansi(self.bake(["--local-env", "run", "."], cwd=app))
+            self.assertIn("value=42", output)
+            self.assertFalse((local_env / "meta" / pkg_id).exists())
+        finally:
+            self._rm_tree(root)
+
+    def test_dependency_without_build_for_mode_or_source_is_reported(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"dep_missing_mode_source_{stamp}"
+        pkg = root / "pkg"
+        app = root / "app"
+        pkg_id = f"tmp.nosrc.dep.{stamp}"
+        app_id = f"tmp.nosrc.consumer.{stamp}"
+
+        (pkg / "src").mkdir(parents=True, exist_ok=True)
+        (pkg / "include").mkdir(parents=True, exist_ok=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{pkg_id}\",\n"
+            "    \"type\": \"package\"\n"
+            "}\n"
+        )
+        (pkg / "include" / "mode_dep.h").write_text(
+            "#ifndef MODE_DEP_H\n"
+            "#define MODE_DEP_H\n"
+            "int mode_dep_value(void);\n"
+            "#endif\n"
+        )
+        (pkg / "src" / "lib.c").write_text(
+            "#include \"mode_dep.h\"\n"
+            "int mode_dep_value(void) { return 42; }\n"
+        )
+
+        (app / "src").mkdir(parents=True, exist_ok=True)
+        (app / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{app_id}\",\n"
+            "    \"type\": \"application\",\n"
+            f"    \"value\": {{ \"use\": [\"{pkg_id}\"] }}\n"
+            "}\n"
+        )
+        (app / "src" / "main.c").write_text(
+            "#include <mode_dep.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) { printf(\"value=%d\\n\", mode_dep_value()); return 0; }\n"
+        )
+
+        try:
+            self.bake(["build", "."], cwd=pkg)
+            self._rm_tree(pkg)
+
+            output = self.strip_ansi(
+                self.bake_expect_failure(["build", ".", "--cfg", "release"], cwd=app))
+            self.assertIn(
+                f"dependency {pkg_id} has no 'release' build in {self.bake_home} "
+                "and its source is not available",
+                output,
+            )
+            self.assertNotIn("Undefined symbols", output)
+        finally:
+            self._rm_tree(root)
+
     def test_local_env_initializes_test_harness_templates(self) -> None:
         stamp = int(time.time() * 1_000_000)
         project_id = f"tmp.tests.localenv.{stamp}"

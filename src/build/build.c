@@ -766,17 +766,44 @@ static bool bake_is_unresolved_external_dependency(const BakeProject *project) {
     return bake_project_is_placeholder(project);
 }
 
-static int bake_validate_build_graph_dependencies(const ecs_world_t *world, ecs_entity_t *order, int32_t count) {
+static bool bake_is_missing_external_artefact(
+    const ecs_world_t *world,
+    ecs_entity_t entity,
+    const BakeProject *project)
+{
+    if (!project || !project->external || !project->cfg ||
+        project->cfg->kind != BAKE_PROJECT_PACKAGE)
+    {
+        return false;
+    }
+
+    const BakeBuildResult *result = ecs_get(world, entity, BakeBuildResult);
+    return !result || !result->artefact;
+}
+
+static int bake_validate_build_graph_dependencies(
+    const bake_context_t *ctx,
+    ecs_entity_t *order,
+    int32_t count,
+    bool standalone)
+{
     int32_t unresolved_count = 0;
+    const char *mode = bake_effective_mode(ctx->opts.mode);
 
     for (int32_t i = 0; i < count; i++) {
-        const BakeProject *project = ecs_get(world, order[i], BakeProject);
-        if (!bake_is_unresolved_external_dependency(project)) {
+        const BakeProject *project = ecs_get(ctx->world, order[i], BakeProject);
+        if (bake_is_unresolved_external_dependency(project)) {
+            ecs_err("unresolved dependency: %s", project->cfg->id);
+            unresolved_count++;
             continue;
         }
 
-        ecs_err("unresolved dependency: %s", project->cfg->id);
-        unresolved_count++;
+        if (!standalone && bake_is_missing_external_artefact(ctx->world, order[i], project)) {
+            const bake_project_cfg_t *cfg = project->cfg;
+            ecs_err("dependency %s has no '%s' build in %s and its source is not available",
+                cfg->id, mode, cfg->env_home ? cfg->env_home : ctx->bake_home);
+            unresolved_count++;
+        }
     }
 
     if (unresolved_count) {
@@ -887,7 +914,7 @@ static int bake_execute_build_graph(bake_context_t *ctx, const char *target, boo
 
     if (bake_prepare_build_graph_bundles(ctx, order, count) != 0) goto cleanup;
 
-    if (bake_validate_build_graph_dependencies(ctx->world, order, count) != 0) goto cleanup;
+    if (bake_validate_build_graph_dependencies(ctx, order, count, standalone) != 0) goto cleanup;
 
     if (bake_stage_amalgamate_targets(ctx, order, count) != 0) goto cleanup;
 
@@ -959,7 +986,7 @@ static int bake_prepare_discovery(bake_context_t *ctx, char **target_path_out) {
         goto cleanup;
     }
 
-    if (ctx->opts.recursive && bake_discover_dependency_sources(ctx) < 0) {
+    if (bake_discover_dependency_sources(ctx, !ctx->opts.recursive) < 0) {
         goto cleanup;
     }
 

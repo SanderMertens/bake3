@@ -8,6 +8,6 @@ int bake_discover_projects(
     const char *start_path,
     bool skip_special_dirs);
 
-int bake_discover_dependency_sources(bake_context_t *ctx);
+int bake_discover_dependency_sources(bake_context_t *ctx, bool missing_only);
 
 #endif

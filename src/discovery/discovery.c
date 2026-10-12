@@ -29,7 +29,8 @@ typedef struct bake_discovery_ctx_t {
 
 static int bake_discovery_add_project_file(
     bake_context_t *ctx,
-    const char *project_json_path)
+    const char *project_json_path,
+    const char *env_home)
 {
     bake_project_cfg_t *cfg = ecs_os_calloc_t(bake_project_cfg_t);
     bake_project_cfg_init(cfg);
@@ -39,6 +40,10 @@ static int bake_discovery_add_project_file(
         ecs_os_free(cfg);
         ecs_err("failed to parse %s", project_json_path);
         return 0;
+    }
+
+    if (env_home && env_home[0]) {
+        cfg->env_home = ecs_os_strdup(env_home);
     }
 
     if (!bake_model_add_project(ctx->world, cfg, false)) {
@@ -69,7 +74,7 @@ static int bake_discovery_visit(const bake_dir_entry_t *entry, void *ctx_ptr) {
         return 0;
     }
 
-    int rc = bake_discovery_add_project_file(ctx->ctx, entry->path);
+    int rc = bake_discovery_add_project_file(ctx->ctx, entry->path, NULL);
     if (rc < 0) {
         return -1;
     }
@@ -133,10 +138,25 @@ int bake_discover_projects(
     return discovery.discovered;
 }
 
+static bool bake_discovery_missing_artefact(
+    const ecs_world_t *world,
+    ecs_entity_t entity,
+    const BakeProject *project)
+{
+    if (project->cfg->kind != BAKE_PROJECT_PACKAGE) {
+        return false;
+    }
+
+    const BakeBuildResult *result = ecs_get(world, entity, BakeBuildResult);
+    return !result || !result->artefact;
+}
+
 /* Promotes external dependencies that were resolved from the bake
  * environment to regular projects when their recorded source location still
- * exists, so recursive commands can clean and build them from source. */
-int bake_discover_dependency_sources(bake_context_t *ctx) {
+ * exists, so they can be cleaned and built from source. Recursive commands
+ * promote all such dependencies; otherwise only dependencies that have no
+ * binary for the current build mode are promoted. */
+int bake_discover_dependency_sources(bake_context_t *ctx, bool missing_only) {
     int32_t promoted = 0;
     bake_strlist_t attempted;
     bake_strlist_init(&attempted);
@@ -149,7 +169,9 @@ int bake_discover_dependency_sources(bake_context_t *ctx) {
         /* Collect candidates first: promoting projects mutates the world,
          * which is not allowed while iterating it. */
         bake_strlist_t candidates;
+        bake_strlist_t candidate_homes;
         bake_strlist_init(&candidates);
+        bake_strlist_init(&candidate_homes);
         ecs_iter_t it = ecs_each_id(ctx->world, ecs_id(BakeProject));
         while (ecs_each_next(&it)) {
             const BakeProject *projects = ecs_field(&it, BakeProject, 0);
@@ -159,11 +181,19 @@ int bake_discover_dependency_sources(bake_context_t *ctx) {
                     continue;
                 }
 
+                if (missing_only &&
+                    !bake_discovery_missing_artefact(ctx->world, it.entities[i], project))
+                {
+                    continue;
+                }
+
                 char *project_json = bake_path_join(project->cfg->path, "project.json");
                 if (bake_path_exists(project_json) &&
                     !bake_strlist_contains(&attempted, project_json))
                 {
                     bake_strlist_append(&candidates, project_json);
+                    bake_strlist_append(&candidate_homes,
+                        project->cfg->env_home ? project->cfg->env_home : "");
                 }
                 ecs_os_free(project_json);
             }
@@ -173,9 +203,11 @@ int bake_discover_dependency_sources(bake_context_t *ctx) {
             const char *project_json = candidates.items[i];
             bake_strlist_append(&attempted, project_json);
 
-            int add_rc = bake_discovery_add_project_file(ctx, project_json);
+            int add_rc = bake_discovery_add_project_file(
+                ctx, project_json, candidate_homes.items[i]);
             if (add_rc < 0) {
                 bake_strlist_fini(&candidates);
+                bake_strlist_fini(&candidate_homes);
                 goto cleanup;
             }
             if (add_rc > 0) {
@@ -184,6 +216,7 @@ int bake_discover_dependency_sources(bake_context_t *ctx) {
             }
         }
         bake_strlist_fini(&candidates);
+        bake_strlist_fini(&candidate_homes);
 
         if (dirty && bake_discovery_resolve_dependencies(ctx) != 0) {
             goto cleanup;

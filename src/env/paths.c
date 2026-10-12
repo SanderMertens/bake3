@@ -3,6 +3,13 @@
 #include "bake/ps.h"
 #include "env_internal.h"
 
+const char* bake_env_project_home(
+    const bake_context_t *ctx,
+    const bake_project_cfg_t *cfg)
+{
+    return cfg && cfg->env_home ? cfg->env_home : ctx->bake_home;
+}
+
 static char* bake_env_artefact_path_impl(
     const bake_context_t *ctx,
     const bake_project_cfg_t *cfg,
@@ -27,8 +34,7 @@ static char* bake_env_artefact_path_impl(
     }
 
     platform = bake_host_platform();
-    platform_dir = bake_path_join(
-        cfg->env_home ? cfg->env_home : ctx->bake_home, platform);
+    platform_dir = bake_path_join(bake_env_project_home(ctx, cfg), platform);
     cfg_dir = bake_path_join(platform_dir, mode && mode[0] ? mode : "debug");
     const char *subdir = cfg->kind == BAKE_PROJECT_PACKAGE ? "lib" : "bin";
     out_dir = bake_path_join(cfg_dir, subdir);

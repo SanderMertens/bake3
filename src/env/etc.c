@@ -90,12 +90,12 @@ int bake_env_sync_tree_mirror(const char *src, const char *dst) {
     return rc;
 }
 
-char* bake_env_etc_dir(const bake_context_t *ctx, const char *id) {
-    if (!ctx || !ctx->bake_home || !id || !id[0]) {
+char* bake_env_etc_dir(const char *home, const char *id) {
+    if (!home || !id || !id[0]) {
         return NULL;
     }
 
-    return bake_path_join3(ctx->bake_home, "etc", id);
+    return bake_path_join3(home, "etc", id);
 }
 
 static char* bake_env_project_etc_dir(const bake_project_cfg_t *cfg) {
@@ -126,7 +126,7 @@ char* bake_env_etc_install_path(
     }
     ecs_os_free(src);
 
-    return bake_env_etc_dir(ctx, cfg->id);
+    return bake_env_etc_dir(bake_env_project_home(ctx, cfg), cfg->id);
 }
 
 int bake_env_sync_etc(const bake_context_t *ctx, const bake_project_cfg_t *cfg) {
@@ -134,7 +134,7 @@ int bake_env_sync_etc(const bake_context_t *ctx, const bake_project_cfg_t *cfg) 
         return 0;
     }
 
-    char *dst = bake_env_etc_dir(ctx, cfg->id);
+    char *dst = bake_env_etc_dir(bake_env_project_home(ctx, cfg), cfg->id);
     if (!dst) {
         return 0;
     }

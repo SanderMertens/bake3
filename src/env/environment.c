@@ -16,12 +16,12 @@ static char* bake_env_meta_dir(const bake_context_t *ctx) {
     return bake_path_join(ctx->bake_home, "meta");
 }
 
-static char* bake_env_meta_project_dir(const bake_context_t *ctx, const char *id) {
-    return bake_path_join3(ctx->bake_home, "meta", id);
+static char* bake_env_meta_project_dir(const char *home, const char *id) {
+    return bake_path_join3(home, "meta", id);
 }
 
 static char* bake_env_meta_project_json_path(const char *home, const char *id) {
-    char *meta_dir = bake_path_join3(home, "meta", id);
+    char *meta_dir = bake_env_meta_project_dir(home, id);
     char *project_json = bake_path_join(meta_dir, "project.json");
     ecs_os_free(meta_dir);
     return project_json;
@@ -165,7 +165,7 @@ static int bake_env_project_entry_complete(
     const bake_project_cfg_t *cfg,
     const char *mode)
 {
-    char *meta_dir = bake_env_meta_project_dir(ctx, cfg->id);
+    char *meta_dir = bake_env_meta_project_dir(bake_env_project_home(ctx, cfg), cfg->id);
     char *project_json = bake_path_join(meta_dir, "project.json");
     char *source_txt = bake_path_join(meta_dir, "source.txt");
     char *dependee_json = bake_path_join(meta_dir, "dependee.json");
@@ -223,12 +223,59 @@ static void bake_env_queue_project_deps(bake_strlist_t *queue, const bake_projec
     }
 }
 
+static int bake_env_load_meta_cfg(
+    const bake_context_t *ctx,
+    const char *home,
+    const char *id,
+    bake_project_cfg_t **cfg_out)
+{
+    *cfg_out = NULL;
+
+    char *project_json = bake_env_meta_project_json_path(home, id);
+    if (!bake_path_exists(project_json)) {
+        ecs_os_free(project_json);
+        return 0;
+    }
+
+    bake_project_cfg_t *cfg = ecs_os_calloc_t(bake_project_cfg_t);
+    bake_project_cfg_init(cfg);
+    int rc = bake_project_cfg_load_file(project_json, cfg);
+    ecs_os_free(project_json);
+    if (rc != 0 || !cfg->public_project) {
+        bake_project_cfg_fini(cfg);
+        ecs_os_free(cfg);
+        return rc != 0 ? -1 : 0;
+    }
+
+    ecs_os_free(cfg->id);
+    cfg->id = ecs_os_strdup(id);
+
+    if (home != ctx->bake_home) {
+        cfg->env_home = ecs_os_strdup(home);
+    }
+
+    char *meta_dir = bake_env_meta_project_dir(home, id);
+    char *source_txt = bake_path_join(meta_dir, "source.txt");
+    ecs_os_free(meta_dir);
+    char *source_path = bake_file_read_trimmed(source_txt);
+    ecs_os_free(source_txt);
+    if (source_path && source_path[0]) {
+        ecs_os_free(cfg->path);
+        cfg->path = source_path;
+    } else {
+        ecs_os_free(source_path);
+    }
+
+    *cfg_out = cfg;
+    return 1;
+}
+
+/* Imports a project from the first environment that has a binary for the
+ * current build mode. When no environment has a binary for the mode, the
+ * project is imported from the global environment if it has the project, so
+ * that building the missing binary installs it there. */
 int bake_env_import_project_by_id(bake_context_t *ctx, const char *id) {
     int rc = 0;
-    char *project_json = NULL;
-    char *meta_dir = NULL;
-    char *source_txt = NULL;
-    char *source_path = NULL;
     char *artefact = NULL;
     bake_project_cfg_t *cfg = NULL;
 
@@ -241,42 +288,37 @@ int bake_env_import_project_by_id(bake_context_t *ctx, const char *id) {
         return 0;
     }
 
-    const char *home = bake_env_find_meta_home(ctx, id);
-    if (!home) {
-        goto cleanup;
-    }
-
-    project_json = bake_env_meta_project_json_path(home, id);
-
-    cfg = ecs_os_calloc_t(bake_project_cfg_t);
-    bake_project_cfg_init(cfg);
-    if (bake_project_cfg_load_file(project_json, cfg) != 0) {
-        rc = -1;
-        goto cleanup;
-    }
-
-    ecs_os_free(cfg->id);
-    cfg->id = ecs_os_strdup(id);
-
-    if (!cfg->public_project) {
-        goto cleanup;
-    }
-
-    if (home != ctx->bake_home) {
-        cfg->env_home = ecs_os_strdup(home);
-    }
-
-    meta_dir = bake_path_join3(home, "meta", id);
-    source_txt = bake_path_join(meta_dir, "source.txt");
-    source_path = bake_file_read_trimmed(source_txt);
-    if (source_path && source_path[0]) {
-        ecs_os_free(cfg->path);
-        cfg->path = source_path;
-        source_path = NULL;
-    }
-
     const char *mode = bake_effective_mode(ctx->opts.mode);
-    artefact = bake_env_find_artefact_path_current_mode(ctx, cfg, mode);
+    const char *homes[] = { ctx->bake_home, ctx->global_home };
+    for (int32_t i = 0; !artefact && i < (int32_t)(sizeof(homes) / sizeof(homes[0])); i++) {
+        if (!homes[i]) {
+            continue;
+        }
+
+        bake_project_cfg_t *candidate = NULL;
+        int load_rc = bake_env_load_meta_cfg(ctx, homes[i], id, &candidate);
+        if (load_rc < 0) {
+            rc = -1;
+            goto cleanup;
+        }
+        if (!candidate) {
+            continue;
+        }
+
+        char *candidate_artefact =
+            bake_env_find_artefact_path_current_mode(ctx, candidate, mode);
+        if (cfg) {
+            bake_project_cfg_fini(cfg);
+            ecs_os_free(cfg);
+        }
+        cfg = candidate;
+        artefact = candidate_artefact;
+    }
+
+    if (!cfg) {
+        goto cleanup;
+    }
+
     ecs_entity_t entity = bake_model_add_project(ctx->world, cfg, true);
     cfg = NULL;
     if (!entity) {
@@ -296,10 +338,6 @@ cleanup:
         ecs_os_free(cfg);
     }
     ecs_os_free(artefact);
-    ecs_os_free(source_path);
-    ecs_os_free(source_txt);
-    ecs_os_free(meta_dir);
-    ecs_os_free(project_json);
     return rc;
 }
 
@@ -587,9 +625,10 @@ int bake_env_sync_project(
     }
 
     int rc = -1;
-    char *meta_dir = bake_env_meta_project_dir(ctx, cfg->id);
-    char *include_dst = bake_path_join3(ctx->bake_home, "include", cfg->id);
-    char *template_dst = bake_path_join3(ctx->bake_home, "template", cfg->id);
+    const char *home = bake_env_project_home(ctx, cfg);
+    char *meta_dir = bake_env_meta_project_dir(home, cfg->id);
+    char *include_dst = bake_path_join3(home, "include", cfg->id);
+    char *template_dst = bake_path_join3(home, "template", cfg->id);
 
     if (bake_env_sync_metadata(cfg, meta_dir) != 0) {
         goto cleanup;
@@ -713,7 +752,7 @@ cleanup:
 
 static int bake_env_remove_project_entry(const bake_context_t *ctx, const char *id) {
     int rc = -1;
-    char *meta_dir = bake_env_meta_project_dir(ctx, id);
+    char *meta_dir = bake_env_meta_project_dir(ctx->bake_home, id);
     char *include_dir = bake_path_join3(ctx->bake_home, "include", id);
     char *template_dir = bake_path_join3(ctx->bake_home, "template", id);
     char *etc_dir = bake_path_join3(ctx->bake_home, "etc", id);
