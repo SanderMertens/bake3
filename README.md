@@ -1298,6 +1298,8 @@ When a project is built with bake, an entry for it will be stored in the bake en
 
 When `--local-env` is used, bake overrides `BAKE_HOME` for that invocation to `./.bake/local_env`. When `--local-env=<name>` is used, bake overrides it to `./.bake/local_env/<name>`.
 
+Dependencies that are not discovered in the workspace are first looked up in the local environment, and then in the global environment: the `BAKE_HOME` that was set before `--local-env` overrode it, or `~/bake3` when it was not set. A dependency found in the global environment is used in place (its metadata, headers and library are read from the global environment) and is not copied into the local environment. A local environment never writes to the global environment.
+
 The bake environment has the following directories:
 
 - `<arch-os>/<config>/bin`: stores application binaries
@@ -1330,7 +1332,7 @@ combines with `bake ps`.
 
 A name may contain letters, digits, `.`, `_` and `-`. Names that would collide with a directory of the unnamed environment are rejected: `bin`, `build`, `etc`, `include`, `lib`, `meta`, `src`, `test`, and platform directories such as `arm64-Darwin`.
 
-Named environments do not read or write each other, and they do not read or write the unnamed `.bake/local_env` environment, so `--local-env` without a name keeps behaving exactly as before. `build`, `run`, `test` and `clean` all resolve binaries in the environment of the name they were given, so `bake run <target> --local-env=<name>` runs that name's binary. What *is* shared between names is everything that is expensive and identical for all of them: the bundle sources and bundle builds under `.bake/bundles` (see [Bundles](#bundles)). A second name therefore only pays for compiling the project itself.
+Named environments do not read or write each other, and they do not read or write the unnamed `.bake/local_env` environment (all of them can read dependencies from the global environment), so `--local-env` without a name keeps behaving exactly as before. `build`, `run`, `test` and `clean` all resolve binaries in the environment of the name they were given, so `bake run <target> --local-env=<name>` runs that name's binary. What *is* shared between names is everything that is expensive and identical for all of them: the bundle sources and bundle builds under `.bake/bundles` (see [Bundles](#bundles)). A second name therefore only pays for compiling the project itself.
 
 Two named builds of the same workspace can run concurrently. Bake serializes the parts that write to shared paths (bundle fetch and build, test harness generation) with a lock, and keeps everything else in per-name directories.
 

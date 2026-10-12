@@ -235,6 +235,8 @@ void bake_context_fini(bake_context_t *ctx) {
 
     ecs_os_free(ctx->bake_home);
     ctx->bake_home = NULL;
+    ecs_os_free(ctx->global_home);
+    ctx->global_home = NULL;
     ecs_os_free(ctx->coverage_profdata);
     ctx->coverage_profdata = NULL;
     ecs_os_free(ctx->coverage_cov);

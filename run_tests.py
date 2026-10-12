@@ -4483,6 +4483,66 @@ class BakeTests(unittest.TestCase):
             "Workspace B should not be able to resolve dependency from workspace A",
         )
 
+    def test_local_env_resolves_dependency_from_global_env(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"local_env_global_dep_{stamp}"
+        pkg = root / "pkg"
+        app = root / "app"
+        pkg_id = f"tmp.global.dep.{stamp}"
+        app_id = f"tmp.global.consumer.{stamp}"
+
+        (pkg / "src").mkdir(parents=True, exist_ok=True)
+        (pkg / "include").mkdir(parents=True, exist_ok=True)
+        (pkg / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{pkg_id}\",\n"
+            "    \"type\": \"package\"\n"
+            "}\n"
+        )
+        (pkg / "include" / "global_dep.h").write_text(
+            "#ifndef GLOBAL_DEP_H\n"
+            "#define GLOBAL_DEP_H\n"
+            "int global_dep_value(void);\n"
+            "#endif\n"
+        )
+        (pkg / "src" / "lib.c").write_text(
+            "#include \"global_dep.h\"\n"
+            "int global_dep_value(void) { return 42; }\n"
+        )
+
+        (app / "src").mkdir(parents=True, exist_ok=True)
+        (app / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{app_id}\",\n"
+            "    \"type\": \"application\",\n"
+            f"    \"value\": {{ \"use\": [\"{pkg_id}\"] }}\n"
+            "}\n"
+        )
+        (app / "src" / "main.c").write_text(
+            "#include <global_dep.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) { printf(\"value=%d\\n\", global_dep_value()); return 0; }\n"
+        )
+
+        try:
+            self.bake(["build", "."], cwd=pkg)
+            self._rm_tree(pkg)
+
+            output = self.strip_ansi(self.bake(["--local-env", "run", "."], cwd=app))
+            self.assertIn("value=42", output)
+
+            local_env = app / ".bake" / "local_env"
+            self.assertFalse(
+                (local_env / "meta" / pkg_id).exists(),
+                "A dependency resolved from the global environment must not be installed locally",
+            )
+            self.assertTrue(
+                (self.bake_home / "meta" / pkg_id).is_dir(),
+                "The dependency should stay in the global environment",
+            )
+        finally:
+            self._rm_tree(root)
+
     def test_local_env_initializes_test_harness_templates(self) -> None:
         stamp = int(time.time() * 1_000_000)
         project_id = f"tmp.tests.localenv.{stamp}"

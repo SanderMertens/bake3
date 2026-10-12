@@ -46,6 +46,7 @@ typedef struct bake_context_t {
     ecs_world_t *world;
     bake_options_t opts;
     char *bake_home;
+    char *global_home;
     bake_build_report_t *report;
     bake_compiler_kind_t compiler_kind;
     char *coverage_profdata;

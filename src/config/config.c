@@ -410,7 +410,7 @@ void bake_project_cfg_init(bake_project_cfg_t *cfg) {
 
 static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_dependee) {
 #define F(n) ecs_os_free(cfg->n)
-    F(id); F(path); F(language); F(output_name); F(lint.command);
+    F(id); F(path); F(env_home); F(language); F(output_name); F(lint.command);
     F(build_dir);
 #undef F
 

@@ -104,6 +104,7 @@ typedef struct bake_lang_cfg_t {
 struct bake_project_cfg_t {
     char *id;
     char *path;
+    char *env_home;
     bake_project_kind_t kind;
     bool has_test_spec;
     bool has_bench_spec;

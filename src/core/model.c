@@ -151,6 +151,10 @@ static void bake_model_try_append_include_path(
     BakeResolvedDeps *resolved)
 {
     char *include = NULL;
+    if (external && cfg && cfg->env_home) {
+        bake_home = cfg->env_home;
+    }
+
     if (external && bake_home && cfg && cfg->id) {
         include = bake_path_join3(bake_home, "include", cfg->id);
         if (!bake_path_exists(include)) {
