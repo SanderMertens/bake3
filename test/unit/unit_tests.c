@@ -9,6 +9,7 @@
 #include "common/strutil.h"
 
 #include <flecs.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -57,6 +58,13 @@ static void test_trim(void) {
 
     bake_rtrim(NULL);
     CHECK(bake_ltrim(NULL) == NULL);
+}
+
+static void test_errno_message(void) {
+    char buf[256];
+    CHECK_STR(bake_errno_message(EACCES, buf, sizeof(buf)), strerror(EACCES));
+    CHECK_STR(bake_errno_message(ENOENT, buf, sizeof(buf)), strerror(ENOENT));
+    CHECK(bake_errno_message(EACCES, buf, sizeof(buf)) == buf);
 }
 
 static void test_path_join(void) {
@@ -983,6 +991,7 @@ int main(void) {
     ecs_os_init();
 
     test_trim();
+    test_errno_message();
     test_path_join();
     test_path_compare();
     test_path_is_abs();

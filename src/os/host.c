@@ -14,6 +14,11 @@ const char* bake_errno_message(int err, char *buf, size_t size) {
     if (strerror_s(buf, size, err) != 0) {
         snprintf(buf, size, "errno %d", err);
     }
+#elif defined(__GLIBC__) && defined(_GNU_SOURCE)
+    const char *msg = strerror_r(err, buf, size);
+    if (msg != buf) {
+        snprintf(buf, size, "%s", msg);
+    }
 #else
     if (strerror_r(err, buf, size) != 0) {
         snprintf(buf, size, "errno %d", err);
