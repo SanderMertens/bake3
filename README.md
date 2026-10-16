@@ -278,6 +278,12 @@ When `--local-env=<name>` is used, build artefacts are isolated to:
 - `.bake/local_env/<name>/build/<project-id>/arch-os-config/obj`: Stores generated object files
 - `.bake/local_env/<name>/build/<project-id>/arch-os-config/generated`: Stores generated files (such as header dependencies)
 
+All of these paths are relative to the `.bake` folder of the project, or, for
+`--local-env`, of the directory bake is invoked from. Set `output_dir` in
+[`bake.json`](#settings-bakejson) to move that folder out of the source tree,
+for example to build a project that is mounted read-only. `bake info <project>`
+prints the build directory of a project.
+
 ## Project configuration
 Bake projects are configured with a `project.json` file in the root of the project directory. The simplest configuration looks like this:
 
@@ -376,6 +382,12 @@ amalgamation before it builds the library, exactly like a build of the project
 does, so the library never contains stale code. Like a regular build, this only
 rewrites a file when its content changes. Files found in the project root are
 used as they are.
+
+When the amalgamated files cannot be written because the output folder or files
+are not writable (permission denied or a read-only file system), the build of
+the project and `--amalgamate` print a warning and continue with the files that
+are already there. Other amalgamation errors, such as a missing main header,
+still fail the build.
 
 The library is built by a private, generated project with the prefix as id. It
 goes through the same build path as any other project: it has its own build
@@ -1333,7 +1345,7 @@ If the project is found in the bake environment but has no binary for the reques
 ## Bake Environment
 When a project is built with bake, an entry for it will be stored in the bake environment. The location of the bake environment is read from the `BAKE_HOME` environment variable. If the variable is not set, `~/bake3` is used.
 
-When `--local-env` is used, bake overrides `BAKE_HOME` for that invocation to `./.bake/local_env`. When `--local-env=<name>` is used, bake overrides it to `./.bake/local_env/<name>`.
+When `--local-env` is used, bake overrides `BAKE_HOME` for that invocation to `./.bake/local_env`. When `--local-env=<name>` is used, bake overrides it to `./.bake/local_env/<name>`. When `output_dir` is set in [`bake.json`](#settings-bakejson), `./.bake` is replaced by the output directory of the current directory.
 
 Dependencies that are not discovered in the workspace are first looked up in the local environment, and then in the global environment: the `BAKE_HOME` that was set before `--local-env` overrode it, or `~/bake3` when it was not set. A dependency is used from the first environment that has a binary for the requested build configuration, and is used in place (its metadata, headers and library are read from that environment). When neither environment has a binary for the configuration, the dependency is built from source and installed into the global environment (when the global environment has the dependency), so that other workspaces and local environments can use it. Object files of the dependency are stored in the build root of the local environment.
 
@@ -1380,6 +1392,57 @@ A project meta folder stores:
 - `LICENSE`: Copy of the license file of the project
 - `source.txt`: File with the location of the last location from which the project was built
 - `dependee.json`: Project configuration to apply to dependees of the project (copy of the `dependee` section in the project's project.json)
+
+### Settings (bake.json)
+Bake reads settings from `bake.json` in the directory of the global bake
+environment: `$BAKE_HOME/bake.json`, or `~/bake3/bake.json` when `BAKE_HOME` is
+not set (`~` is the `HOME` environment variable). A relative `BAKE_HOME` is
+resolved like it is for the environment. With `--local-env` the file is still
+read from the global environment, not from the local one. When the file does
+not exist, bake behaves as if it were empty. Unknown settings print a warning,
+and a file that cannot be parsed fails every command.
+
+```json
+{
+    "output_dir": "/tmp/bake3/${id underscore}"
+}
+```
+
+The following settings are supported:
+
+- `output_dir`: where bake writes the output of a project instead of
+  `<project>/.bake`. This moves everything bake stores in that folder: the
+  `<arch-os-config>` build folders, private dependency builds (`use`, see
+  [Dependencies with defines](#dependencies-with-defines)), `--amalgamate`
+  builds, bundles, the test harness lock and the coverage report. The
+  `--local-env` environment moves with it, from `./.bake/local_env` to
+  `<output_dir>/local_env`. Together with the warning for amalgamations that
+  cannot be written, this makes it possible to build a project from a read-only
+  source folder. `bake clean` cleans the redirected folder.
+
+`output_dir` is expanded per project with the `${...}` syntax that `project.json`
+uses for conditional keys:
+
+- `${id}`: the project id, for example `foo.bar`.
+- `${id underscore}`: the project id with separators (`.` and `/`) replaced by
+  underscores, for example `foo_bar`.
+- `${env <name>}`: the value of an environment variable. A variable that is not
+  set is an error.
+
+A leading `~` is replaced by the home directory. A path that is still relative
+after expansion is relative to the directory that contains `bake.json`.
+`output_dir` must contain `${id}` or `${id underscore}`, so that projects never
+share a folder, and any other expression is an error. For the `--local-env`
+environment and the coverage report, which belong to the directory bake is
+invoked from rather than to a project, the id is read from `project.json` in
+that directory. When it has none, the name of the directory is used.
+
+Bake only redirects what it writes into `.bake`. Files a build writes into the
+source tree itself are not moved: generated `include/<id>/bake_config.h`
+headers, test and benchmark harness sources, and the `deps` folder of
+`--standalone` builds. `bake_config.h` is only rewritten when its content
+changes, so a read-only project builds as long as its `bake_config.h` is up to
+date.
 
 ## Building bake
 To build bake, run the following command in the repository root:

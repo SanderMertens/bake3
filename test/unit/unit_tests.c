@@ -427,6 +427,194 @@ static void test_local_env_build_root(void) {
     ecs_os_free(expect_root);
 }
 
+static char* test_expr_resolve(const char *kind, const char *arg, void *ctx) {
+    BAKE_UNUSED(ctx);
+    if (!strcmp(kind, "fail")) {
+        return NULL;
+    }
+    return flecs_asprintf("<%s|%s>", kind, arg ? arg : "");
+}
+
+static void test_expr_split(void) {
+    char *kind = NULL;
+    char *arg = NULL;
+    const char *expr = "  os   Darwin  ";
+    CHECK(bake_expr_split(expr, strlen(expr), &kind, &arg));
+    CHECK_STR(kind, "os");
+    CHECK_STR(arg, "Darwin");
+    ecs_os_free(kind);
+    ecs_os_free(arg);
+
+    CHECK(bake_expr_split("id", 2, &kind, &arg));
+    CHECK_STR(kind, "id");
+    CHECK(arg == NULL);
+    ecs_os_free(kind);
+
+    CHECK(bake_expr_split("id underscore}", 13, &kind, &arg));
+    CHECK_STR(kind, "id");
+    CHECK_STR(arg, "underscore");
+    ecs_os_free(kind);
+    ecs_os_free(arg);
+
+    CHECK(!bake_expr_split("   ", 3, &kind, &arg));
+    CHECK(kind == NULL);
+    CHECK(arg == NULL);
+}
+
+static void test_expr_expand(void) {
+    char *out = bake_expr_expand("/a/${id}/b/${env HOME}x", test_expr_resolve, NULL);
+    CHECK_STR(out, "/a/<id|>/b/<env|HOME>x");
+    ecs_os_free(out);
+
+    out = bake_expr_expand("plain/path", test_expr_resolve, NULL);
+    CHECK_STR(out, "plain/path");
+    ecs_os_free(out);
+
+    out = bake_expr_expand("", test_expr_resolve, NULL);
+    CHECK_STR(out, "");
+    ecs_os_free(out);
+
+    CHECK(bake_expr_expand("/a/${id", test_expr_resolve, NULL) == NULL);
+    CHECK(bake_expr_expand("/a/${ }", test_expr_resolve, NULL) == NULL);
+    CHECK(bake_expr_expand("/a/${fail}", test_expr_resolve, NULL) == NULL);
+    CHECK(bake_expr_expand(NULL, test_expr_resolve, NULL) == NULL);
+}
+
+static void test_settings_expand_output_dir(void) {
+    bool used_id = false;
+    char *out = bake_settings_expand_output_dir(
+        "/tmp/bake3/${id underscore}", NULL, "foo.bar", &used_id);
+    CHECK_STR(out, "/tmp/bake3/foo_bar");
+    CHECK(used_id);
+    ecs_os_free(out);
+
+    out = bake_settings_expand_output_dir(
+        "/tmp/bake3/${id underscore}", NULL, "box", NULL);
+    CHECK_STR(out, "/tmp/bake3/box");
+    ecs_os_free(out);
+
+    out = bake_settings_expand_output_dir(
+        "/tmp/bake3/${id}", NULL, "foo.bar", NULL);
+    CHECK_STR(out, "/tmp/bake3/foo.bar");
+    ecs_os_free(out);
+
+    out = bake_settings_expand_output_dir(
+        "/tmp/bake3/fixed", NULL, "foo.bar", &used_id);
+    CHECK_STR(out, "/tmp/bake3/fixed");
+    CHECK(!used_id);
+    ecs_os_free(out);
+
+    out = bake_settings_expand_output_dir(
+        "out/${id underscore}", "/home/me/bake3", "a.b.c", NULL);
+    char *expect = bake_path_join("/home/me/bake3", "out/a_b_c");
+    CHECK_STR(out, expect);
+    ecs_os_free(expect);
+    ecs_os_free(out);
+
+    bake_os_setenv("BAKE_UNIT_OUTPUT_ROOT", "/scratch/out");
+    out = bake_settings_expand_output_dir(
+        "${env BAKE_UNIT_OUTPUT_ROOT}/${id underscore}", "/ignored", "x.y", NULL);
+    CHECK_STR(out, "/scratch/out/x_y");
+    ecs_os_free(out);
+    bake_os_unsetenv("BAKE_UNIT_OUTPUT_ROOT");
+
+    CHECK(bake_settings_expand_output_dir(
+        "${env BAKE_UNIT_OUTPUT_ROOT}/${id}", NULL, "x", NULL) == NULL);
+
+    char *home = bake_os_home_path();
+    if (home) {
+        out = bake_settings_expand_output_dir("~/out/${id}", NULL, "x", NULL);
+        expect = bake_path_join(home, "out/x");
+        CHECK_STR(out, expect);
+        ecs_os_free(expect);
+        ecs_os_free(out);
+        ecs_os_free(home);
+    }
+
+    CHECK(bake_settings_expand_output_dir("/o/${id dash}", NULL, "x", NULL) == NULL);
+    CHECK(bake_settings_expand_output_dir("/o/${os}/${id}", NULL, "x", NULL) == NULL);
+    CHECK(bake_settings_expand_output_dir("/o/${id}", NULL, NULL, NULL) == NULL);
+    CHECK(bake_settings_expand_output_dir(NULL, NULL, "x", NULL) == NULL);
+}
+
+static void test_settings_project_output_dir(void) {
+    char *out = bake_project_output_dir("/ws/app", "my.app");
+    char *expect = bake_path_join("/ws/app", ".bake");
+    CHECK_STR(out, expect);
+    ecs_os_free(out);
+    ecs_os_free(expect);
+
+    CHECK(bake_settings_set_output_dir("/o/fixed", NULL) != 0);
+    CHECK(bake_settings_output_dir() == NULL);
+    CHECK(bake_settings_set_output_dir("/o/${nope}", NULL) != 0);
+    CHECK(bake_settings_output_dir() == NULL);
+
+    CHECK(bake_settings_set_output_dir("/o/${id underscore}", NULL) == 0);
+    CHECK_STR(bake_settings_output_dir(), "/o/${id underscore}");
+
+    out = bake_project_output_dir("/ws/app", "my.app");
+    CHECK_STR(out, "/o/my_app");
+    ecs_os_free(out);
+
+    out = bake_project_output_dir("/ws/unnamed", NULL);
+    CHECK_STR(out, "/o/unnamed");
+    ecs_os_free(out);
+
+    CHECK(bake_project_output_dir(NULL, "my.app") == NULL);
+
+    bake_os_setenv("BAKE_LOCAL_ENV", "0");
+    char *triplet = bake_host_triplet("debug");
+    char *root = bake_project_build_root("/ws/app", "my.app", "debug");
+    expect = bake_path_join("/o/my_app", triplet);
+    CHECK_STR(root, expect);
+    ecs_os_free(root);
+    ecs_os_free(expect);
+    ecs_os_free(triplet);
+    bake_os_unsetenv("BAKE_LOCAL_ENV");
+
+    char *home = bake_local_env_home("/no/such/workspace", "agent1");
+    expect = bake_path_join3("/o/workspace", "local_env", "agent1");
+    CHECK_STR(home, expect);
+    ecs_os_free(expect);
+    ecs_os_free(home);
+
+    CHECK(bake_settings_is_output_dir("/o/my_app"));
+    CHECK(bake_settings_is_output_dir("/o//my_app/"));
+    CHECK(!bake_settings_is_output_dir("/o"));
+    CHECK(!bake_settings_is_output_dir("/o/my_app/sub"));
+    CHECK(!bake_settings_is_output_dir("/other/my_app"));
+
+    bake_ps_path_info_t info;
+    CHECK(bake_ps_parse_local_env_path(
+        "/o/my_app/local_env/agent_a/build/my.app/arm64-Darwin-debug/bin/my_app",
+        &info) == 0);
+    CHECK_STR(info.env, "agent_a");
+    CHECK_STR(info.workspace, "/o/my_app");
+    CHECK_STR(info.cfg, "debug");
+    CHECK_STR(info.project, "my.app");
+    bake_ps_path_info_fini(&info);
+
+    CHECK(bake_ps_parse_local_env_path(
+        "/other/my_app/local_env/agent_a/arm64-Darwin/debug/bin/my_app", &info) != 0);
+    bake_ps_path_info_fini(&info);
+
+    char *env = NULL;
+    CHECK(bake_ps_env_from_home("/o/my_app/local_env/agent_b", &env) == BakePsEnvLocal);
+    CHECK_STR(env, "agent_b");
+    ecs_os_free(env);
+
+    CHECK(bake_ps_env_from_home("/o/my_app/local_env", &env) == BakePsEnvLocal);
+    CHECK(env == NULL);
+
+    CHECK(bake_ps_env_from_home("/ws/.bake/local_env/agent_c", &env) == BakePsEnvLocal);
+    CHECK_STR(env, "agent_c");
+    ecs_os_free(env);
+
+    bake_settings_fini();
+    CHECK(bake_settings_output_dir() == NULL);
+    CHECK(!bake_settings_is_output_dir("/o/my_app"));
+}
+
 static void test_lock_excludes_second_holder(void) {
     char *dir = flecs_asprintf("bake_unit_lock_%lld", (long long)bake_os_pid());
     char *lock_path = bake_path_join(dir, "test.lock");
@@ -810,6 +998,10 @@ int main(void) {
     test_local_env_name_validation();
     test_local_env_home();
     test_local_env_build_root();
+    test_expr_split();
+    test_expr_expand();
+    test_settings_expand_output_dir();
+    test_settings_project_output_dir();
     test_lock_excludes_second_holder();
     test_ps_elapsed_formatting();
     test_ps_parse_local_env_path();

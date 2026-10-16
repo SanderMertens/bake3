@@ -10,7 +10,37 @@ typedef struct bake_amalgamate_ctx_t {
     const char *include_name;
     const char *include_path;
     const bake_strlist_t *disable;
+    bool allow_not_writable;
 } bake_amalgamate_ctx_t;
+
+static bool bake_amalgamate_errno_not_writable(int err) {
+    if (err == EACCES || err == EPERM) {
+        return true;
+    }
+#ifdef EROFS
+    if (err == EROFS) {
+        return true;
+    }
+#endif
+    return false;
+}
+
+static int bake_amalgamate_write_failed(
+    const bake_amalgamate_ctx_t *ctx,
+    const char *action,
+    const char *path)
+{
+    int err = errno;
+    if (ctx->allow_not_writable && bake_amalgamate_errno_not_writable(err)) {
+        char msgbuf[256];
+        ecs_warn("cannot write amalgamation of '%s' to '%s': %s, "
+            "continuing with the existing files",
+            ctx->cfg->id, path, bake_errno_message(err, msgbuf, sizeof(msgbuf)));
+        return BAKE_AMALGAMATE_NOT_WRITABLE;
+    }
+    bake_log_errno(action, path, err);
+    return -1;
+}
 
 typedef struct bake_collect_sources_ctx_t {
     bake_strlist_t *sources;
@@ -864,6 +894,7 @@ static char* bake_clean_amalgamation(const char *in, size_t in_len) {
 }
 
 static int bake_finalize_amalgamation(
+    const bake_amalgamate_ctx_t *ctx,
     const char *tmp_file,
     const char *out_file)
 {
@@ -876,7 +907,10 @@ static int bake_finalize_amalgamation(
 
     char *cleaned = bake_clean_amalgamation(raw, len);
     ecs_os_free(raw);
-    int rc = bake_file_write(out_file, cleaned);
+    int rc = bake_file_write_silent(out_file, cleaned);
+    if (rc != 0) {
+        rc = bake_amalgamate_write_failed(ctx, "write file", out_file);
+    }
     ecs_os_free(cleaned);
     return rc;
 }
@@ -916,7 +950,8 @@ static int bake_amalgamate_source_group(
 
     FILE *fp = fopen(out_tmp, "wb");
     if (!fp) {
-        return -1;
+        return bake_amalgamate_write_failed(
+            ctx, "open file for writing", out_tmp);
     }
 
     bake_strlist_t parsed = {0};
@@ -972,7 +1007,8 @@ static int bake_generate_amalgamation_to_dir(
     const char *main_header,
     const char *output_path,
     const char *output_base,
-    const bake_strlist_t *disable_flags)
+    const bake_strlist_t *disable_flags,
+    bool allow_not_writable)
 {
     int rc = -1;
     char *include_out = NULL;
@@ -996,7 +1032,17 @@ static int bake_generate_amalgamation_to_dir(
     bake_strlist_t sources = {0};
     bake_strlist_t objc_sources = {0};
 
-    if (bake_os_mkdirs(output_path) != 0) {
+    bake_amalgamate_ctx_t ctx = {
+        .cfg = cfg,
+        .include_name = output_base,
+        .include_path = include_path,
+        .disable = disable_flags,
+        .allow_not_writable = allow_not_writable
+    };
+
+    if (bake_os_mkdirs_silent(output_path) != 0) {
+        rc = bake_amalgamate_write_failed(
+            &ctx, "create directory", output_path);
         goto cleanup;
     }
 
@@ -1009,17 +1055,12 @@ static int bake_generate_amalgamation_to_dir(
     objc_out = flecs_asprintf("%s/%s_objc.m", output_path, output_base);
     objc_tmp = flecs_asprintf("%s/%s_objc.m.tmp", output_path, output_base);
 
-    bake_amalgamate_ctx_t ctx = {
-        .cfg = cfg,
-        .include_name = output_base,
-        .include_path = include_path,
-        .disable = disable_flags
-    };
-
     bake_strlist_init(&parsed);
 
     include_fp = fopen(include_tmp, "wb");
     if (!include_fp) {
+        rc = bake_amalgamate_write_failed(
+            &ctx, "open file for writing", include_tmp);
         goto cleanup;
     }
 
@@ -1044,14 +1085,14 @@ static int bake_generate_amalgamation_to_dir(
     /* C and C++ sources are amalgamated into separate <base>.c and <base>.cpp
      * files so that C code is never compiled as C++. Either file is omitted
      * when the project has no sources of that language. */
-    if (bake_amalgamate_source_group(
-        &ctx, c_tmp, false, &sources, main_src, &parsed, &c_created) != 0)
-    {
-        goto cleanup;
+    int group_rc = bake_amalgamate_source_group(
+        &ctx, c_tmp, false, &sources, main_src, &parsed, &c_created);
+    if (group_rc == 0) {
+        group_rc = bake_amalgamate_source_group(
+            &ctx, cpp_tmp, true, &sources, main_src, &parsed, &cpp_created);
     }
-    if (bake_amalgamate_source_group(
-        &ctx, cpp_tmp, true, &sources, main_src, &parsed, &cpp_created) != 0)
-    {
+    if (group_rc != 0) {
+        rc = group_rc;
         goto cleanup;
     }
 
@@ -1065,6 +1106,8 @@ static int bake_generate_amalgamation_to_dir(
     if (objc_sources.count) {
         objc_fp = fopen(objc_tmp, "wb");
         if (!objc_fp) {
+            rc = bake_amalgamate_write_failed(
+                &ctx, "open file for writing", objc_tmp);
             goto cleanup;
         }
         objc_created = true;
@@ -1088,19 +1131,17 @@ static int bake_generate_amalgamation_to_dir(
         objc_fp = NULL;
     }
 
-    if (bake_finalize_amalgamation(include_tmp, include_out) != 0) {
-        goto cleanup;
+    rc = bake_finalize_amalgamation(&ctx, include_tmp, include_out);
+    if (rc == 0 && c_created) {
+        rc = bake_finalize_amalgamation(&ctx, c_tmp, c_out);
     }
-
-    if (c_created && bake_finalize_amalgamation(c_tmp, c_out) != 0) {
-        goto cleanup;
+    if (rc == 0 && cpp_created) {
+        rc = bake_finalize_amalgamation(&ctx, cpp_tmp, cpp_out);
     }
-
-    if (cpp_created && bake_finalize_amalgamation(cpp_tmp, cpp_out) != 0) {
-        goto cleanup;
+    if (rc == 0 && objc_created) {
+        rc = bake_finalize_amalgamation(&ctx, objc_tmp, objc_out);
     }
-
-    if (objc_created && bake_finalize_amalgamation(objc_tmp, objc_out) != 0) {
+    if (rc != 0) {
         goto cleanup;
     }
 
@@ -1169,7 +1210,7 @@ static int bake_generate_one_amalgamation(
 
     int rc = bake_generate_amalgamation_to_dir(
         cfg, project_id, include_path, src_path, main_header,
-        output_path, output_base, &amalg->disable_flags);
+        output_path, output_base, &amalg->disable_flags, true);
 
     ecs_os_free(output_path);
     return rc;
@@ -1234,7 +1275,7 @@ int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir) 
 
     rc = bake_generate_amalgamation_to_dir(
         cfg, project_id, include_path, src_path, main_header,
-        dst_dir, output_base, NULL);
+        dst_dir, output_base, NULL, false);
 
 cleanup:
     ecs_os_free(project_id);
@@ -1302,9 +1343,11 @@ int bake_generate_project_amalgamation(
             }
         }
 
-        if (bake_generate_one_amalgamation(
-            cfg, project_id, include_path, src_path, main_header, amalg) != 0)
-        {
+        int one_rc = bake_generate_one_amalgamation(
+            cfg, project_id, include_path, src_path, main_header, amalg);
+        if (one_rc == BAKE_AMALGAMATE_NOT_WRITABLE) {
+            rc = one_rc;
+        } else if (one_rc != 0) {
             rc = -1;
             goto cleanup;
         }

@@ -282,6 +282,10 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    if (bake_settings_load() != 0) {
+        goto cleanup;
+    }
+
     bool repeat = opts.repeat > 0 || opts.warmup > 0;
     if (repeat) {
         const char *cmd = opts.command ? opts.command : "build";
@@ -330,5 +334,6 @@ cleanup:
     if (ctx_initialized) bake_context_fini(&ctx);
     ecs_os_free(local_bake_home);
     ecs_os_free(cwd);
+    bake_settings_fini();
     return rc;
 }

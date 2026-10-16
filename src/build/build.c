@@ -31,7 +31,7 @@ char* bake_project_build_base(const char *project_path, const char *project_id) 
         return base;
     }
 
-    return bake_path_join(project_path, ".bake");
+    return bake_project_output_dir(project_path, project_id);
 }
 
 char* bake_project_build_root(const char *project_path, const char *project_id, const char *mode) {
@@ -567,6 +567,9 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         int32_t amalg_step = bake_report_open(ctx->report,
             BAKE_REPORT_KIND_GENERATE, "amalgamate", cfg->id);
         int amalg_rc = bake_generate_project_amalgamation(cfg, NULL);
+        if (amalg_rc == BAKE_AMALGAMATE_NOT_WRITABLE) {
+            amalg_rc = 0;
+        }
         bake_report_close(ctx->report, amalg_step, amalg_rc == 0,
             amalg_rc == 0 ? NULL : "amalgamation failed");
         if (amalg_rc != 0) {
@@ -1047,18 +1050,14 @@ static int bake_clean_generated_project(const bake_project_cfg_t *cfg) {
     return rc;
 }
 
-static int bake_clean_project(const bake_context_t *ctx, const bake_project_cfg_t *cfg) {
+static int bake_clean_project(const bake_project_cfg_t *cfg) {
     if (cfg->build_dir && cfg->build_dir[0]) {
         return bake_clean_generated_project(cfg);
     }
 
-    char *bake_dir = NULL;
-    if (ctx && ctx->opts.local_env && ctx->bake_home && cfg->id && cfg->id[0]) {
-        char *build_root = bake_path_join(ctx->bake_home, "build");
-        bake_dir = bake_path_join(build_root, cfg->id);
-        ecs_os_free(build_root);
-    } else {
-        bake_dir = bake_path_join(cfg->path, ".bake");
+    char *bake_dir = bake_project_build_base(cfg->path, cfg->id);
+    if (!bake_dir) {
+        return -1;
     }
 
     int rc = 0;
@@ -1133,7 +1132,7 @@ static int bake_build_clean_prepared(bake_context_t *ctx, const char *target) {
         }
 
         ecs_trace("#[green][#[normal]  clean#[green]]#[normal] %s", project->cfg->id);
-        if (bake_clean_project(ctx, project->cfg) != 0) {
+        if (bake_clean_project(project->cfg) != 0) {
             goto cleanup;
         }
     }

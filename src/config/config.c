@@ -6,7 +6,6 @@
 
 #include "parson.h"
 #include "common/json_helpers.h"
-#include "common/strutil.h"
 
 static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults);
 static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_dependee, bool set_defaults);
@@ -36,49 +35,35 @@ static int bake_json_conditional_key_matches(const char *key) {
         return 0;
     }
 
-    char *raw = ecs_os_strdup(key);
-    size_t len = strlen(raw);
-    if (len < 4 || raw[0] != '$' || raw[1] != '{' || raw[len - 1] != '}') {
-        ecs_os_free(raw);
+    size_t len = strlen(key);
+    if (len < 4 || key[0] != '$' || key[1] != '{' || key[len - 1] != '}') {
         return 0;
     }
 
-    raw[len - 1] = '\0';
-    char *expr = bake_ltrim(raw + 2);
-    bake_rtrim(expr);
-
-    char *space = expr;
-    while (*space && !isspace((unsigned char)*space)) {
-        space++;
-    }
-
-    if (!*space) {
-        ecs_os_free(raw);
+    char *kind = NULL;
+    char *value = NULL;
+    if (!bake_expr_split(key + 2, len - 3, &kind, &value) || !value) {
+        ecs_os_free(kind);
+        ecs_os_free(value);
         return 0;
     }
-
-    *space = '\0';
-    char *kind = expr;
-    char *value = bake_ltrim(space + 1);
-    bake_rtrim(value);
 
     int match = 0;
-    if (value[0]) {
-        if (!strcmp(kind, "os")) {
-            match = !strcasecmp(value, bake_target_os());
-        } else if (!strcmp(kind, "arch")) {
-            match = !strcasecmp(value, bake_target_arch());
-        } else if (!strcmp(kind, "cfg")) {
-            const char *mode = bake_cfg_eval_mode ? bake_cfg_eval_mode : "debug";
-            match = !strcasecmp(value, mode);
-        } else if (!strcmp(kind, "target")) {
-            match = bake_cfg_eval_target && !strcasecmp(value, bake_cfg_eval_target);
-        } else {
-            ecs_warn("unknown conditional key kind '%s' in '%s'", kind, key);
-        }
+    if (!strcmp(kind, "os")) {
+        match = !strcasecmp(value, bake_target_os());
+    } else if (!strcmp(kind, "arch")) {
+        match = !strcasecmp(value, bake_target_arch());
+    } else if (!strcmp(kind, "cfg")) {
+        const char *mode = bake_cfg_eval_mode ? bake_cfg_eval_mode : "debug";
+        match = !strcasecmp(value, mode);
+    } else if (!strcmp(kind, "target")) {
+        match = bake_cfg_eval_target && !strcasecmp(value, bake_cfg_eval_target);
+    } else {
+        ecs_warn("unknown conditional key kind '%s' in '%s'", kind, key);
     }
 
-    ecs_os_free(raw);
+    ecs_os_free(kind);
+    ecs_os_free(value);
     return match;
 }
 

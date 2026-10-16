@@ -77,7 +77,9 @@ char* bake_coverage_report_dir(void) {
     if (!cwd) {
         return NULL;
     }
-    char *dir = bake_path_join3(cwd, ".bake", "coverage_report");
+    char *output_dir = bake_workspace_output_dir(cwd);
+    char *dir = output_dir ? bake_path_join(output_dir, "coverage_report") : NULL;
+    ecs_os_free(output_dir);
     ecs_os_free(cwd);
     return dir;
 }

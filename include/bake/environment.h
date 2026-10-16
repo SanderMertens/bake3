@@ -36,4 +36,18 @@ bool bake_local_env_name_reserved(const char *name);
 bool bake_local_env_name_valid(const char *name);
 char* bake_local_env_home(const char *cwd, const char *name);
 
+char* bake_settings_home(void);
+int bake_settings_load(void);
+void bake_settings_fini(void);
+int bake_settings_set_output_dir(const char *output_dir, const char *base_dir);
+const char* bake_settings_output_dir(void);
+char* bake_settings_expand_output_dir(
+    const char *output_dir,
+    const char *base_dir,
+    const char *id,
+    bool *used_id_out);
+bool bake_settings_is_output_dir(const char *path);
+char* bake_project_output_dir(const char *project_path, const char *project_id);
+char* bake_workspace_output_dir(const char *cwd);
+
 #endif

@@ -284,6 +284,24 @@ static void bake_ps_parts_free(char **parts, int32_t count) {
     ecs_os_free(parts);
 }
 
+static char* bake_ps_join_parts(
+    const char *path,
+    char **parts,
+    int32_t count)
+{
+    ecs_strbuf_t buf = ECS_STRBUF_INIT;
+    if (bake_path_is_abs(path)) {
+        ecs_strbuf_appendch(&buf, bake_path_sep());
+    }
+    for (int32_t i = 0; i < count; i ++) {
+        if (i) {
+            ecs_strbuf_appendch(&buf, bake_path_sep());
+        }
+        ecs_strbuf_appendstr(&buf, parts[i]);
+    }
+    return ecs_strbuf_get(&buf);
+}
+
 int bake_ps_parse_local_env_path(const char *path, bake_ps_path_info_t *info_out) {
     if (!path || !path[0] || !info_out) {
         return -1;
@@ -294,12 +312,22 @@ int bake_ps_parse_local_env_path(const char *path, bake_ps_path_info_t *info_out
     char **parts = NULL;
     int32_t count = bake_ps_split_path(path, &parts);
     int32_t marker = -1;
+    bool output_dir = false;
     for (int32_t i = 0; i < (count - 1); i ++) {
-        if (!strcmp(parts[i], ".bake") &&
-            !strcmp(parts[i + 1], BAKE_PS_LOCAL_ENV_DIR))
-        {
-            marker = i;
+        if (strcmp(parts[i + 1], BAKE_PS_LOCAL_ENV_DIR)) {
+            continue;
         }
+        if (!strcmp(parts[i], ".bake")) {
+            marker = i;
+            output_dir = false;
+            continue;
+        }
+        char *prefix = bake_ps_join_parts(path, parts, i + 1);
+        if (bake_settings_is_output_dir(prefix)) {
+            marker = i;
+            output_dir = true;
+        }
+        ecs_os_free(prefix);
     }
 
     if (marker < 0) {
@@ -307,17 +335,8 @@ int bake_ps_parse_local_env_path(const char *path, bake_ps_path_info_t *info_out
         return -1;
     }
 
-    ecs_strbuf_t workspace = ECS_STRBUF_INIT;
-    if (bake_path_is_abs(path)) {
-        ecs_strbuf_appendch(&workspace, bake_path_sep());
-    }
-    for (int32_t i = 0; i < marker; i ++) {
-        if (i) {
-            ecs_strbuf_appendch(&workspace, bake_path_sep());
-        }
-        ecs_strbuf_appendstr(&workspace, parts[i]);
-    }
-    info_out->workspace = ecs_strbuf_get(&workspace);
+    info_out->workspace = bake_ps_join_parts(
+        path, parts, output_dir ? marker + 1 : marker);
 
     int32_t i = marker + 2;
     if (i < count && strcmp(parts[i], "build") &&

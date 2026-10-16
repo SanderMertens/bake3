@@ -387,6 +387,9 @@ int bake_amalgamate_target_stage(
             src->project->id, display, src->prefix);
         ecs_os_free(display);
         rc = bake_generate_project_amalgamation(src->project, src->prefix);
+        if (rc == BAKE_AMALGAMATE_NOT_WRITABLE) {
+            rc = 0;
+        }
     }
 
     if (rc == 0) {

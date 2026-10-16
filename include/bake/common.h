@@ -56,4 +56,19 @@ bool bake_char_is_space(char ch);
 char* bake_project_id_as_macro(const char *id);
 char* bake_project_id_base(const char *id);
 
+typedef char* (*bake_expr_resolve_cb)(
+    const char *kind,
+    const char *arg,
+    void *ctx);
+
+bool bake_expr_split(
+    const char *expr,
+    size_t len,
+    char **kind_out,
+    char **arg_out);
+char* bake_expr_expand(
+    const char *str,
+    bake_expr_resolve_cb resolve,
+    void *ctx);
+
 #endif

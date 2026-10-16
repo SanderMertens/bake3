@@ -84,8 +84,10 @@ char* bake_local_env_home(const char *cwd, const char *name) {
         return NULL;
     }
 
-    char *root = bake_path_join3(cwd, ".bake", "local_env");
-    if (!name) {
+    char *output_dir = bake_workspace_output_dir(cwd);
+    char *root = output_dir ? bake_path_join(output_dir, "local_env") : NULL;
+    ecs_os_free(output_dir);
+    if (!root || !name) {
         return root;
     }
 

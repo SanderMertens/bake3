@@ -9,7 +9,7 @@
 #include <sys/types.h>
 #endif
 
-static const char* bake_errno_message(int err, char *buf, size_t size) {
+const char* bake_errno_message(int err, char *buf, size_t size) {
 #if defined(_WIN32)
     if (strerror_s(buf, size, err) != 0) {
         snprintf(buf, size, "errno %d", err);

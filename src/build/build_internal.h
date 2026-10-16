@@ -96,6 +96,8 @@ int bake_link_project_binary(
     char **artefact_out,
     bool *linked_out);
 
+#define BAKE_AMALGAMATE_NOT_WRITABLE (-2)
+
 int bake_amalgamate_project(const bake_project_cfg_t *cfg, const char *dst_dir);
 int bake_generate_project_amalgamation(
     const bake_project_cfg_t *cfg,

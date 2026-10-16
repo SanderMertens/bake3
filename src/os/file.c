@@ -105,7 +105,11 @@ static bool bake_file_content_matches(
     return matches;
 }
 
-int bake_file_write(const char *path, const char *content) {
+static int bake_file_write_impl(
+    const char *path,
+    const char *content,
+    bool log_errors)
+{
     if (!path || !content) {
         return -1;
     }
@@ -115,31 +119,45 @@ int bake_file_write(const char *path, const char *content) {
         return -1;
     }
 
-    if (bake_os_mkdirs(dir) != 0) {
-        ecs_os_free(dir);
+    int mkdir_rc = log_errors ? bake_os_mkdirs(dir) : bake_os_mkdirs_silent(dir);
+    ecs_os_free(dir);
+    if (mkdir_rc != 0) {
         return -1;
     }
-    ecs_os_free(dir);
 
     size_t len = strlen(content);
-    if (bake_file_content_matches(path, content, len, true)) {
+    if (bake_file_content_matches(path, content, len, log_errors)) {
         return 0;
     }
 
     FILE *f = fopen(path, "wb");
     if (!f) {
-        bake_log_errno_last("open file for writing", path);
+        if (log_errors) {
+            bake_log_errno_last("open file for writing", path);
+        }
         return -1;
     }
 
     size_t written = fwrite(content, 1, len, f);
     if (written != len) {
-        bake_log_errno_last("write file", path);
-        bake_file_close(f, path, true);
+        int err = errno;
+        if (log_errors) {
+            bake_log_errno("write file", path, err);
+        }
+        bake_file_close(f, path, log_errors);
+        errno = err;
         return -1;
     }
 
-    return bake_file_close(f, path, true);
+    return bake_file_close(f, path, log_errors);
+}
+
+int bake_file_write(const char *path, const char *content) {
+    return bake_file_write_impl(path, content, true);
+}
+
+int bake_file_write_silent(const char *path, const char *content) {
+    return bake_file_write_impl(path, content, false);
 }
 
 char* bake_file_read_trimmed(const char *path) {

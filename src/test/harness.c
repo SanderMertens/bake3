@@ -1,5 +1,6 @@
 #include "bake/test_harness.h"
 #include "bake/build.h"
+#include "bake/environment.h"
 #include "bake/os.h"
 #include "bake/ps.h"
 
@@ -51,7 +52,9 @@ int bake_test_generate_harness(
         goto cleanup;
     }
 
-    lock_path = bake_path_join3(cfg->path, ".bake", "harness.lock");
+    char *output_dir = bake_project_output_dir(cfg->path, cfg->id);
+    lock_path = bake_path_join(output_dir, "harness.lock");
+    ecs_os_free(output_dir);
     if (bake_os_lock_acquire(lock_path, BAKE_HARNESS_LOCK_TIMEOUT_SEC, &lock) != 0) {
         rc = -1;
         goto cleanup;

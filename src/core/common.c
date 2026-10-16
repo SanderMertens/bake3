@@ -118,3 +118,101 @@ char* bake_macro_upper(const char *value) {
 
     return out;
 }
+
+static char* bake_strdup_n(const char *str, size_t len) {
+    char *out = ecs_os_malloc((ecs_size_t)len + 1);
+    memcpy(out, str, len);
+    out[len] = '\0';
+    return out;
+}
+
+bool bake_expr_split(
+    const char *expr,
+    size_t len,
+    char **kind_out,
+    char **arg_out)
+{
+    *kind_out = NULL;
+    *arg_out = NULL;
+
+    const char *start = expr;
+    const char *end = expr + len;
+    while (start < end && isspace((unsigned char)*start)) {
+        start++;
+    }
+    while (end > start && isspace((unsigned char)end[-1])) {
+        end--;
+    }
+
+    const char *space = start;
+    while (space < end && !isspace((unsigned char)*space)) {
+        space++;
+    }
+
+    if (space == start) {
+        return false;
+    }
+
+    *kind_out = bake_strdup_n(start, (size_t)(space - start));
+
+    const char *arg = space;
+    while (arg < end && isspace((unsigned char)*arg)) {
+        arg++;
+    }
+    if (arg < end) {
+        *arg_out = bake_strdup_n(arg, (size_t)(end - arg));
+    }
+
+    return true;
+}
+
+char* bake_expr_expand(
+    const char *str,
+    bake_expr_resolve_cb resolve,
+    void *ctx)
+{
+    if (!str) {
+        return NULL;
+    }
+
+    ecs_strbuf_t buf = ECS_STRBUF_INIT;
+    const char *cur = str;
+    while (true) {
+        const char *open = strstr(cur, "${");
+        if (!open) {
+            ecs_strbuf_appendstr(&buf, cur);
+            break;
+        }
+
+        ecs_strbuf_appendstrn(&buf, cur, (int32_t)(open - cur));
+
+        const char *close = strchr(open + 2, '}');
+        if (!close) {
+            ecs_err("unterminated expression in '%s'", str);
+            ecs_strbuf_reset(&buf);
+            return NULL;
+        }
+
+        char *kind = NULL;
+        char *arg = NULL;
+        char *value = NULL;
+        if (bake_expr_split(open + 2, (size_t)(close - open - 2), &kind, &arg)) {
+            value = resolve(kind, arg, ctx);
+        } else {
+            ecs_err("empty expression in '%s'", str);
+        }
+        ecs_os_free(kind);
+        ecs_os_free(arg);
+
+        if (!value) {
+            ecs_strbuf_reset(&buf);
+            return NULL;
+        }
+
+        ecs_strbuf_appendstr(&buf, value);
+        ecs_os_free(value);
+        cur = close + 1;
+    }
+
+    return ecs_strbuf_get(&buf);
+}

@@ -26,7 +26,10 @@ static char* bake_bundle_root_dir(const bake_project_cfg_t *cfg, const bake_bund
     if (!cfg || !cfg->path || !bundle || !bundle->id) {
         return NULL;
     }
-    char *bake = bake_path_join(cfg->path, ".bake");
+    char *bake = bake_project_output_dir(cfg->path, cfg->id);
+    if (!bake) {
+        return NULL;
+    }
     char *bundles = bake_path_join(bake, "bundles");
     ecs_os_free(bake);
     char *id_dir = bake_path_join(bundles, bundle->id);

@@ -1867,6 +1867,175 @@ class BakeTests(unittest.TestCase):
         output = self.strip_ansi(self.bake_expect_failure(["build"], cwd=ws))
         self.assertIn("each object in 'use' requires a 'name' string", output)
 
+    def test_amalgamate_warns_when_output_is_not_writable(self) -> None:
+        if platform.system() == "Windows" or os.geteuid() == 0:
+            self.skipTest("requires POSIX permissions and a non-root user")
+
+        stamp = int(time.time() * 1_000_000)
+        project_dir = self.repo_root / "test" / "tmp" / f"amalg_readonly_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        shutil.copytree(
+            self.repo_root / "test" / "projects" / "c" / "pkg_amalgamate_disable",
+            project_dir,
+            ignore=shutil.ignore_patterns(".bake"),
+        )
+        (project_dir / "src" / "main.c").write_text(
+            (project_dir / "src" / "main.c").read_text() + "\nint amalg_readonly_marker;\n")
+
+        distr = project_dir / "distr"
+        before = {p.name: p.read_bytes() for p in distr.iterdir()}
+        for path in distr.iterdir():
+            path.chmod(0o444)
+        distr.chmod(0o555)
+        try:
+            output = self.strip_ansi(self.bake(["build"], cwd=project_dir))
+        finally:
+            distr.chmod(0o755)
+        self.assertIn(
+            "cannot write amalgamation of 'examples.c.pkg_amalgamate_disable'",
+            output,
+        )
+        self.assertIn("continuing with the existing files", output)
+        self.assertNotIn("amalgamation failed", output)
+        self.assertEqual({p.name: p.read_bytes() for p in distr.iterdir()}, before)
+        self.assertTrue(any((project_dir / ".bake").glob(
+            "*/libpkg_amalgamate_disable.a")))
+
+    def test_amalgamate_fails_without_main_header(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_dir = self.repo_root / "test" / "tmp" / f"amalg_no_header_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        (project_dir / "src").mkdir(parents=True)
+        (project_dir / "project.json").write_text(json.dumps({
+            "id": f"amalg_no_header_{stamp}",
+            "type": "package",
+            "value": {"amalgamate": [{"path": "distr"}]}
+        }) + "\n")
+        (project_dir / "src" / "main.c").write_text("int amalg_no_header;\n")
+
+        output = self.strip_ansi(self.bake_expect_failure(["build"], cwd=project_dir))
+        self.assertIn("amalgamation failed for", output)
+        self.assertNotIn("continuing with the existing files", output)
+
+    def test_output_dir_builds_read_only_project(self) -> None:
+        if platform.system() == "Windows" or os.geteuid() == 0:
+            self.skipTest("requires POSIX permissions and a non-root user")
+
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"output_dir_ro_{stamp}"
+        project_dir = root / "pkg"
+        out_root = root / "out"
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+        shutil.copytree(
+            self.repo_root / "test" / "projects" / "c" / "pkg_amalgamate_disable",
+            project_dir,
+            ignore=shutil.ignore_patterns(".bake"),
+        )
+        (project_dir / "src" / "main.c").write_text(
+            (project_dir / "src" / "main.c").read_text() + "\nint output_dir_ro_marker;\n")
+
+        settings = self.bake_home / "bake.json"
+        settings.write_text(json.dumps(
+            {"output_dir": str(out_root) + "/${id underscore}"}) + "\n")
+        self.addCleanup(settings.unlink, missing_ok=True)
+
+        snapshot_before = {}
+        for path in [project_dir, *project_dir.rglob("*")]:
+            snapshot_before[str(path)] = path.stat().st_mtime_ns
+            path.chmod(0o555 if path.is_dir() else 0o444)
+
+        try:
+            output = self.strip_ansi(self.bake(["build"], cwd=project_dir))
+            self.assertIn(
+                "cannot write amalgamation of 'examples.c.pkg_amalgamate_disable'",
+                output,
+            )
+
+            snapshot_after = {
+                str(path): path.stat().st_mtime_ns
+                for path in [project_dir, *project_dir.rglob("*")]
+            }
+            self.assertEqual(snapshot_after, snapshot_before)
+
+            out_dir = out_root / "examples_c_pkg_amalgamate_disable"
+            self.assertTrue(any(out_dir.glob("*/libpkg_amalgamate_disable.a")))
+
+            info = self.strip_ansi(self.bake(["info", "."], cwd=project_dir))
+            self.assertRegex(info, rf"(?m)^build:\s+{re.escape(str(out_dir))}$")
+
+            output = self.strip_ansi(
+                self.bake(["build", "--local-env=agent"], cwd=project_dir))
+            local_home = out_dir / "local_env" / "agent"
+            self.assertTrue(any(
+                (local_home / "build" / "examples.c.pkg_amalgamate_disable").glob(
+                    "*/libpkg_amalgamate_disable.a")), output)
+
+            self.bake(["clean"], cwd=project_dir)
+            self.assertFalse(any(out_dir.glob("*/libpkg_amalgamate_disable.a")))
+            self.assertFalse((out_dir / "local_env").exists())
+
+            snapshot_after = {
+                str(path): path.stat().st_mtime_ns
+                for path in [project_dir, *project_dir.rglob("*")]
+            }
+            self.assertEqual(snapshot_after, snapshot_before)
+        finally:
+            for path in [project_dir, *project_dir.rglob("*")]:
+                path.chmod(0o755 if path.is_dir() else 0o644)
+
+    def test_output_dir_redirects_use_defines_dependency(self) -> None:
+        ws, pkg_dir, app_dir, pkg_id, app_id = self.write_use_defines_workspace(
+            "use_defines_output_dir", 5)
+        out_root = ws.parent / f"{ws.name}_out"
+        self.addCleanup(shutil.rmtree, out_root, ignore_errors=True)
+
+        settings = self.bake_home / "bake.json"
+        settings.write_text(json.dumps(
+            {"output_dir": str(out_root) + "/${id underscore}"}) + "\n")
+        self.addCleanup(settings.unlink, missing_ok=True)
+
+        output = self.strip_ansi(self.bake(["run", "app"], cwd=ws))
+        self.assertIn("value=5", output)
+
+        app_out = out_root / app_id.replace(".", "_")
+        variant_libs = list((app_out / "use" / pkg_id).glob(f"*/lib{pkg_id}.a"))
+        self.assertEqual(len(variant_libs), 1, output)
+        self.assertEqual(list(ws.rglob(".bake")), [])
+
+        output = self.strip_ansi(
+            self.bake(["run", "app", "--local-env=agent"], cwd=ws))
+        self.assertIn("value=5", output)
+        self.assertIn("env local:agent", output)
+        local_home = out_root / ws.name / "local_env" / "agent"
+        self.assertEqual(len(list(
+            (local_home / "build" / app_id / "use" / pkg_id).glob(f"*/lib{pkg_id}.a"))), 1)
+        self.assertEqual(list(ws.rglob(".bake")), [])
+
+        self.bake(["clean", "app"], cwd=ws)
+        self.assertFalse(any((app_out / "use").glob(f"*/*/lib{pkg_id}.a")))
+
+    def test_output_dir_setting_requires_project_id(self) -> None:
+        settings = self.bake_home / "bake.json"
+        self.addCleanup(settings.unlink, missing_ok=True)
+        target = "test/projects/c/app_helloworld"
+
+        settings.write_text(json.dumps({"output_dir": "/tmp/bake3/shared"}) + "\n")
+        output = self.strip_ansi(self.bake_expect_failure(["build", target]))
+        self.assertIn("must contain '${id}' or '${id underscore}'", output)
+
+        settings.write_text(json.dumps({"output_dir": "/tmp/bake3/${os}/${id}"}) + "\n")
+        output = self.strip_ansi(self.bake_expect_failure(["build", target]))
+        self.assertIn("unknown expression '${os}'", output)
+
+        settings.write_text("{\"output_dir\": ")
+        output = self.strip_ansi(self.bake_expect_failure(["build", target]))
+        self.assertIn("failed to parse", output)
+
+        settings.write_text(json.dumps({"output_dirr": "/tmp/${id}"}) + "\n")
+        output = self.strip_ansi(self.bake(["info", "."], cwd=self.repo_root / target))
+        self.assertIn("unknown setting 'output_dirr'", output)
+        self.assertRegex(output, r"(?m)^build:\s+.*app_helloworld[/\\]\.bake$")
+
     def test_standalone_amalgamation_dedups_unconditional_includes(self) -> None:
         """Multiple source files in an amalgamated unit that each include the
         same external header would otherwise repeat it -- harmless for guarded
