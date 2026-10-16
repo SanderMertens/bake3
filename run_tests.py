@@ -1735,6 +1735,138 @@ class BakeTests(unittest.TestCase):
         output = self.bake(["run", "app"], cwd=ws)
         self.assertIn("value=42", self.strip_ansi(output))
 
+    def write_use_defines_workspace(
+        self, name: str, value: int
+    ) -> tuple[Path, Path, Path, str, str]:
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"{name}_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        pkg_id = f"use_def_pkg_{stamp}"
+        app_id = f"use_def_app_{stamp}"
+        pkg_dir = ws / "pkg"
+        app_dir = ws / "app"
+
+        (pkg_dir / "include").mkdir(parents=True)
+        (pkg_dir / "src").mkdir(parents=True)
+        (app_dir / "src").mkdir(parents=True)
+
+        (pkg_dir / "project.json").write_text(
+            f'{{"id": "{pkg_id}", "type": "package", '
+            f'"lang.c": {{"defines": ["PKG_OWN_FLAG"]}}}}\n'
+        )
+        guard = f"{pkg_id.upper()}_H"
+        (pkg_dir / "include" / f"{pkg_id}.h").write_text(
+            f"#ifndef {guard}\n#define {guard}\n"
+            "int dep_value(void);\n#endif\n"
+        )
+        (pkg_dir / "src" / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#ifndef PKG_OWN_FLAG\n"
+            '#error "PKG_OWN_FLAG not defined"\n'
+            "#endif\n"
+            "int dep_value(void) {\n"
+            "#ifdef PKG_VALUE\n"
+            "    return PKG_VALUE;\n"
+            "#else\n"
+            "    return 0;\n"
+            "#endif\n"
+            "}\n"
+        )
+
+        self.write_use_defines_app(app_dir, app_id, pkg_id, value)
+        (app_dir / "src" / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#include <stdio.h>\n"
+            "#ifndef PKG_VALUE\n"
+            '#error "PKG_VALUE not defined"\n'
+            "#endif\n"
+            "int main(void) {\n"
+            '    printf("value=%d\\n", dep_value());\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        return ws, pkg_dir, app_dir, pkg_id, app_id
+
+    @staticmethod
+    def write_use_defines_app(
+        app_dir: Path, app_id: str, pkg_id: str, value: int
+    ) -> None:
+        (app_dir / "project.json").write_text(json.dumps({
+            "id": app_id,
+            "type": "application",
+            "value": {
+                "use": [{"name": pkg_id, "defines": [f"PKG_VALUE={value}"]}]
+            }
+        }) + "\n")
+
+    def test_use_defines_build_dependency_with_defines(self) -> None:
+        ws, pkg_dir, app_dir, pkg_id, _ = self.write_use_defines_workspace(
+            "use_defines", 7)
+
+        output = self.strip_ansi(self.bake(["run", "app"], cwd=ws))
+        self.assertIn("value=7", output)
+
+        variant_libs = list((app_dir / ".bake" / "use" / pkg_id).glob(
+            f"*/lib{pkg_id}.a"))
+        self.assertEqual(len(variant_libs), 1, output)
+        self.assertFalse(
+            any((pkg_dir / ".bake").glob(f"*/lib{pkg_id}.a")),
+            "Expected the dependency to be built in the consumer build tree",
+        )
+
+    def test_use_defines_rebuild_dependency_when_defines_change(self) -> None:
+        ws, _, app_dir, pkg_id, app_id = self.write_use_defines_workspace(
+            "use_defines_change", 7)
+
+        output = self.strip_ansi(self.bake(["run", "app"], cwd=ws))
+        self.assertIn("value=7", output)
+
+        time.sleep(0.02)
+        self.write_use_defines_app(app_dir, app_id, pkg_id, 8)
+        output = self.strip_ansi(self.bake(["run", "app"], cwd=ws))
+        self.assertIn("value=8", output)
+
+    def test_use_defines_build_dependency_from_environment_source(self) -> None:
+        _, pkg_dir, app_dir, pkg_id, _ = self.write_use_defines_workspace(
+            "use_defines_env", 9)
+
+        self.bake(["build"], cwd=pkg_dir)
+        output = self.strip_ansi(self.bake(["run"], cwd=app_dir))
+        self.assertIn("value=9", output)
+        self.assertIn(f"{pkg_id} (", output)
+
+    def test_use_defines_fail_without_dependency_source(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"use_defines_missing_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        app_id = f"use_def_missing_app_{stamp}"
+        pkg_id = f"use_def_missing_pkg_{stamp}"
+        (ws / "src").mkdir(parents=True)
+        self.write_use_defines_app(ws, app_id, pkg_id, 1)
+        (ws / "src" / "main.c").write_text("int main(void) { return 0; }\n")
+
+        output = self.strip_ansi(self.bake_expect_failure(["build"], cwd=ws))
+        self.assertIn(
+            f"cannot build dependency {pkg_id} with the defines of {app_id}",
+            output,
+        )
+
+    def test_use_entry_requires_a_name(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"use_defines_noname_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        (ws / "src").mkdir(parents=True)
+        (ws / "project.json").write_text(json.dumps({
+            "id": f"use_def_noname_{stamp}",
+            "type": "application",
+            "value": {"use": [{"defines": ["FOO"]}]}
+        }) + "\n")
+        (ws / "src" / "main.c").write_text("int main(void) { return 0; }\n")
+
+        output = self.strip_ansi(self.bake_expect_failure(["build"], cwd=ws))
+        self.assertIn("each object in 'use' requires a 'name' string", output)
+
     def test_standalone_amalgamation_dedups_unconditional_includes(self) -> None:
         """Multiple source files in an amalgamated unit that each include the
         same external header would otherwise repeat it -- harmless for guarded

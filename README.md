@@ -312,6 +312,41 @@ The following options are supported:
 - `output`: Name of the build artefact. Defaults to the project id.
 - `standalone`: When true, this will copy all amalgamated sources from dependencies to a `deps` folder in the project, and include those in the project build rather than relying on linking with dependency binaries. This allows for the project to be easily shared, without having to also share the dependencies. The sources in `deps` are refreshed automatically when a dependency changes. When the dependency sources are not available (for example on a machine that only has the standalone project), the existing sources in `deps` are used as is.
 
+### Dependencies with defines
+An entry in `use` or `use-private` can be an object instead of a name, to build
+the dependency with additional preprocessor defines:
+
+```json
+{
+    "id": "my_app",
+    "type": "application",
+    "value": {
+        "use": [{
+            "name": "flecs",
+            "defines": ["FLECS_SCRIPT_MATH"]
+        }]
+    }
+}
+```
+
+The dependency is compiled from its source with its own configuration plus the
+listed defines, into a static library that is private to the project. The
+installed binary of the dependency is not used or modified, so other projects
+are not affected. The library is stored in the build directory of the project:
+
+- `.bake/use/<dependency-id>/<arch-os-config>`
+- `.bake/local_env/build/<project-id>/use/<dependency-id>/<arch-os-config>` for `--local-env`
+- `.bake/local_env/<name>/build/<project-id>/use/<dependency-id>/<arch-os-config>` for `--local-env=<name>`
+
+The defines are also applied when compiling the project itself, so the headers
+of the dependency see the same configuration as its sources. Projects that
+depend on the project link with the same library, but do not get the defines.
+Add them to the `dependee` section when they need them.
+
+The source of the dependency must be available, either because it is
+discovered in the workspace or because the bake environment records where it
+was built from. When the defines change, the library is rebuilt.
+
 ## Building an amalgamation as a shared library
 `--amalgamate <prefix>` builds the amalgamated `<prefix>.c` and `<prefix>.h` of
 a project as a shared library. It is accepted by `build` (the default command),

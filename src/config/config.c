@@ -323,6 +323,58 @@ bake_amalgamate_cfg_t* bake_amalgamate_list_get(const bake_amalgamate_list_t *li
     return &ecs_vec_first_t(&list->vec, bake_amalgamate_cfg_t)[index];
 }
 
+void bake_use_list_init(bake_use_list_t *list) {
+    memset(&list->vec, 0, sizeof(list->vec));
+}
+
+void bake_use_list_fini(bake_use_list_t *list) {
+    bake_use_cfg_t *items = ecs_vec_first_t(&list->vec, bake_use_cfg_t);
+    int32_t count = ecs_vec_count(&list->vec);
+    for (int32_t i = 0; i < count; i++) {
+        ecs_os_free(items[i].id);
+        bake_strlist_fini(&items[i].defines);
+    }
+    ecs_vec_fini_t(NULL, &list->vec, bake_use_cfg_t);
+}
+
+bake_use_cfg_t* bake_use_list_ensure(bake_use_list_t *list, const char *id) {
+    bake_use_cfg_t *existing = (bake_use_cfg_t*)bake_use_list_find(list, id);
+    if (existing) {
+        return existing;
+    }
+
+    bake_use_cfg_t *item = ecs_vec_append_t(NULL, &list->vec, bake_use_cfg_t);
+    memset(item, 0, sizeof(*item));
+    item->id = ecs_os_strdup(id);
+    bake_strlist_init(&item->defines);
+    return item;
+}
+
+int32_t bake_use_list_count(const bake_use_list_t *list) {
+    return ecs_vec_count(&list->vec);
+}
+
+bake_use_cfg_t* bake_use_list_get(const bake_use_list_t *list, int32_t index) {
+    if (index < 0 || index >= ecs_vec_count(&list->vec)) {
+        return NULL;
+    }
+    return &ecs_vec_first_t(&list->vec, bake_use_cfg_t)[index];
+}
+
+const bake_use_cfg_t* bake_use_list_find(const bake_use_list_t *list, const char *id) {
+    if (!id) {
+        return NULL;
+    }
+    int32_t count = ecs_vec_count(&list->vec);
+    bake_use_cfg_t *items = ecs_vec_first_t(&list->vec, bake_use_cfg_t);
+    for (int32_t i = 0; i < count; i++) {
+        if (items[i].id && !strcmp(items[i].id, id)) {
+            return &items[i];
+        }
+    }
+    return NULL;
+}
+
 static void bake_lang_cfg_init_impl(bake_lang_cfg_t *cfg, bool set_defaults) {
 #define F(n) bake_strlist_init(&cfg->n)
     F(cflags); F(cxxflags); F(defines); F(ldflags); F(libs);
@@ -402,6 +454,7 @@ static void bake_project_cfg_init_impl(bake_project_cfg_t *cfg, bool init_depend
     bake_rule_list_init(&cfg->rules);
     bake_bundle_list_init(&cfg->bundles);
     bake_amalgamate_list_init(&cfg->amalgamate);
+    bake_use_list_init(&cfg->use_cfg);
 }
 
 void bake_project_cfg_init(bake_project_cfg_t *cfg) {
@@ -411,7 +464,7 @@ void bake_project_cfg_init(bake_project_cfg_t *cfg) {
 static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_dependee) {
 #define F(n) ecs_os_free(cfg->n)
     F(id); F(path); F(env_home); F(language); F(output_name); F(lint.command);
-    F(build_dir);
+    F(build_dir); F(use_consumer);
 #undef F
 
     if (cfg->amalgamate_src) {
@@ -430,6 +483,7 @@ static void bake_project_cfg_fini_impl(bake_project_cfg_t *cfg, bool fini_depend
     F(bundle_sources);
 #undef F
     bake_amalgamate_list_fini(&cfg->amalgamate);
+    bake_use_list_fini(&cfg->use_cfg);
 
     if (fini_dependee) {
         bake_dependee_cfg_fini(&cfg->dependee);
@@ -503,6 +557,11 @@ static const char *bake_lint_object_keys[] = {
 
 static const char *bake_amalgamate_object_keys[] = {
     "path", "prefix", "disable-flags",
+    NULL
+};
+
+static const char *bake_use_object_keys[] = {
+    "name", "defines",
     NULL
 };
 
@@ -727,6 +786,84 @@ static int bake_parse_lint(
     return 0;
 }
 
+static int bake_parse_use_entry(
+    const JSON_Object *entry,
+    const char *key,
+    bake_strlist_t *ids,
+    bake_use_list_t *use_cfg)
+{
+    bake_warn_similar_keys(entry, bake_use_object_keys, key);
+
+    char *name = NULL;
+    if (bake_json_get_string(entry, "name", &name) < 0 || !name || !name[0]) {
+        ecs_err("each object in '%s' requires a 'name' string", key);
+        ecs_os_free(name);
+        return -1;
+    }
+
+    bake_strlist_t defines;
+    bake_strlist_init(&defines);
+    if (bake_json_get_array(entry, "defines", &defines) < 0) {
+        ecs_err("'defines' of '%s' in '%s' must be an array of strings", name, key);
+        bake_strlist_fini(&defines);
+        ecs_os_free(name);
+        return -1;
+    }
+
+    bake_use_cfg_t *use = bake_use_list_ensure(use_cfg, name);
+    bake_strlist_merge_unique(&use->defines, &defines);
+    bake_strlist_fini(&defines);
+    bake_strlist_append_owned(ids, name);
+    return 0;
+}
+
+static int bake_parse_use(
+    const JSON_Object *object,
+    const char *key,
+    bake_strlist_t *ids,
+    bake_use_list_t *use_cfg)
+{
+    JSON_Value *value = json_object_get_value(object, key);
+    if (!value) {
+        return 0;
+    }
+
+    JSON_Array *array = json_value_get_array(value);
+    if (!array) {
+        return -1;
+    }
+
+    size_t count = json_array_get_count(array);
+    for (size_t i = 0; i < count; i++) {
+        JSON_Value *item = json_array_get_value(array, i);
+        JSON_Value_Type type = json_value_get_type(item);
+        if (type == JSONNull) {
+            continue;
+        }
+
+        if (type == JSONArray) {
+            return -1;
+        }
+
+        if (type == JSONObject) {
+            if (bake_parse_use_entry(
+                json_value_get_object(item), key, ids, use_cfg) != 0)
+            {
+                return -1;
+            }
+            continue;
+        }
+
+        char *id = bake_json_strdup_value(item);
+        if (!id) {
+            return -1;
+        }
+        bake_strlist_append_owned(ids, id);
+    }
+
+    return 0;
+}
+
 static int bake_parse_project_value_cfg(
     const JSON_Object *object,
     bake_project_cfg_t *cfg)
@@ -743,8 +880,8 @@ static int bake_parse_project_value_cfg(
     if (bake_json_get_bool(object, "standalone", &cfg->standalone) < 0) return -1;
     if (bake_parse_amalgamate(object, cfg) < 0) return -1;
 
-    if (bake_json_get_array(object, "use", &cfg->use) < 0) return -1;
-    if (bake_json_get_array(object, "use-private", &cfg->use_private) < 0) return -1;
+    if (bake_parse_use(object, "use", &cfg->use, &cfg->use_cfg) < 0) return -1;
+    if (bake_parse_use(object, "use-private", &cfg->use_private, &cfg->use_cfg) < 0) return -1;
 
 #define ARR(key, field) \
     if (bake_json_get_array(object, key, &cfg->c_lang.field) < 0) return -1; \

@@ -95,7 +95,13 @@ static void bake_log_build_header(const bake_context_t *ctx, const bake_project_
     const char *kind = bake_project_kind_str(cfg->kind);
     const char *id = cfg->id ? cfg->id : "<unnamed>";
     char *path = bake_display_path(cfg->path, ctx->opts.cwd);
-    ecs_trace("#[green][#[normal]%s#[green]] %s#[normal] %s => '%s'", command, kind, id, path);
+    if (cfg->use_consumer) {
+        ecs_trace("#[green][#[normal]%s#[green]] %s#[normal] %s (%s) => '%s'",
+            command, kind, id, cfg->use_consumer, path);
+    } else {
+        ecs_trace("#[green][#[normal]%s#[green]] %s#[normal] %s => '%s'",
+            command, kind, id, path);
+    }
     ecs_os_free(path);
 }
 
@@ -792,6 +798,16 @@ static int bake_validate_build_graph_dependencies(
 
     for (int32_t i = 0; i < count; i++) {
         const BakeProject *project = ecs_get(ctx->world, order[i], BakeProject);
+        if (bake_is_unresolved_external_dependency(project) &&
+            project->cfg->use_consumer)
+        {
+            ecs_err("cannot build dependency %s with the defines of %s: "
+                "source of %s not found",
+                project->cfg->id, project->cfg->use_consumer, project->cfg->id);
+            unresolved_count++;
+            continue;
+        }
+
         if (bake_is_unresolved_external_dependency(project)) {
             ecs_err("unresolved dependency: %s", project->cfg->id);
             unresolved_count++;

@@ -1022,7 +1022,7 @@ int bake_bundle_update_command(bake_context_t *ctx) {
         const BakeProject *projects = ecs_field(&it, BakeProject, 0);
         for (int32_t i = 0; i < it.count; i++) {
             const BakeProject *project = &projects[i];
-            if (project->external || !project->cfg) {
+            if (project->external || !project->cfg || project->cfg->use_consumer) {
                 continue;
             }
 

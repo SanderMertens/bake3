@@ -236,6 +236,40 @@ static void bake_model_delete_rule_children(ecs_world_t *world, ecs_entity_t par
     ecs_vec_fini_t(NULL, &children, ecs_entity_t);
 }
 
+static void bake_model_set_project(
+    ecs_world_t *world,
+    ecs_entity_t entity,
+    bake_project_cfg_t *cfg,
+    bool external)
+{
+    BakeProject project = {
+        .cfg = cfg,
+        .external = external
+    };
+
+    ecs_set_ptr(world, entity, BakeProject, &project);
+
+    if (external) {
+        ecs_add(world, entity, BakeExternal);
+    } else {
+        ecs_remove(world, entity, BakeExternal);
+    }
+
+    bake_rule_t *rules = ecs_vec_first_t(&cfg->rules.vec, bake_rule_t);
+    int32_t rule_count = ecs_vec_count(&cfg->rules.vec);
+    for (int32_t i = 0; i < rule_count; i++) {
+        char *rule_ext = ecs_os_strdup(rules[i].ext);
+        char *rule_cmd = ecs_os_strdup(rules[i].command);
+        ecs_entity_t rule = ecs_entity(world, {
+            .parent = entity
+        });
+        ecs_set(world, rule, BakeBuildRule, {
+            .ext = rule_ext,
+            .command = rule_cmd
+        });
+    }
+}
+
 ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg, bool external) {
     ecs_entity_t entity = 0;
     if (cfg->id) {
@@ -298,35 +332,7 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
         entity = ecs_entity_init(world, &desc);
     }
 
-    BakeProject project = {
-        .cfg = cfg,
-        .external = external
-    };
-
-    ecs_set_ptr(world, entity, BakeProject, &project);
-
-    if (external) {
-        ecs_add(world, entity, BakeExternal);
-    } else {
-        ecs_remove(world, entity, BakeExternal);
-    }
-
-    {
-        bake_rule_t *rules = ecs_vec_first_t(&cfg->rules.vec, bake_rule_t);
-        int32_t rule_count = ecs_vec_count(&cfg->rules.vec);
-        for (int32_t i = 0; i < rule_count; i++) {
-            char *rule_ext = ecs_os_strdup(rules[i].ext);
-            char *rule_cmd = ecs_os_strdup(rules[i].command);
-            ecs_entity_t rule = ecs_entity(world, {
-                .parent = entity
-            });
-            ecs_set(world, rule, BakeBuildRule, {
-                .ext = rule_ext,
-                .command = rule_cmd
-            });
-        }
-    }
-
+    bake_model_set_project(world, entity, cfg, external);
     return entity;
 }
 
@@ -349,7 +355,7 @@ const BakeProject* bake_model_find_project_by_path(const ecs_world_t *world, con
         const BakeProject *projects = ecs_field(&it, BakeProject, 0);
         for (int32_t i = 0; i < it.count; i++) {
             const bake_project_cfg_t *cfg = projects[i].cfg;
-            if (!cfg || !cfg->path) {
+            if (!cfg || !cfg->path || cfg->use_consumer) {
                 continue;
             }
             if (bake_path_equal_normalized(cfg->path, path)) {
@@ -385,6 +391,190 @@ static ecs_entity_t bake_model_ensure_dependency(ecs_world_t *world, const char 
     return bake_model_add_project(world, cfg, true);
 }
 
+static void bake_model_use_defines(
+    const bake_project_cfg_t *cfg,
+    const char *id,
+    bake_strlist_t *defines)
+{
+    const bake_use_cfg_t *use = bake_use_list_find(&cfg->use_cfg, id);
+    if (use) {
+        bake_strlist_merge_unique(defines, &use->defines);
+    }
+
+    if (cfg->dependee.cfg) {
+        use = bake_use_list_find(&cfg->dependee.cfg->use_cfg, id);
+        if (use) {
+            bake_strlist_merge_unique(defines, &use->defines);
+        }
+    }
+}
+
+static char* bake_model_use_variant_name(const char *consumer, const char *id) {
+    return flecs_asprintf("%s@%s", consumer, id);
+}
+
+static ecs_entity_t bake_model_find_use_variant(
+    const ecs_world_t *world,
+    const bake_project_cfg_t *cfg,
+    const char *id)
+{
+    if (!bake_use_list_find(&cfg->use_cfg, id) &&
+        !(cfg->dependee.cfg && bake_use_list_find(&cfg->dependee.cfg->use_cfg, id)))
+    {
+        return 0;
+    }
+
+    char *name = bake_model_use_variant_name(cfg->id, id);
+    ecs_entity_t entity = ecs_lookup_path_w_sep(world, 0, name, "::", NULL, false);
+    ecs_os_free(name);
+    return entity;
+}
+
+static bool bake_model_load_use_variant(
+    bake_project_cfg_t *cfg,
+    const bake_project_cfg_t *consumer,
+    const char *id,
+    const char *source,
+    const bake_strlist_t *defines)
+{
+    char *build_base = bake_project_build_base(consumer->path, consumer->id);
+    if (!build_base || !source) {
+        ecs_os_free(build_base);
+        return false;
+    }
+
+    char *project_json = bake_path_join(source, "project.json");
+    int rc = bake_path_exists(project_json)
+        ? bake_project_cfg_load_file(project_json, cfg)
+        : -1;
+    if (rc != 0 && bake_path_exists(project_json)) {
+        ecs_err("failed to parse %s", project_json);
+    }
+    ecs_os_free(project_json);
+    if (rc != 0) {
+        ecs_os_free(build_base);
+        return false;
+    }
+
+    char *use_dir = bake_path_join(build_base, "use");
+    cfg->build_dir = bake_path_join(use_dir, id);
+    ecs_os_free(use_dir);
+    ecs_os_free(build_base);
+
+    cfg->public_project = false;
+    cfg->shared_library = false;
+    cfg->standalone = false;
+    bake_amalgamate_list_fini(&cfg->amalgamate);
+    bake_amalgamate_list_init(&cfg->amalgamate);
+
+    bake_strlist_merge_unique(&cfg->c_lang.defines, defines);
+    bake_strlist_merge_unique(&cfg->cpp_lang.defines, defines);
+    bake_strlist_merge_unique(&cfg->dependee.cfg->c_lang.defines, defines);
+    bake_strlist_merge_unique(&cfg->dependee.cfg->cpp_lang.defines, defines);
+    return true;
+}
+
+static void bake_model_add_use_variant(
+    ecs_world_t *world,
+    const bake_project_cfg_t *consumer,
+    const char *id)
+{
+    const BakeProject *base = bake_model_find_project(world, id, NULL);
+    const char *source = base && base->cfg ? base->cfg->path : NULL;
+
+    bake_strlist_t defines;
+    bake_strlist_init(&defines);
+    bake_model_use_defines(consumer, id, &defines);
+
+    bake_project_cfg_t *cfg = ecs_os_calloc_t(bake_project_cfg_t);
+    bake_project_cfg_init(cfg);
+    bool loaded = bake_model_load_use_variant(
+        cfg, consumer, id, source, &defines);
+    bake_strlist_fini(&defines);
+
+    if (!loaded) {
+        bake_project_cfg_fini(cfg);
+        bake_project_cfg_init(cfg);
+        cfg->kind = BAKE_PROJECT_PACKAGE;
+    }
+
+    ecs_os_free(cfg->id);
+    cfg->id = ecs_os_strdup(id);
+    cfg->use_consumer = ecs_os_strdup(consumer->id);
+
+    char *name = bake_model_use_variant_name(consumer->id, id);
+    ecs_entity_t entity = ecs_lookup_path_w_sep(world, 0, name, "::", NULL, false);
+    if (entity) {
+        BakeProject *existing = ecs_ensure(world, entity, BakeProject);
+        if (existing->cfg) {
+            bake_project_cfg_fini(existing->cfg);
+            ecs_os_free(existing->cfg);
+            existing->cfg = NULL;
+        }
+        bake_model_delete_rule_children(world, entity);
+    } else {
+        ecs_entity_desc_t desc = {0};
+        desc.name = name;
+        desc.sep = "::";
+        entity = ecs_entity_init(world, &desc);
+    }
+    ecs_os_free(name);
+
+    bake_model_set_project(world, entity, cfg, !loaded);
+}
+
+static void bake_model_add_use_variants(ecs_world_t *world) {
+    ecs_vec_t consumers;
+    ecs_vec_init_t(NULL, &consumers, ecs_entity_t, 0);
+
+    ecs_iter_t it = ecs_each_id(world, ecs_id(BakeProject));
+    while (ecs_each_next(&it)) {
+        const BakeProject *projects = ecs_field(&it, BakeProject, 0);
+        for (int32_t i = 0; i < it.count; i++) {
+            const bake_project_cfg_t *cfg = projects[i].cfg;
+            if (!cfg || !cfg->id || cfg->private_project) {
+                continue;
+            }
+            if (bake_use_list_count(&cfg->use_cfg) ||
+                (cfg->dependee.cfg && bake_use_list_count(&cfg->dependee.cfg->use_cfg)))
+            {
+                *ecs_vec_append_t(NULL, &consumers, ecs_entity_t) = it.entities[i];
+            }
+        }
+    }
+
+    for (int32_t c = 0; c < ecs_vec_count(&consumers); c++) {
+        ecs_entity_t entity = *ecs_vec_get_t(&consumers, ecs_entity_t, c);
+        const BakeProject *project = ecs_get(world, entity, BakeProject);
+        if (!project || !project->cfg) {
+            continue;
+        }
+
+        const bake_project_cfg_t *cfg = project->cfg;
+        bake_strlist_t ids;
+        bake_strlist_init(&ids);
+        const bake_use_list_t *lists[] = {
+            &cfg->use_cfg,
+            cfg->dependee.cfg ? &cfg->dependee.cfg->use_cfg : NULL
+        };
+        for (int32_t l = 0; l < 2; l++) {
+            for (int32_t i = 0; lists[l] && i < bake_use_list_count(lists[l]); i++) {
+                const char *id = bake_use_list_get(lists[l], i)->id;
+                if (!bake_bundle_is_declared(cfg, id)) {
+                    bake_strlist_append_unique(&ids, id);
+                }
+            }
+        }
+
+        for (int32_t i = 0; i < ids.count; i++) {
+            bake_model_add_use_variant(world, cfg, ids.items[i]);
+        }
+        bake_strlist_fini(&ids);
+    }
+
+    ecs_vec_fini_t(NULL, &consumers, ecs_entity_t);
+}
+
 static void bake_model_link_project_list(
     ecs_world_t *world,
     ecs_entity_t entity,
@@ -396,7 +586,10 @@ static void bake_model_link_project_list(
         if (bake_bundle_is_declared(cfg, id)) {
             continue;
         }
-        ecs_entity_t dep = bake_model_ensure_dependency(world, id);
+        ecs_entity_t dep = bake_model_find_use_variant(world, cfg, id);
+        if (!dep) {
+            dep = bake_model_ensure_dependency(world, id);
+        }
         if (dep && dep != entity) {
             ecs_add_pair(world, entity, BakeDependsOn, dep);
         }
@@ -404,6 +597,8 @@ static void bake_model_link_project_list(
 }
 
 void bake_model_link_dependencies(ecs_world_t *world) {
+    bake_model_add_use_variants(world);
+
     ecs_defer_begin(world);
 
     ecs_iter_t it = ecs_each_id(world, ecs_id(BakeProject));
@@ -535,7 +730,7 @@ void bake_model_mark_build_targets(ecs_world_t *world, const char *target, const
             const BakeProject *project = ecs_field(&all, BakeProject, 0);
             for (int32_t i = 0; i < all.count; i++) {
                 const bake_project_cfg_t *cfg = project[i].cfg;
-                if (!cfg || !cfg->path) {
+                if (!cfg || !cfg->path || cfg->use_consumer) {
                     continue;
                 }
                 if (!exact && bake_path_equal_normalized(cfg->path, target)) {

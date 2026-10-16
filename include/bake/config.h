@@ -52,6 +52,15 @@ typedef struct bake_bundle_list_t {
     ecs_vec_t vec;
 } bake_bundle_list_t;
 
+typedef struct bake_use_cfg_t {
+    char *id;
+    bake_strlist_t defines;
+} bake_use_cfg_t;
+
+typedef struct bake_use_list_t {
+    ecs_vec_t vec;
+} bake_use_list_t;
+
 typedef struct bake_amalgamate_cfg_t {
     char *path;
     char *prefix;
@@ -121,6 +130,8 @@ struct bake_project_cfg_t {
 
     bake_strlist_t use;
     bake_strlist_t use_private;
+    bake_use_list_t use_cfg;
+    char *use_consumer;
 
     bake_dependee_cfg_t dependee;
     bake_lang_cfg_t c_lang;
@@ -161,6 +172,13 @@ void bake_amalgamate_list_fini(bake_amalgamate_list_t *list);
 bake_amalgamate_cfg_t* bake_amalgamate_list_append(bake_amalgamate_list_t *list);
 int32_t bake_amalgamate_list_count(const bake_amalgamate_list_t *list);
 bake_amalgamate_cfg_t* bake_amalgamate_list_get(const bake_amalgamate_list_t *list, int32_t index);
+
+void bake_use_list_init(bake_use_list_t *list);
+void bake_use_list_fini(bake_use_list_t *list);
+bake_use_cfg_t* bake_use_list_ensure(bake_use_list_t *list, const char *id);
+int32_t bake_use_list_count(const bake_use_list_t *list);
+bake_use_cfg_t* bake_use_list_get(const bake_use_list_t *list, int32_t index);
+const bake_use_cfg_t* bake_use_list_find(const bake_use_list_t *list, const char *id);
 
 void bake_lang_cfg_init(bake_lang_cfg_t *cfg);
 void bake_lang_cfg_copy(bake_lang_cfg_t *dst, const bake_lang_cfg_t *src);
