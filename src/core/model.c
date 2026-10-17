@@ -282,8 +282,9 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
             const bake_project_cfg_t *existing_cfg = existing->cfg;
             bool paths_conflict = existing_cfg->path && cfg->path &&
                 !bake_path_equal_normalized(existing_cfg->path, cfg->path);
+            bool shadows_env = paths_conflict && existing->external && !external;
 
-            if (paths_conflict) {
+            if (paths_conflict && !shadows_env) {
                 if (existing_cfg->public_project && cfg->public_project) {
                     ecs_err(
                         "duplicate public project id '%s' for '%s' and '%s'",
@@ -318,6 +319,10 @@ ecs_entity_t bake_model_add_project(ecs_world_t *world, bake_project_cfg_t *cfg,
                 bake_project_cfg_fini(mut->cfg);
                 ecs_os_free(mut->cfg);
                 mut->cfg = NULL;
+            }
+
+            if (shadows_env) {
+                ecs_remove(world, entity, BakeBuildResult);
             }
 
             /* The replacement cfg brings its own rules. */

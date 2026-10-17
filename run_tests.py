@@ -4862,6 +4862,65 @@ class BakeTests(unittest.TestCase):
         finally:
             self._rm_tree(root)
 
+    def test_local_env_workspace_project_shadows_global_env_project(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"local_env_shadow_{stamp}"
+        orig = root / "orig"
+        work = root / "work"
+        app = work / "apps" / "app"
+        pkg_id = f"tmp.shadow.pkg.{stamp}"
+        app_id = f"tmp.shadow.app.{stamp}"
+
+        for pkg, value in ((orig, 1), (work, 42)):
+            (pkg / "src").mkdir(parents=True, exist_ok=True)
+            (pkg / "include").mkdir(parents=True, exist_ok=True)
+            (pkg / "project.json").write_text(
+                "{\n"
+                f"    \"id\": \"{pkg_id}\",\n"
+                "    \"type\": \"package\"\n"
+                "}\n"
+            )
+            (pkg / "include" / "shadow_pkg.h").write_text(
+                "#ifndef SHADOW_PKG_H\n"
+                "#define SHADOW_PKG_H\n"
+                "int shadow_pkg_value(void);\n"
+                "#endif\n"
+            )
+            (pkg / "src" / "lib.c").write_text(
+                "#include \"shadow_pkg.h\"\n"
+                f"int shadow_pkg_value(void) {{ return {value}; }}\n"
+            )
+
+        (app / "src").mkdir(parents=True, exist_ok=True)
+        (app / "project.json").write_text(
+            "{\n"
+            f"    \"id\": \"{app_id}\",\n"
+            "    \"type\": \"application\",\n"
+            f"    \"value\": {{ \"use\": [\"{pkg_id}\"] }}\n"
+            "}\n"
+        )
+        (app / "src" / "main.c").write_text(
+            "#include <shadow_pkg.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) { printf(\"value=%d\\n\", shadow_pkg_value()); return 0; }\n"
+        )
+
+        try:
+            self.bake(["build", "."], cwd=orig)
+
+            output = self.strip_ansi(
+                self.bake(["--local-env", "run", "apps/app"], cwd=work))
+            self.assertNotIn("duplicate public project id", output)
+            self.assertIn("value=42", output)
+
+            source = (self.bake_home / "meta" / pkg_id / "source.txt").read_text().strip()
+            self.assertTrue(
+                Path(source).samefile(orig),
+                "The global environment should still point at the original project",
+            )
+        finally:
+            self._rm_tree(root)
+
     def test_dependency_is_built_for_missing_mode(self) -> None:
         stamp = int(time.time() * 1_000_000)
         root = self.repo_root / "test" / "tmp" / f"dep_missing_mode_{stamp}"
