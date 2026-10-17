@@ -2036,6 +2036,24 @@ class BakeTests(unittest.TestCase):
         self.assertIn("unknown setting 'output_dirr'", output)
         self.assertRegex(output, r"(?m)^build:\s+.*app_helloworld[/\\]\.bake$")
 
+    def test_colors_setting_disables_log_colors(self) -> None:
+        settings = self.bake_home / "bake.json"
+        self.addCleanup(settings.unlink, missing_ok=True)
+        target = "test/projects/c/app_helloworld"
+
+        output = self.bake(["rebuild", target])
+        self.assertRegex(output, ANSI_ESCAPE_RE)
+
+        settings.write_text(json.dumps({"colors": False}) + "\n")
+        output = self.bake(["rebuild", target])
+        self.assertNotRegex(output, ANSI_ESCAPE_RE)
+        self.assertIn("app_helloworld", output)
+
+        settings.write_text(json.dumps({"colors": "no"}) + "\n")
+        output = self.bake_expect_failure(["build", target])
+        self.assertIn("colors in", output)
+        self.assertIn("must be a boolean", output)
+
     def test_standalone_amalgamation_dedups_unconditional_includes(self) -> None:
         """Multiple source files in an amalgamated unit that each include the
         same external header would otherwise repeat it -- harmless for guarded

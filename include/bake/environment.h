@@ -41,6 +41,8 @@ int bake_settings_load(void);
 void bake_settings_fini(void);
 int bake_settings_set_output_dir(const char *output_dir, const char *base_dir);
 const char* bake_settings_output_dir(void);
+void bake_settings_set_colors(bool colors);
+bool bake_settings_colors(void);
 char* bake_settings_expand_output_dir(
     const char *output_dir,
     const char *base_dir,

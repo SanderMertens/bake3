@@ -623,6 +623,22 @@ static void test_settings_project_output_dir(void) {
     CHECK(!bake_settings_is_output_dir("/o/my_app"));
 }
 
+static void test_settings_colors(void) {
+    bake_os_unsetenv("NO_COLOR");
+    CHECK(bake_settings_colors());
+    CHECK(ecs_os_api.flags_ & EcsOsApiLogWithColors);
+
+    bake_settings_set_colors(false);
+    CHECK(!bake_settings_colors());
+    CHECK(!(ecs_os_api.flags_ & EcsOsApiLogWithColors));
+    CHECK_STR(getenv("NO_COLOR"), "1");
+
+    bake_settings_fini();
+    CHECK(bake_settings_colors());
+    CHECK(ecs_os_api.flags_ & EcsOsApiLogWithColors);
+    bake_os_unsetenv("NO_COLOR");
+}
+
 static void test_lock_excludes_second_holder(void) {
     char *dir = flecs_asprintf("bake_unit_lock_%lld", (long long)bake_os_pid());
     char *lock_path = bake_path_join(dir, "test.lock");
@@ -1011,6 +1027,7 @@ int main(void) {
     test_expr_expand();
     test_settings_expand_output_dir();
     test_settings_project_output_dir();
+    test_settings_colors();
     test_lock_excludes_second_holder();
     test_ps_elapsed_formatting();
     test_ps_parse_local_env_path();

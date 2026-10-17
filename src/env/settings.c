@@ -9,6 +9,7 @@
 
 static char *bake_settings_output_dir_value = NULL;
 static char *bake_settings_base_dir = NULL;
+static bool bake_settings_colors_value = true;
 
 typedef struct bake_settings_expr_ctx_t {
     const char *id;
@@ -155,6 +156,18 @@ const char* bake_settings_output_dir(void) {
     return bake_settings_output_dir_value;
 }
 
+void bake_settings_set_colors(bool colors) {
+    bake_settings_colors_value = colors;
+    ecs_log_enable_colors(colors);
+    if (!colors) {
+        bake_os_setenv("NO_COLOR", "1");
+    }
+}
+
+bool bake_settings_colors(void) {
+    return bake_settings_colors_value;
+}
+
 char* bake_settings_home(void) {
     const char *local_env = getenv("BAKE_LOCAL_ENV");
     const char *env_home = (local_env && !strcmp(local_env, "1"))
@@ -198,6 +211,7 @@ int bake_settings_load(void) {
     }
 
     const char *output_dir = NULL;
+    bool colors = true;
     size_t count = json_object_get_count(object);
     for (size_t i = 0; i < count; i++) {
         const char *key = json_object_get_name(object, i);
@@ -208,6 +222,12 @@ int bake_settings_load(void) {
                 ecs_err("output_dir in %s must be a non-empty string", path);
                 goto cleanup;
             }
+        } else if (!strcmp(key, "colors")) {
+            if (json_value_get_type(value) != JSONBoolean) {
+                ecs_err("colors in %s must be a boolean", path);
+                goto cleanup;
+            }
+            colors = json_value_get_boolean(value);
         } else {
             ecs_warn("unknown setting '%s' in %s", key, path);
         }
@@ -216,6 +236,10 @@ int bake_settings_load(void) {
     if (bake_settings_set_output_dir(output_dir, home) != 0) {
         ecs_err("invalid settings in %s", path);
         goto cleanup;
+    }
+
+    if (!colors) {
+        bake_settings_set_colors(false);
     }
 
     rc = 0;
@@ -231,6 +255,8 @@ cleanup:
 
 void bake_settings_fini(void) {
     bake_settings_set_output_dir(NULL, NULL);
+    bake_settings_colors_value = true;
+    ecs_log_enable_colors(true);
 }
 
 static char* bake_settings_dir_name(const char *path) {

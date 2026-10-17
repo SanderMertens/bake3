@@ -1419,6 +1419,9 @@ The following settings are supported:
   `<output_dir>/local_env`. Together with the warning for amalgamations that
   cannot be written, this makes it possible to build a project from a read-only
   source folder. `bake clean` cleans the redirected folder.
+- `colors`: set to `false` to disable colors in bake's log output. Bake also
+  sets `NO_COLOR=1` for the processes it starts, so that test and benchmark
+  harnesses print without colors as well. Defaults to `true`.
 
 `output_dir` is expanded per project with the `${...}` syntax that `project.json`
 uses for conditional keys:
