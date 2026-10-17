@@ -5985,6 +5985,77 @@ class BakeTests(unittest.TestCase):
             f"run_cwd={norm(Path(os.path.realpath(self.repo_root)))}\n",
             normalized)
 
+    def test_runall_runs_each_project_in_directory(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"runall_{stamp}"
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+
+        apps = {"app_a": root / "app_a", "app_b": root / "app_b",
+                "app_nested": root / "group" / "app_nested"}
+        for name, project_dir in apps.items():
+            (project_dir / "src").mkdir(parents=True)
+            (project_dir / "project.json").write_text(
+                "{\n"
+                f'    "id": "tmp.runall.{name}.{stamp}",\n'
+                '    "type": "application"\n'
+                "}\n"
+            )
+            (project_dir / "src" / "main.c").write_text(
+                "#include <stdio.h>\n"
+                "int main(int argc, char *argv[]) {\n"
+                f'    printf("runall_{name} %s\\n", argc > 1 ? argv[1] : "-");\n'
+                "    return 0;\n"
+                "}\n"
+            )
+
+        pkg_dir = root / "pkg"
+        (pkg_dir / "src").mkdir(parents=True)
+        (pkg_dir / "project.json").write_text(
+            "{\n"
+            f'    "id": "tmp.runall.pkg.{stamp}",\n'
+            '    "type": "package"\n'
+            "}\n"
+        )
+        (pkg_dir / "src" / "pkg.c").write_text("int runall_pkg(void) { return 0; }\n")
+
+        output = self.strip_ansi(self.bake(
+            ["runall", str(root.relative_to(self.repo_root)), "--", "fwd"]))
+
+        self.assertIn("runall_app_a fwd", output)
+        self.assertIn("runall_app_b fwd", output)
+        self.assertLess(output.index("runall_app_a"), output.index("runall_app_b"))
+        self.assertNotIn("runall_app_nested", output)
+        self.assertNotIn("/pkg\n", output.replace("\\", "/"))
+        self.assertIn("[ runall] 2 projects passed", output)
+
+    def test_runall_reports_failed_projects(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"runall_fail_{stamp}"
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+
+        for name, code in (("bad", 3), ("good", 0)):
+            project_dir = root / name
+            (project_dir / "src").mkdir(parents=True)
+            (project_dir / "project.json").write_text(
+                "{\n"
+                f'    "id": "tmp.runall_fail.{name}.{stamp}",\n'
+                '    "type": "application"\n'
+                "}\n"
+            )
+            (project_dir / "src" / "main.c").write_text(
+                "#include <stdio.h>\n"
+                "int main(void) {\n"
+                f'    printf("runall_fail_{name}\\n");\n'
+                f"    return {code};\n"
+                "}\n"
+            )
+
+        output = self.strip_ansi(self.bake_expect_failure(["runall", str(root)]))
+
+        self.assertIn("runall_fail_bad", output)
+        self.assertIn("runall_fail_good", output)
+        self.assertIn("1 of 2 projects failed", output)
+
     @staticmethod
     def emsdk_available() -> bool:
         if shutil.which("emcc"):

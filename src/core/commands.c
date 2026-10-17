@@ -12,6 +12,7 @@ static const char *bake_help_text =
     "Commands:\n"
     "  build [target]      Build target project and dependencies (default)\n"
     "  run [target]        Build and run executable target\n"
+    "  runall [dir]        Run each project in dir (not recursive)\n"
     "  test [target]       Build and run test target\n"
     "  bench [target]      Build and run benchmark target\n"
     "  clean [target]      Remove build artifacts\n"
@@ -511,7 +512,8 @@ bool bake_is_command(const char *arg) {
     for (size_t i = 0; i < sizeof(bake_command_table) / sizeof(bake_command_table[0]); i++) {
         if (!strcmp(arg, bake_command_table[i].name)) return true;
     }
-    return !strcmp(arg, "setup") || !strcmp(arg, "help");
+    return !strcmp(arg, "setup") || !strcmp(arg, "help") ||
+        !strcmp(arg, "runall");
 }
 
 static int bake_execute_command(

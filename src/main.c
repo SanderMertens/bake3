@@ -258,7 +258,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (opts.coverage && !bake_command_builds(opts.command)) {
+    bool runall = !strcmp(opts.command, "runall");
+
+    if (opts.coverage && !runall && !bake_command_builds(opts.command)) {
         ecs_err("--coverage can only be used with the build, rebuild, run, "
             "test and bench commands");
         goto cleanup;
@@ -268,7 +270,8 @@ int main(int argc, char *argv[]) {
         opts.coverage_summary)
     {
         const char *cmd = opts.command ? opts.command : "build";
-        bool writes_report = !strcmp(cmd, "run") || !strcmp(cmd, "test");
+        bool writes_report = !strcmp(cmd, "run") || !strcmp(cmd, "test") ||
+            runall;
         if (!writes_report && strcmp(cmd, "coverage-report")) {
             ecs_err("--coverage-root, --coverage-include, --coverage-exclude and "
                 "--coverage-summary can only be used with the run, test and "
@@ -299,6 +302,11 @@ int main(int argc, char *argv[]) {
             goto cleanup;
         }
         rc = bake_repeat_build(&opts, argc, argv) == 0 ? 0 : 1;
+        goto cleanup;
+    }
+
+    if (runall) {
+        rc = bake_runall(&opts, argc, argv) == 0 ? 0 : 1;
         goto cleanup;
     }
 

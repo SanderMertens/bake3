@@ -77,6 +77,15 @@ bake run -- --key=value
 bake run my_app -- --key=value
 ```
 
+Run all projects in a directory (not recursive). Each project is run with
+`bake run` in its own process, options and arguments after `--` are passed to
+every project. Projects that are not an application, test or benchmark are
+skipped:
+```
+bake runall test
+bake runall test --local-env -- -j 12
+```
+
 List processes that were started by bake (see
 [Orchestrating multiple agents](#orchestrating-multiple-agents)):
 ```
@@ -93,6 +102,7 @@ Usage: bake [options] [command] [target]
 Commands:
   build [target]      Build target project and dependencies (default)
   run [target]        Build and run executable target
+  runall [dir]        Run each project in dir (not recursive)
   test [target]       Build and run test target
   bench [target]      Build and run benchmark target
   clean [target]      Remove build artifacts
