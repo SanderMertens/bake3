@@ -10,6 +10,7 @@ int bake_env_reset(bake_context_t *ctx);
 int bake_env_cleanup(bake_context_t *ctx, int32_t *removed_out);
 int bake_env_import_project_by_id(bake_context_t *ctx, const char *id);
 int bake_env_import_dependency_closure(bake_context_t *ctx);
+char* bake_env_find_project_source(const bake_context_t *ctx, const char *id);
 int bake_env_resolve_external_dependency_binaries(bake_context_t *ctx);
 int bake_env_sync_project(
     bake_context_t *ctx,

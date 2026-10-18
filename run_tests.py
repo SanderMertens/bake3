@@ -5985,6 +5985,62 @@ class BakeTests(unittest.TestCase):
             f"run_cwd={norm(Path(os.path.realpath(self.repo_root)))}\n",
             normalized)
 
+    def test_run_env_project_from_other_dir(self) -> None:
+        main_c = (
+            "#include <stdio.h>\n"
+            "#if defined(_WIN32)\n"
+            "#include <direct.h>\n"
+            "#define getcwd _getcwd\n"
+            "#else\n"
+            "#include <unistd.h>\n"
+            "#endif\n"
+            "int main(void) {\n"
+            "    char buf[4096];\n"
+            "    if (!getcwd(buf, sizeof(buf))) {\n"
+            "        return 1;\n"
+            "    }\n"
+            '    printf("VERSION run_env_cwd=%s\\n", buf);\n'
+            "    return 0;\n"
+            "}\n"
+        )
+        project_dir, app_id = self.write_simple_app_project(
+            "run_env", main_c.replace("VERSION", "v1"))
+
+        self.bake(["build", str(project_dir)])
+
+        (project_dir / "src" / "main.c").write_text(main_c.replace("VERSION", "v2"))
+
+        other_dir = self.repo_root / "test" / "tmp" / f"run_env_other_{app_id}"
+        other_dir.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, other_dir, ignore_errors=True)
+
+        output = self.strip_ansi(self.bake(["run", app_id], cwd=other_dir))
+
+        def norm(value: object) -> str:
+            return str(value).replace("\\", "/")
+
+        expected = norm(Path(os.path.realpath(other_dir)))
+        self.assertIn(f"v2 run_env_cwd={expected}\n", norm(output))
+
+    def test_run_env_project_without_source_fails(self) -> None:
+        project_dir, app_id = self.write_simple_app_project(
+            "run_env_nosrc",
+            "int main(void) {\n"
+            "    return 0;\n"
+            "}\n",
+        )
+
+        self.bake(["build", str(project_dir)])
+        shutil.rmtree(project_dir)
+
+        other_dir = self.repo_root / "test" / "tmp" / f"run_env_nosrc_other_{app_id}"
+        other_dir.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, other_dir, ignore_errors=True)
+
+        output = self.strip_ansi(
+            self.bake_expect_failure(["run", app_id], cwd=other_dir))
+        self.assertIn(f"target not found: {app_id}", output)
+
     def test_runall_runs_each_project_in_directory(self) -> None:
         stamp = int(time.time() * 1_000_000)
         root = self.repo_root / "test" / "tmp" / f"runall_{stamp}"

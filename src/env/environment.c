@@ -341,6 +341,39 @@ cleanup:
     return rc;
 }
 
+char* bake_env_find_project_source(const bake_context_t *ctx, const char *id) {
+    if (!id || !id[0]) {
+        return NULL;
+    }
+
+    const char *homes[] = { ctx->bake_home, ctx->global_home };
+    for (int32_t i = 0; i < (int32_t)(sizeof(homes) / sizeof(homes[0])); i++) {
+        if (!homes[i]) {
+            continue;
+        }
+
+        char *meta_dir = bake_env_meta_project_dir(homes[i], id);
+        char *source_txt = bake_path_join(meta_dir, "source.txt");
+        ecs_os_free(meta_dir);
+        char *source_path = bake_path_exists(source_txt)
+            ? bake_file_read_trimmed(source_txt)
+            : NULL;
+        ecs_os_free(source_txt);
+
+        if (source_path && source_path[0]) {
+            char *project_json = bake_path_join(source_path, "project.json");
+            bool found = bake_path_exists(project_json);
+            ecs_os_free(project_json);
+            if (found) {
+                return source_path;
+            }
+        }
+        ecs_os_free(source_path);
+    }
+
+    return NULL;
+}
+
 int bake_env_import_dependency_closure(bake_context_t *ctx) {
     bake_strlist_t queue;
     bake_strlist_t seen;

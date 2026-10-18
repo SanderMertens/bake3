@@ -968,6 +968,36 @@ cleanup:
     return rc;
 }
 
+static int bake_discover_env_run_target(
+    bake_context_t *ctx,
+    const char *target_path,
+    const char *target)
+{
+    if (target_path || !ctx->opts.command || strcmp(ctx->opts.command, "run")) {
+        return 0;
+    }
+
+    const BakeProject *project = bake_model_find_project(ctx->world, target, NULL);
+    if (project && !project->external) {
+        return 0;
+    }
+
+    char *source = bake_env_find_project_source(ctx, target);
+    if (!source) {
+        return 0;
+    }
+
+    int rc = 0;
+    if (bake_discover_projects(ctx, source, true) < 0) {
+        rc = -1;
+    } else {
+        ctx->target_from_env = true;
+    }
+
+    ecs_os_free(source);
+    return rc;
+}
+
 /* Discovers projects for the effective target and returns the resolved
  * target path (NULL when the target is not an existing path) through
  * target_path_out so commands do not have to resolve it again. */
@@ -1002,6 +1032,10 @@ static int bake_prepare_discovery(bake_context_t *ctx, char **target_path_out) {
 
     bool discover_cwd = !(target_root && bake_path_equal_normalized(target_root, ctx->opts.cwd));
     if (discover_cwd && bake_discover_projects(ctx, ctx->opts.cwd, true) < 0) {
+        goto cleanup;
+    }
+
+    if (bake_discover_env_run_target(ctx, target_path, target) != 0) {
         goto cleanup;
     }
 
@@ -1362,7 +1396,9 @@ int bake_build_run(bake_context_t *ctx) {
         }
 
         char *exe_path = bake_path_resolve(result->artefact);
-        char *run_dir = bake_project_run_dir(project->cfg);
+        char *run_dir = ctx->target_from_env
+            ? ecs_os_strdup(ctx->opts.cwd)
+            : bake_project_run_dir(project->cfg);
 
         ecs_strbuf_t cmd = ECS_STRBUF_INIT;
         if (ctx->opts.run_prefix) {

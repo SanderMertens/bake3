@@ -53,6 +53,7 @@ typedef struct bake_context_t {
     char *coverage_cov;
     bool prepare_bundles;
     bool discover_tests;
+    bool target_from_env;
     int32_t thread_count;
 } bake_context_t;
 

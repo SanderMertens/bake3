@@ -71,6 +71,15 @@ bake run projects/my_app
 The project is run with its own directory as working directory, so a project can
 load files relative to its own location.
 
+When the target is not a path and no project in the current directory has that
+id, bake looks the project up in the bake environment and builds and runs it
+from its source location. In that case the project is run with the directory
+`bake run` was called from as working directory:
+```
+cd ~/some/dir
+bake run my_app
+```
+
 Pass arguments to project:
 ```
 bake run -- --key=value
