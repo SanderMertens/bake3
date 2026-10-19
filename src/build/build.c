@@ -970,11 +970,23 @@ cleanup:
 
 static int bake_discover_env_run_target(
     bake_context_t *ctx,
-    const char *target_path,
+    char **target_path,
     const char *target)
 {
-    if (target_path || !ctx->opts.command || strcmp(ctx->opts.command, "run")) {
+    if (!ctx->opts.command || strcmp(ctx->opts.command, "run")) {
         return 0;
+    }
+
+    if (*target_path) {
+        if (!bake_path_is_dir(*target_path)) {
+            return 0;
+        }
+        char *project_json = bake_path_join(*target_path, "project.json");
+        bool is_project = bake_path_exists(project_json);
+        ecs_os_free(project_json);
+        if (is_project) {
+            return 0;
+        }
     }
 
     const BakeProject *project = bake_model_find_project(ctx->world, target, NULL);
@@ -992,6 +1004,8 @@ static int bake_discover_env_run_target(
         rc = -1;
     } else {
         ctx->target_from_env = true;
+        ecs_os_free(*target_path);
+        *target_path = NULL;
     }
 
     ecs_os_free(source);
@@ -1035,7 +1049,7 @@ static int bake_prepare_discovery(bake_context_t *ctx, char **target_path_out) {
         goto cleanup;
     }
 
-    if (bake_discover_env_run_target(ctx, target_path, target) != 0) {
+    if (bake_discover_env_run_target(ctx, &target_path, target) != 0) {
         goto cleanup;
     }
 

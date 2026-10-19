@@ -6022,6 +6022,25 @@ class BakeTests(unittest.TestCase):
         expected = norm(Path(os.path.realpath(other_dir)))
         self.assertIn(f"v2 run_env_cwd={expected}\n", norm(output))
 
+    def test_run_env_project_shadowed_by_non_project_dir(self) -> None:
+        project_dir, app_id = self.write_simple_app_project(
+            "run_env_dir",
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("run_env_dir ok\\n");\n'
+            "    return 0;\n"
+            "}\n",
+        )
+
+        self.bake(["build", str(project_dir)])
+
+        other_dir = self.repo_root / "test" / "tmp" / f"run_env_dir_other_{app_id}"
+        (other_dir / app_id / "data").mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, other_dir, ignore_errors=True)
+
+        output = self.strip_ansi(self.bake(["run", app_id], cwd=other_dir))
+        self.assertIn("run_env_dir ok", output)
+
     def test_run_env_project_without_source_fails(self) -> None:
         project_dir, app_id = self.write_simple_app_project(
             "run_env_nosrc",
