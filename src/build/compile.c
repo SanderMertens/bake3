@@ -269,6 +269,47 @@ static int bake_run_compiler_command(
     return bake_run_command(command, false);
 }
 
+static int bake_run_compiler_command_captured(
+    const bake_context_t *ctx,
+    ecs_os_mutex_t print_lock,
+    const char *command,
+    const char *output_path,
+    char **output_out)
+{
+    *output_out = NULL;
+    if (ctx->opts.trace) {
+        if (print_lock) {
+            ecs_os_mutex_lock(print_lock);
+        }
+        ecs_trace("%s", command);
+        if (print_lock) {
+            ecs_os_mutex_unlock(print_lock);
+        }
+    }
+
+    int exit_code = 0;
+    int rc = bake_run_command_status(command, NULL, output_path, &exit_code);
+    char *output = bake_file_read(output_path, NULL);
+    bake_remove_file_if_exists(output_path);
+
+    if (print_lock) {
+        ecs_os_mutex_lock(print_lock);
+    }
+    if (output && output[0]) {
+        fputs(output, stderr);
+        fflush(stderr);
+    }
+    if (rc == 0 && exit_code != 0) {
+        ecs_err("command failed with exit code %d: %s", exit_code, command);
+    }
+    if (print_lock) {
+        ecs_os_mutex_unlock(print_lock);
+    }
+
+    *output_out = output;
+    return (rc == 0 && exit_code == 0) ? 0 : -1;
+}
+
 static char* bake_compile_display_path(const bake_project_cfg_t *cfg, const char *src) {
     if (!src) {
         return NULL;
@@ -437,11 +478,24 @@ static int bake_compile_single(bake_compile_ctx_t *ctx, const bake_compile_unit_
     }
 
     char *command = ecs_strbuf_get(&cmd);
-    int rc = bake_run_compiler_command(ctx->ctx, ctx->print_lock, command);
+    char *output = NULL;
+    int rc;
+    if (ctx->ctx->report) {
+        char *output_path = flecs_asprintf("%s.log", unit->obj);
+        rc = bake_run_compiler_command_captured(
+            ctx->ctx, ctx->print_lock, command, output_path, &output);
+        ecs_os_free(output_path);
+    } else {
+        rc = bake_run_compiler_command(ctx->ctx, ctx->print_lock, command);
+    }
     ecs_os_free(command);
 
-    bake_report_close(ctx->ctx->report, step, rc == 0,
-        rc == 0 ? NULL : "compile command failed");
+    const char *error = NULL;
+    if (rc != 0) {
+        error = (output && output[0]) ? output : "compile command failed";
+    }
+    bake_report_close(ctx->ctx->report, step, rc == 0, error);
+    ecs_os_free(output);
     return rc;
 }
 

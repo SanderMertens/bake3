@@ -95,6 +95,17 @@ bake runall test
 bake runall test --local-env -- -j 12
 ```
 
+Every argument that is passed to the projects can contain `{project}`, which
+is replaced with the name of the project's directory. This gives each project
+its own report file. `--build-json` is accepted by `runall` only when it
+contains `{project}`:
+```
+bake runall test --local-env --build-json /tmp/out/{project}.build.json -- --json /tmp/out/{project}.test.json
+```
+
+Projects are run with their own directory as working directory, so pass
+absolute paths to the test and benchmark harness `--json` option.
+
 List processes that were started by bake (see
 [Orchestrating multiple agents](#orchestrating-multiple-agents)):
 ```
@@ -1165,7 +1176,8 @@ zero, and the wall-clock `time_sec` the case took until it ended. `isolation` is
 ## Build reports
 `--build-json <file>` writes one json document that describes the build bake
 just ran, with a timing for every step. It is accepted by `bake`, `bake build`,
-`bake rebuild`, `bake run`, `bake test` and `bake bench`, and describes the
+`bake rebuild`, `bake run`, `bake test`, `bake bench` and `bake runall` (see
+[Commands](#commands)), and describes the
 build those commands trigger, not the program or the test run that follows:
 
 ```sh
@@ -1278,9 +1290,13 @@ clock start and duration, so sibling compiles overlap.
   project step, so the lines of code of the copied files are counted.
 - `compile`: one step per source file that was actually compiled, named after
   the source path relative to the project, with the `object` path it produced.
-  Files that were up to date do not appear. When the project has a `lint`
-  section the step includes the lint command, and a file that fails the lint
-  has `ok` set to false with the error `lint failed`.
+  Files that were up to date do not appear. When a file fails to compile, the
+  `error` of its step holds the output of the compiler (its diagnostics), or
+  `compile command failed` when the compiler printed nothing. To collect that
+  output bake captures it and prints it once the compiler finishes, so a
+  build with `--build-json` prints compiler diagnostics without colors. When
+  the project has a `lint` section the step includes the lint command, and a
+  file that fails the lint has `ok` set to false with the error `lint failed`.
 - `link`: the link (or `ar`) command of the project. For the emscripten target
   it has an `embed` child when the project embeds assets: emcc embeds them as
   part of the link, so that step records what is embedded and only times the

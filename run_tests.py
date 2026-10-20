@@ -3890,6 +3890,30 @@ class BakeTests(unittest.TestCase):
         project_step = next(step for step in steps if step["kind"] == "project")
         self.assertFalse(project_step["ok"])
 
+    def test_build_json_failing_compile_error_has_compiler_output(self) -> None:
+        project_dir, _ = self.write_simple_app_project(
+            "build_json_compiler_output",
+            "int main(void) { return undeclared_symbol_xyz; }\n",
+        )
+        report_path = project_dir / "build.json"
+
+        output = self.strip_ansi(self.bake_expect_failure(
+            ["build", str(project_dir), "--build-json", str(report_path)]))
+
+        self.assertIn("undeclared_symbol_xyz", output)
+
+        report = json.loads(report_path.read_text())
+        failed = [
+            step for step in self.report_steps(report)
+            if step["kind"] == "compile" and not step["ok"]]
+        self.assertEqual(len(failed), 1)
+        self.assertIn("main.c", failed[0]["error"])
+        self.assertIn("undeclared_symbol_xyz", failed[0]["error"])
+        self.assertNotIn("\x1b[", failed[0]["error"])
+        self.assertFalse(
+            [p for p in project_dir.rglob("*.log")],
+            "Expected captured compiler output files to be removed")
+
     def test_build_json_records_git_of_the_workspace(self) -> None:
         project_dir, _ = self.write_build_json_app("build_json_git")
         report_path = project_dir / "build.json"
@@ -6130,6 +6154,58 @@ class BakeTests(unittest.TestCase):
         self.assertIn("runall_fail_bad", output)
         self.assertIn("runall_fail_good", output)
         self.assertIn("1 of 2 projects failed", output)
+
+    def test_runall_replaces_project_placeholder(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        root = self.repo_root / "test" / "tmp" / f"runall_placeholder_{stamp}"
+        self.addCleanup(shutil.rmtree, root, ignore_errors=True)
+
+        for name in ("app_a", "app_b"):
+            project_dir = root / name
+            (project_dir / "src").mkdir(parents=True)
+            (project_dir / "project.json").write_text(
+                "{\n"
+                f'    "id": "tmp.runall_placeholder.{name}.{stamp}",\n'
+                '    "type": "application"\n'
+                "}\n"
+            )
+            (project_dir / "src" / "main.c").write_text(
+                "#include <stdio.h>\n"
+                "int main(int argc, char *argv[]) {\n"
+                '    printf("runall_arg %s\\n", argc > 1 ? argv[1] : "-");\n'
+                "    return 0;\n"
+                "}\n"
+            )
+
+        reports = root / "reports"
+        output = self.strip_ansi(self.bake([
+            "runall", str(root),
+            "--build-json", str(reports / "{project}.json"),
+            "--", "out/{project}.json"]))
+
+        self.assertIn("runall_arg out/app_a.json", output)
+        self.assertIn("runall_arg out/app_b.json", output)
+        self.assertIn("[ runall] 2 projects passed", output)
+
+        for name in ("app_a", "app_b"):
+            report_path = reports / f"{name}.json"
+            self.assertTrue(report_path.is_file(), f"Expected build report at {report_path}")
+            report = json.loads(report_path.read_text())
+            self.assertTrue(report["ok"])
+            projects = {
+                step["project"] for step in self.report_steps(report)
+                if step["kind"] == "project"}
+            self.assertIn(f"tmp.runall_placeholder.{name}.{stamp}", projects)
+
+    def test_runall_build_json_requires_project_placeholder(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        report_path = self.repo_root / "test" / "tmp" / f"runall_report_{stamp}.json"
+
+        output = self.strip_ansi(self.bake_expect_failure(
+            ["runall", "test", "--build-json", str(report_path)]))
+
+        self.assertIn("must contain '{project}'", output)
+        self.assertFalse(report_path.exists())
 
     @staticmethod
     def emsdk_available() -> bool:

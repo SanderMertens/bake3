@@ -231,9 +231,17 @@ int main(int argc, char *argv[]) {
         goto cleanup;
     }
 
-    if (opts.build_json && !bake_command_builds(opts.command)) {
+    bool runall = !strcmp(opts.command, "runall");
+
+    if (opts.build_json && !runall && !bake_command_builds(opts.command)) {
         ecs_err("--build-json can only be used with the build, rebuild, run, "
-            "test and bench commands");
+            "test, bench and runall commands");
+        goto cleanup;
+    }
+
+    if (opts.build_json && runall && !strstr(opts.build_json, "{project}")) {
+        ecs_err("--build-json for runall must contain '{project}', so that "
+            "projects do not overwrite each other's report");
         goto cleanup;
     }
 
@@ -257,8 +265,6 @@ int main(int argc, char *argv[]) {
             goto cleanup;
         }
     }
-
-    bool runall = !strcmp(opts.command, "runall");
 
     if (opts.coverage && !runall && !bake_command_builds(opts.command)) {
         ecs_err("--coverage can only be used with the build, rebuild, run, "

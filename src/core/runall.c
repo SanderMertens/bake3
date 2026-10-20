@@ -1,6 +1,8 @@
 #include "bake/commands.h"
 #include "bake/os.h"
 
+#define BAKE_RUNALL_PLACEHOLDER "{project}"
+
 static int bake_runall_cmp_entry(const void *a, const void *b) {
     const bake_dir_entry_t *lhs = a;
     const bake_dir_entry_t *rhs = b;
@@ -25,16 +27,17 @@ static bool bake_runall_is_runnable(const char *project_dir) {
     return runnable;
 }
 
-static const char** bake_runall_child_argv(
+static char** bake_runall_child_argv(
     const bake_options_t *opts,
     int argc,
     char *argv[],
     const char *exe,
-    const char *project)
+    const char *project,
+    const char *name)
 {
-    const char **child = ecs_os_calloc_n(const char*, argc + 3);
+    char **child = ecs_os_calloc_n(char*, argc + 3);
     int32_t count = 0;
-    child[count++] = exe;
+    child[count++] = ecs_os_strdup(exe);
 
     int i = 1;
     for (; i < argc; i++) {
@@ -42,25 +45,34 @@ static const char** bake_runall_child_argv(
             break;
         }
         if (argv[i] == opts->command) {
-            child[count++] = "run";
+            child[count++] = ecs_os_strdup("run");
             if (!opts->target) {
-                child[count++] = project;
+                child[count++] = ecs_os_strdup(project);
             }
             continue;
         }
         if (argv[i] == opts->target) {
-            child[count++] = project;
+            child[count++] = ecs_os_strdup(project);
             continue;
         }
-        child[count++] = argv[i];
+        child[count++] = bake_text_replace(
+            argv[i], BAKE_RUNALL_PLACEHOLDER, name);
     }
 
     for (; i < argc; i++) {
-        child[count++] = argv[i];
+        child[count++] = bake_text_replace(
+            argv[i], BAKE_RUNALL_PLACEHOLDER, name);
     }
 
     child[count] = NULL;
     return child;
+}
+
+static void bake_runall_child_argv_free(char **child) {
+    for (int32_t i = 0; child[i]; i++) {
+        ecs_os_free(child[i]);
+    }
+    ecs_os_free(child);
 }
 
 static char* bake_runall_exe(char *argv[]) {
@@ -112,14 +124,14 @@ int bake_runall(const bake_options_t *opts, int argc, char *argv[]) {
         char *project = opts->target
             ? bake_path_join(opts->target, entry->name)
             : ecs_os_strdup(entry->name);
-        const char **child = bake_runall_child_argv(
-            opts, argc, argv, exe, project);
+        char **child = bake_runall_child_argv(
+            opts, argc, argv, exe, project, entry->name);
 
         printf("[ runall] %s\n", project);
 
         bake_process_result_t result = {0};
-        int spawn_rc = bake_proc_run_argv(child, &result);
-        ecs_os_free(child);
+        int spawn_rc = bake_proc_run_argv((const char *const*)child, &result);
+        bake_runall_child_argv_free(child);
         run_count++;
 
         if (spawn_rc != 0 || result.exit_code != 0 || result.interrupted) {
