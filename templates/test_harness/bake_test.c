@@ -40,6 +40,7 @@ static char **g_failed_tests = NULL;
 static int g_failed_test_count = 0;
 static int g_failed_test_cap = 0;
 static const char *g_json_path = NULL;
+static const char *g_ignore_path = NULL;
 static double g_cli_timeout = 0;
 static bool g_cli_timeout_set = false;
 static int g_timeout_count = 0;
@@ -55,6 +56,16 @@ typedef struct bake_test_result_t {
 static bake_test_result_t *g_results = NULL;
 static int g_result_count = 0;
 static int g_result_cap = 0;
+
+typedef struct bake_test_ignored_t {
+    char *suite;
+    char *testcase;
+    char *params;
+} bake_test_ignored_t;
+
+static bake_test_ignored_t *g_ignored = NULL;
+static int g_ignored_count = 0;
+static int g_ignored_cap = 0;
 #if !defined(_WIN32)
 static pthread_mutex_t g_failed_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
@@ -339,6 +350,159 @@ static int bake_write_json_report(
     g_result_count = 0;
     g_result_cap = 0;
     return 0;
+}
+
+static char* bake_file_read(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        return NULL;
+    }
+
+    char *text = NULL;
+    if (fseek(f, 0, SEEK_END) == 0) {
+        long size = ftell(f);
+        if (size >= 0) {
+            rewind(f);
+            text = malloc((size_t)size + 1);
+            if (text) {
+                size_t read = fread(text, 1, (size_t)size, f);
+                text[read] = '\0';
+            }
+        }
+    }
+
+    fclose(f);
+    return text;
+}
+
+static char* bake_json_scan_string(const char *key, const char *end) {
+    const char *value = strchr(key, ':');
+    if (!value || value >= end) {
+        return NULL;
+    }
+    value ++;
+    while (*value == ' ' || *value == '\t' || *value == '\n' || *value == '\r') {
+        value ++;
+    }
+    if (*value != '"') {
+        return NULL;
+    }
+    value ++;
+
+    size_t len = 0;
+    char *out = malloc(strlen(value) + 1);
+    if (!out) {
+        return NULL;
+    }
+    while (*value && *value != '"') {
+        if (*value == '\\' && value[1]) {
+            value ++;
+            if (*value == 'u' && strlen(value) >= 5) {
+                char hex[5] = { value[1], value[2], value[3], value[4], '\0' };
+                out[len ++] = (char)strtol(hex, NULL, 16);
+                value += 5;
+                continue;
+            }
+            switch (*value) {
+            case 'n': out[len ++] = '\n'; break;
+            case 't': out[len ++] = '\t'; break;
+            case 'r': out[len ++] = '\r'; break;
+            default: out[len ++] = *value; break;
+            }
+            value ++;
+            continue;
+        }
+        out[len ++] = *value ++;
+    }
+    out[len] = '\0';
+    return out;
+}
+
+static const char* bake_json_find_key(const char *ptr, const char *end, const char *key) {
+    const char *found = strstr(ptr, key);
+    return found && found < end ? found : NULL;
+}
+
+static int bake_ignore_load(const char *path, const char *test_id) {
+    char *text = bake_file_read(path);
+    if (!text) {
+        printf("failed to read report '%s': %s\n", path, strerror(errno));
+        return -1;
+    }
+
+    char *project = NULL;
+    const char *ptr = text;
+    while (true) {
+        const char *project_key = strstr(ptr, "\"project\"");
+        const char *suite_key = strstr(ptr, "\"suite\"");
+        if (!project_key && !suite_key) {
+            break;
+        }
+
+        if (project_key && (!suite_key || project_key < suite_key)) {
+            free(project);
+            project = bake_json_scan_string(project_key, project_key + strlen(project_key));
+            ptr = project_key + 1;
+            continue;
+        }
+
+        const char *end = strchr(suite_key, '}');
+        if (!end) {
+            break;
+        }
+        ptr = end;
+
+        if (project && strcmp(project, test_id)) {
+            continue;
+        }
+
+        const char *case_key = bake_json_find_key(suite_key, end, "\"case\"");
+        const char *status_key = bake_json_find_key(suite_key, end, "\"status\"");
+        const char *params_key = bake_json_find_key(suite_key, end, "\"params\"");
+        if (!case_key || !status_key) {
+            continue;
+        }
+
+        char *status = bake_json_scan_string(status_key, end);
+        bool failed = status && (!strcmp(status, "fail") ||
+            !strcmp(status, "timeout") || !strcmp(status, "error"));
+        free(status);
+        if (!failed) {
+            continue;
+        }
+
+        if (g_ignored_count == g_ignored_cap) {
+            int cap = g_ignored_cap ? (g_ignored_cap * 2) : 16;
+            bake_test_ignored_t *tmp = realloc(g_ignored, (size_t)cap * sizeof(bake_test_ignored_t));
+            if (!tmp) {
+                break;
+            }
+            g_ignored = tmp;
+            g_ignored_cap = cap;
+        }
+
+        bake_test_ignored_t *entry = &g_ignored[g_ignored_count ++];
+        entry->suite = bake_json_scan_string(suite_key, end);
+        entry->testcase = bake_json_scan_string(case_key, end);
+        entry->params = params_key ? bake_json_scan_string(params_key, end) : bake_strdup("");
+    }
+
+    free(project);
+    free(text);
+    return 0;
+}
+
+static bool bake_ignored(const char *suite_id, const char *case_id, const char *param_str) {
+    for (int i = 0; i < g_ignored_count; i++) {
+        bake_test_ignored_t *entry = &g_ignored[i];
+        if (entry->suite && entry->testcase && entry->params &&
+            !strcmp(entry->suite, suite_id) && !strcmp(entry->testcase, case_id) &&
+            !strcmp(entry->params, param_str ? param_str : ""))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 static void bake_print_failed_tests(void) {
@@ -1092,10 +1256,11 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
         }
 
         char cmd[4096];
+        bool ignored = bake_ignored(suite->id, suite->testcases[i].id, param_str);
         if (bake_build_case_command(cmd, sizeof(cmd), exec, suite, &suite->testcases[i], NULL) != 0) {
             fail ++;
-            rc = -1;
-            bake_record_failure(suite->id, suite->testcases[i].id, param_str, NULL);
+            rc = ignored ? rc : -1;
+            bake_record_failure(suite->id, suite->testcases[i].id, param_str, ignored ? "already failing" : NULL);
             continue;
         }
 
@@ -1106,10 +1271,11 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
         double elapsed = bake_time_now() - start;
         if (timed_out) {
             fail ++;
-            rc = -1;
+            rc = ignored ? rc : -1;
             g_timeout_count ++;
             bake_record_result(suite->id, suite->testcases[i].id, param_str, "timeout", elapsed);
-            bake_record_failure(suite->id, suite->testcases[i].id, param_str, "timeout");
+            bake_record_failure(suite->id, suite->testcases[i].id, param_str,
+                ignored ? "timeout, already failing" : "timeout");
             bake_print_status("TIMEOUT", BAKE_COLOR_RED);
             printf(" %s.%s (exceeded %g seconds)\n", suite->id, suite->testcases[i].id, timeout);
             bake_print_debug_command(exec, suite, &suite->testcases[i]);
@@ -1137,9 +1303,9 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
         }
 
         fail ++;
-        rc = -1;
+        rc = ignored ? rc : -1;
         bake_record_result(suite->id, suite->testcases[i].id, param_str, "fail", elapsed);
-        bake_record_failure(suite->id, suite->testcases[i].id, param_str, NULL);
+        bake_record_failure(suite->id, suite->testcases[i].id, param_str, ignored ? "already failing" : NULL);
         bake_print_debug_command(exec, suite, &suite->testcases[i]);
     }
 
@@ -1582,20 +1748,22 @@ static int bake_parallel_report_run(
         if (job->output_size) {
             fwrite(job->output, 1, job->output_size, stdout);
         }
+        bool ignored = bake_ignored(suite->id, job->testcase->id, run->param_str);
         if (job->command_rc != 0) {
             fail ++;
-            rc = -1;
+            rc = ignored ? rc : -1;
             bake_record_result(suite->id, job->testcase->id, run->param_str, "error", job->elapsed);
-            bake_record_failure(suite->id, job->testcase->id, run->param_str, NULL);
+            bake_record_failure(suite->id, job->testcase->id, run->param_str, ignored ? "already failing" : NULL);
             continue;
         }
 
         if (job->timed_out) {
             fail ++;
-            rc = -1;
+            rc = ignored ? rc : -1;
             g_timeout_count ++;
             bake_record_result(suite->id, job->testcase->id, run->param_str, "timeout", job->elapsed);
-            bake_record_failure(suite->id, job->testcase->id, run->param_str, "timeout");
+            bake_record_failure(suite->id, job->testcase->id, run->param_str,
+                ignored ? "timeout, already failing" : "timeout");
             bake_print_status("TIMEOUT", BAKE_COLOR_RED);
             printf(" %s.%s (exceeded %g seconds)\n",
                 suite->id, job->testcase->id, job->timeout);
@@ -1622,9 +1790,9 @@ static int bake_parallel_report_run(
         }
 
         fail ++;
-        rc = -1;
+        rc = ignored ? rc : -1;
         bake_record_result(suite->id, job->testcase->id, run->param_str, "fail", job->elapsed);
-        bake_record_failure(suite->id, job->testcase->id, run->param_str, NULL);
+        bake_record_failure(suite->id, job->testcase->id, run->param_str, ignored ? "already failing" : NULL);
         bake_print_debug_command(exec, suite, job->testcase);
     }
 
@@ -1920,12 +2088,25 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
             printf("missing value for --json\n");
             return -1;
         }
+        if (!strcmp(arg, "--ignore")) {
+            if ((i + 1) < argc) {
+                g_ignore_path = argv[i + 1];
+                i ++;
+                continue;
+            }
+            printf("missing value for --ignore\n");
+            return -1;
+        }
 
         if (strchr(arg, '.')) {
             single_test = arg;
         } else {
             suite_filter = arg;
         }
+    }
+
+    if (g_ignore_path && bake_ignore_load(g_ignore_path, test_id) != 0) {
+        return -1;
     }
 
     bake_export_colors();

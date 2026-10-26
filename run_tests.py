@@ -2715,6 +2715,81 @@ class BakeTests(unittest.TestCase):
                 self.assertEqual(t["suite"], "Alpha")
                 self.assertGreater(t["elapsed"], 0.0)
 
+    def test_test_harness_ignores_failures_in_report(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.harness.ignore.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_ignore_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": project_id,
+                    "type": "test",
+                    "test": {
+                        "testsuites": [
+                            {"id": "Alpha", "testcases": ["ok", "bad", "newbad"]},
+                        ]
+                    },
+                },
+                indent=4,
+            ) + "\n"
+        )
+        (src_dir / "Alpha.c").write_text(
+            "#include <bake_test.h>\n"
+            "void Alpha_ok(void) { test_assert(true); }\n"
+            "void Alpha_bad(void) { test_assert(false); }\n"
+            "void Alpha_newbad(void) { test_assert(false); }\n"
+        )
+
+        local_env = "--local-env=ignore_report"
+        self.bake([local_env, "build", "."], cwd=project_dir)
+
+        def entry(case: str, status: str) -> dict:
+            return {"suite": "Alpha", "case": case, "status": status, "elapsed": 0.001}
+
+        partial = project_dir / "partial.json"
+        partial.write_text(json.dumps(
+            {"project": project_id, "tests": [entry("ok", "pass"), entry("bad", "fail"), entry("newbad", "pass")]}))
+        other = project_dir / "other.json"
+        other.write_text(json.dumps([
+            {"project": "other", "tests": [entry("newbad", "fail")]},
+            {"project": project_id, "tests": [entry("bad", "fail")]},
+        ]))
+        full = project_dir / "full.json"
+        full.write_text(json.dumps([
+            {"project": "other", "tests": []},
+            {"project": project_id, "tests": [entry("bad", "fail"), entry("newbad", "timeout")]},
+        ]))
+
+        for jobs in ("1", "3"):
+            output = self.bake_expect_failure(
+                [local_env, "run", ".", "--", "-j", jobs, "--ignore", str(partial)],
+                cwd=project_dir)
+            self.assertIn("Alpha.bad (already failing)", output)
+            self.assertNotIn("Alpha.newbad (already failing)", output)
+
+            self.bake_expect_failure(
+                [local_env, "run", ".", "--", "-j", jobs, "--ignore", str(other)],
+                cwd=project_dir)
+
+            report = project_dir / f"report_{jobs}.json"
+            output = self.bake(
+                [local_env, "run", ".", "--", "-j", jobs, "--ignore", str(full), "--json", str(report)],
+                cwd=project_dir)
+            self.assertIn("Alpha.bad (already failing)", output)
+            self.assertIn("Alpha.newbad (already failing)", output)
+            data = json.loads(report.read_text())
+            self.assertEqual(data["fail"], 2)
+            by_case = {t["case"]: t["status"] for t in data["tests"]}
+            self.assertEqual(by_case, {"ok": "pass", "bad": "fail", "newbad": "fail"})
+
+        self.bake_expect_failure(
+            [local_env, "run", ".", "--", "--ignore", str(project_dir / "missing.json")],
+            cwd=project_dir)
+
     def test_test_harness_writes_coverage_report(self) -> None:
         if platform.system() == "Windows":
             self.skipTest("coverage is not supported on Windows")

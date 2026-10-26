@@ -799,6 +799,19 @@ command could not be built). Parameterized runs add a `params` field.
 `fail` counts every failed case, including the timed out ones; `timeout` counts
 how many of those were killed by the timeout.
 
+- `--ignore <path>` reads a report written by `--json` and does not fail the run
+  on cases that have the status `fail`, `timeout` or `error` in that report.
+  Such cases are still run, counted and reported as failures, and are listed as
+  `(already failing)`. The file can also hold a json array of reports; only the
+  entries of reports whose `project` is the project of the test binary are used.
+  A run that has cases with new failures still fails:
+
+```sh
+bake3 run test/core --local-env -- -j 12 --json /tmp/baseline.json
+# ... change the code ...
+bake3 run test/core --local-env -- -j 12 --ignore /tmp/baseline.json
+```
+
 ### Coverage
 `--coverage` builds every project with clang source-based coverage
 instrumentation (`-fprofile-instr-generate -fcoverage-mapping`). It is accepted
