@@ -2790,6 +2790,72 @@ class BakeTests(unittest.TestCase):
             [local_env, "run", ".", "--", "--ignore", str(project_dir / "missing.json")],
             cwd=project_dir)
 
+    def test_test_harness_reports_crashes_and_assert_messages(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        project_id = f"tmp.tests.harness.crash.{stamp}"
+        project_dir = self.repo_root / "test" / "tmp" / f"harness_crash_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        src_dir = project_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        (project_dir / "project.json").write_text(
+            json.dumps(
+                {
+                    "id": project_id,
+                    "type": "test",
+                    "test": {
+                        "testsuites": [
+                            {"id": "Alpha", "testcases": ["ok", "bad", "boom"]},
+                        ]
+                    },
+                },
+                indent=4,
+            ) + "\n"
+        )
+        (src_dir / "Alpha.c").write_text(
+            "#include <bake_test.h>\n"
+            "#include <stdio.h>\n"
+            "void Alpha_ok(void) { test_assert(true); }\n"
+            "void Alpha_bad(void) { test_int(1, 2); }\n"
+            "void Alpha_boom(void) {\n"
+            "    volatile int *ptr = NULL;\n"
+            "    printf(\"about to crash\\n\");\n"
+            "    *ptr = 1;\n"
+            "}\n"
+        )
+
+        local_env = "--local-env=harness_crash"
+        self.bake([local_env, "build", "."], cwd=project_dir)
+
+        job_counts = ("1",) if platform.system() == "Darwin" else ("1", "3")
+        for jobs in job_counts:
+            report = project_dir / f"report_{jobs}.json"
+            output = self.strip_ansi(self.bake_expect_failure(
+                [local_env, "run", ".", "--", "-j", jobs, "--json", str(report)],
+                cwd=project_dir))
+            self.assertRegex(output, r"(?m)^HOST: \S+ \S+$")
+            self.assertIn("FAIL: Alpha.bad: Alpha.c:4: 1 (1) != 2 (2)", output)
+            self.assertIn(" - Alpha.bad (Alpha.c:4: 1 (1) != 2 (2))", output)
+            self.assertIn("about to crash", output)
+            self.assertIn("CRASH Alpha.boom", output)
+            self.assertIn(" - Alpha.boom (crash, ", output)
+
+            data = json.loads(report.read_text())
+            self.assertIn("os", data["host"])
+            self.assertIn("arch", data["host"])
+            by_case = {t["case"]: t for t in data["tests"]}
+            self.assertEqual(by_case["bad"]["status"], "fail")
+            self.assertEqual(by_case["boom"]["status"], "crash")
+            if platform.system() != "Windows":
+                self.assertIn(by_case["boom"]["signal"], {signal.SIGSEGV, signal.SIGBUS})
+                self.assertIn(f"CRASH Alpha.boom (signal {by_case['boom']['signal']}: ", output)
+
+            output = self.strip_ansi(self.bake(
+                [local_env, "run", ".", "--", "-j", jobs, "--ignore", str(report)],
+                cwd=project_dir))
+            self.assertIn(" - Alpha.bad (already failing)", output)
+            self.assertIn(" - Alpha.boom (crash, already failing)", output)
+
     def test_test_harness_writes_coverage_report(self) -> None:
         if platform.system() == "Windows":
             self.skipTest("coverage is not supported on Windows")

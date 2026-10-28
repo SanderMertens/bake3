@@ -50,8 +50,15 @@ typedef struct bake_test_result_t {
     char *testcase;
     char *params;
     const char *status;
+    int signal;
     double elapsed;
 } bake_test_result_t;
+
+typedef struct bake_case_exit_t {
+    bool crashed;
+    int signal;
+    long long exit_code;
+} bake_case_exit_t;
 
 static bake_test_result_t *g_results = NULL;
 static int g_result_count = 0;
@@ -120,6 +127,46 @@ static void bake_export_colors(void) {
 #else
     setenv("BAKE_TEST_COLOR", "1", 1);
 #endif
+}
+
+static const char* bake_host_os(void) {
+#if defined(_WIN32)
+    return "Windows";
+#elif defined(__EMSCRIPTEN__)
+    return "Emscripten";
+#elif defined(__APPLE__)
+    return "Darwin";
+#elif defined(__linux__)
+    return "Linux";
+#else
+    return "unknown";
+#endif
+}
+
+static const char* bake_host_arch(void) {
+#if defined(__aarch64__) || defined(_M_ARM64)
+    return "arm64";
+#elif defined(__x86_64__) || defined(_M_X64)
+    return "x64";
+#elif defined(__i386__) || defined(_M_IX86)
+    return "x86";
+#elif defined(__wasm32__)
+    return "wasm32";
+#elif defined(__arm__) || defined(_M_ARM)
+    return "arm";
+#else
+    return "unknown";
+#endif
+}
+
+static const char* bake_file_name(const char *file) {
+    const char *name = file;
+    for (const char *p = file; *p; p++) {
+        if (*p == '/' || *p == '\\') {
+            name = p + 1;
+        }
+    }
+    return name;
 }
 
 static void bake_print_status(const char *status, const char *color) {
@@ -260,6 +307,7 @@ static void bake_record_result(
     const char *case_id,
     const char *param_str,
     const char *status,
+    int signal,
     double elapsed)
 {
     if (!g_json_path) {
@@ -282,6 +330,7 @@ static void bake_record_result(
     r->testcase = bake_strdup(case_id);
     r->params = bake_strdup(param_str ? param_str : "");
     r->status = status;
+    r->signal = signal;
     r->elapsed = elapsed;
     bake_failed_unlock();
 }
@@ -325,6 +374,8 @@ static int bake_write_json_report(
     fputs("{\n", f);
     fputs("  \"project\": ", f); bake_json_string(f, test_id); fputs(",\n", f);
     fputs("  \"timestamp\": ", f); bake_json_string(f, stamp); fputs(",\n", f);
+    fputs("  \"host\": {\"os\": ", f); bake_json_string(f, bake_host_os());
+    fputs(", \"arch\": ", f); bake_json_string(f, bake_host_arch()); fputs("},\n", f);
     fprintf(f, "  \"pass\": %d,\n  \"fail\": %d,\n  \"empty\": %d,\n  \"timeout\": %d,\n",
         pass, fail, empty, g_timeout_count);
     fprintf(f, "  \"elapsed\": %.6f,\n", elapsed);
@@ -337,6 +388,9 @@ static int bake_write_json_report(
             fputs(", \"params\": ", f); bake_json_string(f, r->params);
         }
         fputs(", \"status\": ", f); bake_json_string(f, r->status);
+        if (r->signal) {
+            fprintf(f, ", \"signal\": %d", r->signal);
+        }
         fprintf(f, ", \"elapsed\": %.6f}%s\n", r->elapsed, (i + 1) < g_result_count ? "," : "");
         free(r->suite);
         free(r->testcase);
@@ -464,7 +518,7 @@ static int bake_ignore_load(const char *path, const char *test_id) {
         }
 
         char *status = bake_json_scan_string(status_key, end);
-        bool failed = status && (!strcmp(status, "fail") ||
+        bool failed = status && (!strcmp(status, "fail") || !strcmp(status, "crash") ||
             !strcmp(status, "timeout") || !strcmp(status, "error"));
         free(status);
         if (!failed) {
@@ -736,7 +790,8 @@ static int bake_run_subprocess_to_stream(
     const char *cmd,
     FILE *stream,
     double timeout,
-    bool *timed_out)
+    bool *timed_out,
+    bake_case_exit_t *exit_out)
 {
 #if defined(_WIN32)
     STARTUPINFOA si;
@@ -860,6 +915,10 @@ static int bake_run_subprocess_to_stream(
     if (!have_code) {
         return -1;
     }
+    if (exit_out && exit_code >= 0xC0000000u) {
+        exit_out->crashed = true;
+        exit_out->exit_code = (long long)exit_code;
+    }
     return (int)exit_code;
 #else
     char **argv = NULL;
@@ -926,19 +985,28 @@ static int bake_run_subprocess_to_stream(
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);
     }
+    if (exit_out && WIFSIGNALED(status)) {
+        exit_out->crashed = true;
+        exit_out->signal = WTERMSIG(status);
+    }
     return -1;
 #endif
 }
 
-static int bake_run_subprocess(const char *cmd, double timeout, bool *timed_out) {
-    return bake_run_subprocess_to_stream(cmd, NULL, timeout, timed_out);
+static int bake_run_subprocess(
+    const char *cmd,
+    double timeout,
+    bool *timed_out,
+    bake_case_exit_t *exit_out)
+{
+    return bake_run_subprocess_to_stream(cmd, NULL, timeout, timed_out, exit_out);
 }
 
 static void bake_set_failure(const char *file, int line, const char *msg) {
     g_failed = true;
     if (g_current_suite && g_current_case) {
         bake_print_status("FAIL", BAKE_COLOR_RED);
-        printf(": %s.%s:", g_current_suite->id, g_current_case->id);
+        printf(": %s.%s: %s:", g_current_suite->id, g_current_case->id, bake_file_name(file));
     } else {
         bake_print_status("FAIL", BAKE_COLOR_RED);
         printf(": %s:", file);
@@ -1242,6 +1310,185 @@ static int bake_build_case_command(
     return 0;
 }
 
+typedef struct bake_case_job_t {
+    size_t run_index;
+    bake_test_case *testcase;
+    char cmd[4096];
+    char *output;
+    size_t output_size;
+    int command_rc;
+    int test_rc;
+    double timeout;
+    bool timed_out;
+    bake_case_exit_t exit;
+    double elapsed;
+} bake_case_job_t;
+
+static void bake_case_job_execute(bake_case_job_t *job) {
+    double start = bake_time_now();
+    FILE *stream = tmpfile();
+    if (!stream) {
+        job->test_rc = bake_run_subprocess(
+            job->cmd, job->timeout, &job->timed_out, &job->exit);
+        job->elapsed = bake_time_now() - start;
+        return;
+    }
+
+    job->test_rc = bake_run_subprocess_to_stream(
+        job->cmd, stream, job->timeout, &job->timed_out, &job->exit);
+    job->elapsed = bake_time_now() - start;
+    fflush(stream);
+    if (fseek(stream, 0, SEEK_END) == 0) {
+        long end = ftell(stream);
+        if (end > 0 && (long)(size_t)end == end) {
+            size_t size = (size_t)end;
+            job->output = malloc(size);
+            if (job->output) {
+                rewind(stream);
+                job->output_size = fread(job->output, 1, size, stream);
+            }
+        }
+    }
+    fclose(stream);
+}
+
+static char* bake_case_failure_message(
+    const bake_case_job_t *job,
+    const char *suite_id,
+    const char *case_id)
+{
+    char prefix[512];
+    snprintf(prefix, sizeof(prefix), "FAIL: %s.%s: ", suite_id, case_id);
+    size_t prefix_len = strlen(prefix);
+
+    const char *ptr = job->output;
+    const char *end = ptr ? ptr + job->output_size : NULL;
+    while (ptr && ptr < end) {
+        const char *eol = memchr(ptr, '\n', (size_t)(end - ptr));
+        if (!eol) {
+            eol = end;
+        }
+
+        char *line = malloc((size_t)(eol - ptr) + 1);
+        if (!line) {
+            return NULL;
+        }
+        size_t len = 0;
+        for (const char *p = ptr; p < eol; p++) {
+            if (*p == '\033' && (p + 1) < eol && p[1] == '[') {
+                p += 2;
+                while (p < eol && !((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z'))) {
+                    p++;
+                }
+                continue;
+            }
+            if (*p != '\r') {
+                line[len ++] = *p;
+            }
+        }
+        line[len] = '\0';
+
+        if (len > prefix_len && !strncmp(line, prefix, prefix_len)) {
+            memmove(line, line + prefix_len, len - prefix_len + 1);
+            return line;
+        }
+        free(line);
+        ptr = eol + 1;
+    }
+    return NULL;
+}
+
+static void bake_case_crash_describe(char *buf, size_t size, const bake_case_exit_t *exit_info) {
+#if defined(_WIN32)
+    snprintf(buf, size, "exit code 0x%08llX", (unsigned long long)exit_info->exit_code);
+#else
+    const char *desc = exit_info->signal ? strsignal(exit_info->signal) : NULL;
+    if (exit_info->signal) {
+        snprintf(buf, size, "signal %d: %s", exit_info->signal, desc ? desc : "unknown");
+    } else {
+        snprintf(buf, size, "unknown cause");
+    }
+#endif
+}
+
+static int bake_report_case_job(
+    const char *exec,
+    bake_test_suite *suite,
+    const char *param_str,
+    bake_case_job_t *job,
+    int *pass,
+    int *fail,
+    int *empty)
+{
+    const char *case_id = job->testcase->id;
+    if (job->output_size) {
+        fwrite(job->output, 1, job->output_size, stdout);
+    }
+    bool ignored = bake_ignored(suite->id, case_id, param_str);
+    int rc = ignored ? 0 : -1;
+    if (job->command_rc != 0) {
+        (*fail) ++;
+        bake_record_result(suite->id, case_id, param_str, "error", 0, job->elapsed);
+        bake_record_failure(suite->id, case_id, param_str, ignored ? "already failing" : NULL);
+        return rc;
+    }
+
+    if (job->timed_out) {
+        (*fail) ++;
+        g_timeout_count ++;
+        bake_record_result(suite->id, case_id, param_str, "timeout", 0, job->elapsed);
+        bake_record_failure(suite->id, case_id, param_str,
+            ignored ? "timeout, already failing" : "timeout");
+        bake_print_status("TIMEOUT", BAKE_COLOR_RED);
+        printf(" %s.%s (exceeded %g seconds)\n", suite->id, case_id, job->timeout);
+        bake_print_debug_command(exec, suite, job->testcase);
+        return rc;
+    }
+
+    if (job->test_rc == 0) {
+        (*pass) ++;
+        bake_record_result(suite->id, case_id, param_str, "pass", 0, job->elapsed);
+        return 0;
+    }
+    if (job->test_rc == BAKE_TEST_QUARANTINED) {
+        bake_record_result(suite->id, case_id, param_str, "quarantined", 0, job->elapsed);
+        return 0;
+    }
+    if (job->test_rc == BAKE_TEST_EMPTY) {
+        (*empty) ++;
+        bake_record_result(suite->id, case_id, param_str, "empty", 0, job->elapsed);
+        bake_print_status("EMPTY", BAKE_COLOR_YELLOW);
+        printf(" %s.%s (add test statements)\n", suite->id, case_id);
+        bake_print_debug_command(exec, suite, job->testcase);
+        return 0;
+    }
+
+    (*fail) ++;
+    char reason[1024];
+    if (job->exit.crashed) {
+        char crash[256];
+        bake_case_crash_describe(crash, sizeof(crash), &job->exit);
+        bake_print_status("CRASH", BAKE_COLOR_RED);
+        printf(" %s.%s (%s)\n", suite->id, case_id, crash);
+        snprintf(reason, sizeof(reason), "crash, %s", ignored ? "already failing" : crash);
+        bake_record_result(suite->id, case_id, param_str, "crash", job->exit.signal, job->elapsed);
+    } else {
+        char *message = ignored ? NULL : bake_case_failure_message(job, suite->id, case_id);
+        if (ignored) {
+            snprintf(reason, sizeof(reason), "already failing");
+        } else if (message) {
+            snprintf(reason, sizeof(reason), "%s", message);
+        } else {
+            snprintf(reason, sizeof(reason), "exit code %d", job->test_rc);
+        }
+        free(message);
+        bake_record_result(suite->id, case_id, param_str, "fail", 0, job->elapsed);
+    }
+    bake_record_failure(suite->id, case_id, param_str, reason);
+    bake_print_debug_command(exec, suite, job->testcase);
+    return rc;
+}
+
 static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite *suite, int *pass_out, int *fail_out, int *empty_out) {
     int rc = 0;
     int pass = 0;
@@ -1255,58 +1502,19 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
             bake_print_trace(suite->id, suite->testcases[i].id, param_str);
         }
 
-        char cmd[4096];
-        bool ignored = bake_ignored(suite->id, suite->testcases[i].id, param_str);
-        if (bake_build_case_command(cmd, sizeof(cmd), exec, suite, &suite->testcases[i], NULL) != 0) {
-            fail ++;
-            rc = ignored ? rc : -1;
-            bake_record_failure(suite->id, suite->testcases[i].id, param_str, ignored ? "already failing" : NULL);
-            continue;
+        bake_case_job_t job = {0};
+        job.testcase = &suite->testcases[i];
+        job.command_rc = bake_build_case_command(
+            job.cmd, sizeof(job.cmd), exec, suite, job.testcase, NULL);
+        job.test_rc = -1;
+        job.timeout = bake_case_timeout(suite);
+        if (job.command_rc == 0) {
+            bake_case_job_execute(&job);
         }
-
-        double timeout = bake_case_timeout(suite);
-        bool timed_out = false;
-        double start = bake_time_now();
-        int test_rc = bake_run_subprocess(cmd, timeout, &timed_out);
-        double elapsed = bake_time_now() - start;
-        if (timed_out) {
-            fail ++;
-            rc = ignored ? rc : -1;
-            g_timeout_count ++;
-            bake_record_result(suite->id, suite->testcases[i].id, param_str, "timeout", elapsed);
-            bake_record_failure(suite->id, suite->testcases[i].id, param_str,
-                ignored ? "timeout, already failing" : "timeout");
-            bake_print_status("TIMEOUT", BAKE_COLOR_RED);
-            printf(" %s.%s (exceeded %g seconds)\n", suite->id, suite->testcases[i].id, timeout);
-            bake_print_debug_command(exec, suite, &suite->testcases[i]);
-            continue;
+        if (bake_report_case_job(exec, suite, param_str, &job, &pass, &fail, &empty) != 0) {
+            rc = -1;
         }
-
-        if (test_rc == 0) {
-            pass ++;
-            bake_record_result(suite->id, suite->testcases[i].id, param_str, "pass", elapsed);
-            continue;
-        }
-
-        if (test_rc == BAKE_TEST_QUARANTINED) {
-            bake_record_result(suite->id, suite->testcases[i].id, param_str, "quarantined", elapsed);
-            continue;
-        }
-
-        if (test_rc == BAKE_TEST_EMPTY) {
-            empty ++;
-            bake_record_result(suite->id, suite->testcases[i].id, param_str, "empty", elapsed);
-            bake_print_status("EMPTY", BAKE_COLOR_YELLOW);
-            printf(" %s.%s (add test statements)\n", suite->id, suite->testcases[i].id);
-            bake_print_debug_command(exec, suite, &suite->testcases[i]);
-            continue;
-        }
-
-        fail ++;
-        rc = ignored ? rc : -1;
-        bake_record_result(suite->id, suite->testcases[i].id, param_str, "fail", elapsed);
-        bake_record_failure(suite->id, suite->testcases[i].id, param_str, ignored ? "already failing" : NULL);
-        bake_print_debug_command(exec, suite, &suite->testcases[i]);
+        free(job.output);
     }
 
     bake_print_report(test_id, suite->id, param_str, pass, fail, empty);
@@ -1342,19 +1550,6 @@ static int bake_run_suite_for_params(const char *test_id, const char *exec, bake
     }
     return rc;
 }
-
-typedef struct bake_case_job_t {
-    size_t run_index;
-    bake_test_case *testcase;
-    char cmd[4096];
-    char *output;
-    size_t output_size;
-    int command_rc;
-    int test_rc;
-    double timeout;
-    bool timed_out;
-    double elapsed;
-} bake_case_job_t;
 
 typedef struct bake_suite_run_t {
     bake_test_suite *suite;
@@ -1628,33 +1823,6 @@ static int bake_parallel_plan_init(
     return 0;
 }
 
-static void bake_case_job_execute(bake_case_job_t *job) {
-    double start = bake_time_now();
-    FILE *stream = tmpfile();
-    if (!stream) {
-        job->test_rc = bake_run_subprocess(job->cmd, job->timeout, &job->timed_out);
-        job->elapsed = bake_time_now() - start;
-        return;
-    }
-
-    job->test_rc = bake_run_subprocess_to_stream(
-        job->cmd, stream, job->timeout, &job->timed_out);
-    job->elapsed = bake_time_now() - start;
-    fflush(stream);
-    if (fseek(stream, 0, SEEK_END) == 0) {
-        long end = ftell(stream);
-        if (end > 0 && (long)(size_t)end == end) {
-            size_t size = (size_t)end;
-            job->output = malloc(size);
-            if (job->output) {
-                rewind(stream);
-                job->output_size = fread(job->output, 1, size, stream);
-            }
-        }
-    }
-    fclose(stream);
-}
-
 static void bake_case_worker_run(bake_case_jobs_t *jobs) {
     for (;;) {
         bake_jobs_mutex_lock(&jobs->lock);
@@ -1745,55 +1913,9 @@ static int bake_parallel_report_run(
         if (g_trace) {
             bake_print_trace(suite->id, job->testcase->id, run->param_str);
         }
-        if (job->output_size) {
-            fwrite(job->output, 1, job->output_size, stdout);
+        if (bake_report_case_job(exec, suite, run->param_str, job, &pass, &fail, &empty) != 0) {
+            rc = -1;
         }
-        bool ignored = bake_ignored(suite->id, job->testcase->id, run->param_str);
-        if (job->command_rc != 0) {
-            fail ++;
-            rc = ignored ? rc : -1;
-            bake_record_result(suite->id, job->testcase->id, run->param_str, "error", job->elapsed);
-            bake_record_failure(suite->id, job->testcase->id, run->param_str, ignored ? "already failing" : NULL);
-            continue;
-        }
-
-        if (job->timed_out) {
-            fail ++;
-            rc = ignored ? rc : -1;
-            g_timeout_count ++;
-            bake_record_result(suite->id, job->testcase->id, run->param_str, "timeout", job->elapsed);
-            bake_record_failure(suite->id, job->testcase->id, run->param_str,
-                ignored ? "timeout, already failing" : "timeout");
-            bake_print_status("TIMEOUT", BAKE_COLOR_RED);
-            printf(" %s.%s (exceeded %g seconds)\n",
-                suite->id, job->testcase->id, job->timeout);
-            bake_print_debug_command(exec, suite, job->testcase);
-            continue;
-        }
-
-        if (job->test_rc == 0) {
-            pass ++;
-            bake_record_result(suite->id, job->testcase->id, run->param_str, "pass", job->elapsed);
-            continue;
-        }
-        if (job->test_rc == BAKE_TEST_QUARANTINED) {
-            bake_record_result(suite->id, job->testcase->id, run->param_str, "quarantined", job->elapsed);
-            continue;
-        }
-        if (job->test_rc == BAKE_TEST_EMPTY) {
-            empty ++;
-            bake_record_result(suite->id, job->testcase->id, run->param_str, "empty", job->elapsed);
-            bake_print_status("EMPTY", BAKE_COLOR_YELLOW);
-            printf(" %s.%s (add test statements)\n", suite->id, job->testcase->id);
-            bake_print_debug_command(exec, suite, job->testcase);
-            continue;
-        }
-
-        fail ++;
-        rc = ignored ? rc : -1;
-        bake_record_result(suite->id, job->testcase->id, run->param_str, "fail", job->elapsed);
-        bake_record_failure(suite->id, job->testcase->id, run->param_str, ignored ? "already failing" : NULL);
-        bake_print_debug_command(exec, suite, job->testcase);
     }
 
     bake_print_report(test_id, suite->id, run->param_str, pass, fail, empty);
@@ -2116,8 +2238,11 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
 #endif
 
     if (single_test) {
+        setvbuf(stdout, NULL, _IONBF, 0);
         return bake_run_single_test(suites, suite_count, single_test);
     }
+
+    printf("HOST: %s %s\n", bake_host_os(), bake_host_arch());
 
     int pass = 0;
     int fail = 0;
