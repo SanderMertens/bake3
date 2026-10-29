@@ -244,9 +244,10 @@ static bool bake_is_disabled_define(const char *line, const bake_strlist_t *disa
     return bake_disable_contains(disable, name, (size_t)(p - name));
 }
 
-static bool bake_eval_defined_expr(
+static const char* bake_parse_defined_term(
     const char *expr,
     const bake_strlist_t *disable,
+    bool *known_out,
     bool *value_out)
 {
     const char *p = bake_skip_ws(expr);
@@ -257,7 +258,7 @@ static bool bake_eval_defined_expr(
     }
 
     if (strncmp(p, "defined", 7) || bake_is_ident_char(p[7])) {
-        return false;
+        return NULL;
     }
     p += 7;
 
@@ -267,7 +268,7 @@ static bool bake_eval_defined_expr(
         had_paren = true;
         p = bake_skip_ws(p + 1);
     } else if (bake_is_ident_char(p[0]) == false) {
-        return false;
+        return NULL;
     }
 
     const char *name = p;
@@ -279,21 +280,68 @@ static bool bake_eval_defined_expr(
     p = bake_skip_ws(p);
     if (had_paren) {
         if (p[0] != ')') {
-            return false;
+            return NULL;
         }
         p = bake_skip_ws(p + 1);
     }
 
-    if (p[0] != '\0' && p[0] != '\n' && p[0] != '\r') {
-        return false;
+    *known_out = bake_disable_contains(disable, name, name_len);
+    *value_out = negate;
+    return p;
+}
+
+static bool bake_eval_defined_expr(
+    const char *expr,
+    const bake_strlist_t *disable,
+    bool *value_out)
+{
+    const char *p = expr;
+    char op = '\0';
+    bool has_true = false, has_false = false, all_known = true;
+
+    while (true) {
+        bool known = false, value = false;
+        p = bake_parse_defined_term(p, disable, &known, &value);
+        if (!p) {
+            return false;
+        }
+
+        if (!known) {
+            all_known = false;
+        } else if (value) {
+            has_true = true;
+        } else {
+            has_false = true;
+        }
+
+        if (p[0] == '\0' || p[0] == '\n' || p[0] == '\r') {
+            break;
+        }
+
+        if ((p[0] != '&' && p[0] != '|') || p[1] != p[0]) {
+            return false;
+        }
+
+        if (op && op != p[0]) {
+            return false;
+        }
+
+        op = p[0];
+        p += 2;
     }
 
-    if (!bake_disable_contains(disable, name, name_len)) {
-        return false;
+    bool is_or = op == '|';
+    if (is_or ? has_true : has_false) {
+        *value_out = is_or;
+        return true;
     }
 
-    *value_out = negate ? true : false;
-    return true;
+    if (all_known) {
+        *value_out = !is_or;
+        return true;
+    }
+
+    return false;
 }
 
 static char* bake_condition_text(const char *arg) {
