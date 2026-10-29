@@ -1271,6 +1271,17 @@ static void bake_project_cfg_finalize_defaults(const char *project_json_path, ba
         }
     }
 
+    if (!cfg->output_name && bake_target_is_emscripten() &&
+        cfg->kind != BAKE_PROJECT_PACKAGE)
+    {
+        cfg->output_name = ecs_os_strdup(cfg->id);
+        for (char *p = cfg->output_name; *p; p++) {
+            if (*p == '.' || *p == '/') {
+                *p = '_';
+            }
+        }
+    }
+
     if (!cfg->output_name) {
         const char *last_dot = strrchr(cfg->id, '.');
         cfg->output_name = ecs_os_strdup(
@@ -1307,4 +1318,118 @@ error:
     json_value_free(root_value);
     ecs_os_free(json);
     return -1;
+}
+
+int bake_project_cfg_load_fragment(const char *json_path, bake_project_cfg_t *cfg) {
+    char *json = bake_file_read(json_path, NULL);
+    if (!json) {
+        return -1;
+    }
+
+    JSON_Value *root_value = json_parse_string_with_comments(json);
+    const JSON_Object *root = root_value ? json_value_get_object(root_value) : NULL;
+    int rc = -1;
+    if (root && bake_parse_project_cfg_object(root, cfg, false, false) == 0) {
+        rc = 0;
+    }
+
+    json_value_free(root_value);
+    ecs_os_free(json);
+    return rc;
+}
+
+static void bake_json_object_merge_unique(JSON_Object *dst, const JSON_Object *src) {
+    size_t count = json_object_get_count(src);
+    for (size_t i = 0; i < count; i++) {
+        const char *key = json_object_get_name(src, i);
+        JSON_Value *src_val = json_object_get_value_at(src, i);
+        JSON_Value *dst_val = json_object_get_value(dst, key);
+
+        if (!dst_val) {
+            json_object_set_value(dst, key, json_value_deep_copy(src_val));
+            continue;
+        }
+
+        if (json_value_get_type(dst_val) == JSONObject &&
+            json_value_get_type(src_val) == JSONObject)
+        {
+            bake_json_object_merge_unique(
+                json_value_get_object(dst_val), json_value_get_object(src_val));
+            continue;
+        }
+
+        if (json_value_get_type(dst_val) == JSONArray &&
+            json_value_get_type(src_val) == JSONArray)
+        {
+            JSON_Array *dst_arr = json_value_get_array(dst_val);
+            JSON_Array *src_arr = json_value_get_array(src_val);
+            size_t n = json_array_get_count(src_arr);
+            for (size_t j = 0; j < n; j++) {
+                JSON_Value *item = json_array_get_value(src_arr, j);
+                size_t dst_n = json_array_get_count(dst_arr);
+                size_t k = 0;
+                for (; k < dst_n; k++) {
+                    if (json_value_equals(json_array_get_value(dst_arr, k), item)) {
+                        break;
+                    }
+                }
+                if (k == dst_n) {
+                    json_array_append_value(dst_arr, json_value_deep_copy(item));
+                }
+            }
+        }
+    }
+}
+
+char* bake_project_cfg_merge_standalone_json(const bake_strlist_t *project_json_paths) {
+    JSON_Value *merged = json_value_init_object();
+    JSON_Object *merged_obj = json_value_get_object(merged);
+
+    for (int32_t i = 0; i < project_json_paths->count; i++) {
+        char *json = bake_file_read(project_json_paths->items[i], NULL);
+        if (!json) {
+            continue;
+        }
+
+        JSON_Value *root_value = json_parse_string_with_comments(json);
+        ecs_os_free(json);
+        const JSON_Object *root = root_value ? json_value_get_object(root_value) : NULL;
+        if (!root) {
+            json_value_free(root_value);
+            json_value_free(merged);
+            return NULL;
+        }
+
+        size_t count = json_object_get_count(root);
+        for (size_t m = 0; m < count; m++) {
+            const char *key = json_object_get_name(root, m);
+            JSON_Value *src_val = json_object_get_value_at(root, m);
+            if (!strcmp(key, "id") || !strcmp(key, "type") || !strcmp(key, "value") ||
+                json_value_get_type(src_val) != JSONObject)
+            {
+                continue;
+            }
+
+            JSON_Value *dst_val = json_object_get_value(merged_obj, key);
+            if (!dst_val) {
+                dst_val = json_value_init_object();
+                json_object_set_value(merged_obj, key, dst_val);
+            }
+
+            bake_json_object_merge_unique(
+                json_value_get_object(dst_val), json_value_get_object(src_val));
+        }
+
+        json_value_free(root_value);
+    }
+
+    char *serialized = json_serialize_to_string_pretty(merged);
+    json_value_free(merged);
+    if (!serialized) {
+        return NULL;
+    }
+
+    char *result = flecs_asprintf("%s\n", serialized);
+    json_free_serialized_string(serialized);
+    return result;
 }

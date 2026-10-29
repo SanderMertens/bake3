@@ -59,6 +59,7 @@ char* bake_project_cfg_build_root(const bake_project_cfg_t *cfg, const char *mod
 }
 
 static const char *bake_standalone_deps_marker = ".bake_standalone_deps";
+static const char *bake_standalone_dependee_json = "dependee.json";
 
 char* bake_display_path(const char *full_path, const char *strip_prefix) {
     if (!full_path) {
@@ -205,6 +206,59 @@ static char* bake_standalone_marker_value(const char *marker, const char *dep_id
     return NULL;
 }
 
+static void bake_standalone_marker_keep_unvisited(
+    ecs_strbuf_t *marker_buf,
+    const char *prev_marker,
+    const bake_strlist_t *visited)
+{
+    if (!prev_marker) {
+        return;
+    }
+
+    const char *line = strchr(prev_marker, '\n');
+    while (line) {
+        line++;
+        const char *end = line;
+        while (*end && *end != '\n' && *end != '\r') {
+            end++;
+        }
+        const char *eq = memchr(line, '=', (size_t)(end - line));
+        if (eq && eq != line) {
+            char *id = ecs_os_malloc((ecs_size_t)(eq - line) + 1);
+            memcpy(id, line, (size_t)(eq - line));
+            id[eq - line] = '\0';
+            if (!bake_strlist_contains(visited, id)) {
+                ecs_strbuf_appendstrn(marker_buf, line, (int32_t)(end - line));
+                ecs_strbuf_appendch(marker_buf, '\n');
+            }
+            ecs_os_free(id);
+        }
+        line = strchr(end, '\n');
+    }
+}
+
+static int bake_write_standalone_dependee_json(
+    const char *deps_dir,
+    const bake_strlist_t *project_jsons)
+{
+    char *content = bake_project_cfg_merge_standalone_json(project_jsons);
+    if (!content) {
+        return -1;
+    }
+
+    char *path = bake_path_join(deps_dir, bake_standalone_dependee_json);
+    char *prev = bake_file_read(path, NULL);
+    int rc = 0;
+    if (!prev || strcmp(prev, content)) {
+        rc = bake_file_write(path, content);
+    }
+
+    ecs_os_free(prev);
+    ecs_os_free(path);
+    ecs_os_free(content);
+    return rc;
+}
+
 static int bake_prepare_standalone_sources(
     bake_context_t *ctx,
     ecs_entity_t project_entity,
@@ -215,8 +269,13 @@ static int bake_prepare_standalone_sources(
     char *marker_path = bake_path_join(deps_dir, bake_standalone_deps_marker);
     char *prev_marker = NULL;
     bake_strlist_t expected_outputs = {0};
+    bake_strlist_t visited = {0};
+    bake_strlist_t project_jsons = {0};
+    bool missing_deps = false;
     ecs_strbuf_t marker_buf = ECS_STRBUF_INIT;
     bake_strlist_init(&expected_outputs);
+    bake_strlist_init(&visited);
+    bake_strlist_init(&project_jsons);
 
     if (bake_os_mkdirs(deps_dir) != 0) {
         goto cleanup;
@@ -242,6 +301,8 @@ static int bake_prepare_standalone_sources(
         {
             continue;
         }
+
+        bake_strlist_append_unique(&visited, dep_cfg->id);
 
         char *base = bake_project_id_as_macro(dep_cfg->id);
         char *h_name = flecs_asprintf("%s.h", base);
@@ -272,9 +333,12 @@ static int bake_prepare_standalone_sources(
             }
             if (dep_rc == 0) {
                 ecs_strbuf_append(&marker_buf, "%s=%s\n", dep_cfg->id, value);
+                bake_strlist_append_owned(&project_jsons,
+                    bake_path_join(dep_cfg->path, "project.json"));
             }
             ecs_os_free(value);
         } else if (have_files) {
+            missing_deps = true;
             ecs_trace(
                 "using existing standalone sources for '%s': dependency '%s' "
                 "is not available", cfg->id, dep_cfg->id);
@@ -317,6 +381,13 @@ static int bake_prepare_standalone_sources(
     }
 
     bake_strlist_append_unique(&expected_outputs, bake_standalone_deps_marker);
+    bake_strlist_append_unique(&expected_outputs, bake_standalone_dependee_json);
+
+    if (missing_deps) {
+        bake_standalone_marker_keep_unvisited(&marker_buf, prev_marker, &visited);
+    } else if (bake_write_standalone_dependee_json(deps_dir, &project_jsons) != 0) {
+        goto cleanup;
+    }
 
     {
         char *marker_content = ecs_strbuf_get(&marker_buf);
@@ -329,7 +400,7 @@ static int bake_prepare_standalone_sources(
 
     /* Only prune unexpected files from a deps directory bake created earlier;
      * a pre-existing deps directory without marker may hold user files. */
-    if (prev_marker &&
+    if (prev_marker && !missing_deps &&
         bake_cleanup_standalone_outputs(deps_dir, &expected_outputs) != 0)
     {
         goto cleanup;
@@ -342,6 +413,8 @@ cleanup:
     ecs_os_free(marker_path);
     ecs_os_free(deps_dir);
     bake_strlist_fini(&expected_outputs);
+    bake_strlist_fini(&visited);
+    bake_strlist_fini(&project_jsons);
     return rc;
 }
 
@@ -380,6 +453,90 @@ static void bake_apply_standalone_dep_defines(
         bake_strlist_merge_unique(&cpp_lang->defines, &dep_cfg->c_lang.defines);
         bake_strlist_merge_unique(&cpp_lang->defines, &dep_cfg->cpp_lang.defines);
     }
+}
+
+static int bake_export_em_artefact(
+    const bake_project_cfg_t *cfg,
+    const char *mode,
+    const char *artefact,
+    bool linked)
+{
+    char *file_name = bake_path_basename(artefact);
+    char *dir_name = flecs_asprintf("Em-%s", bake_effective_mode(mode));
+    char *dst = bake_path_join3(cfg->path, "bin", dir_name);
+    char *dst_path = bake_path_join(dst, file_name);
+    int rc = 0;
+    if (linked || !bake_path_exists(dst_path)) {
+        rc = bake_env_copy_artefact(artefact, dst_path);
+        if (rc != 0) {
+            ecs_err("failed to copy '%s' to '%s'", artefact, dst);
+        }
+    }
+
+    ecs_os_free(dst_path);
+    ecs_os_free(dst);
+    ecs_os_free(dir_name);
+    ecs_os_free(file_name);
+    return rc;
+}
+
+static void bake_merge_standalone_embed(
+    const bake_project_cfg_t *cfg,
+    bake_strlist_t *dst,
+    const bake_strlist_t *src)
+{
+    for (int32_t i = 0; i < src->count; i++) {
+        const char *entry = src->items[i];
+        char *path = bake_path_is_abs(entry) || strchr(entry, '@')
+            ? NULL : bake_path_join(cfg->path, entry);
+        if (path && !bake_path_exists(path)) {
+            ecs_trace("skipping embed '%s' from standalone dependencies of "
+                "'%s': path not found", entry, cfg->id);
+        } else {
+            bake_strlist_append_unique(dst, entry);
+        }
+        ecs_os_free(path);
+    }
+}
+
+static void bake_merge_standalone_lang(
+    const bake_project_cfg_t *cfg,
+    bake_lang_cfg_t *dst,
+    const bake_lang_cfg_t *src)
+{
+    bake_strlist_merge_unique(&dst->cflags, &src->cflags);
+    bake_strlist_merge_unique(&dst->cxxflags, &src->cxxflags);
+    bake_strlist_merge_unique(&dst->defines, &src->defines);
+    bake_strlist_merge_unique(&dst->ldflags, &src->ldflags);
+    bake_strlist_merge_unique(&dst->libs, &src->libs);
+    bake_strlist_merge_unique(&dst->libpaths, &src->libpaths);
+    bake_merge_standalone_embed(cfg, &dst->embed, &src->embed);
+}
+
+static int bake_apply_standalone_dependee_json(
+    const bake_project_cfg_t *cfg,
+    bake_lang_cfg_t *c_lang,
+    bake_lang_cfg_t *cpp_lang)
+{
+    char *path = bake_path_join3(cfg->path, "deps", bake_standalone_dependee_json);
+    if (!bake_path_exists(path)) {
+        ecs_os_free(path);
+        return 0;
+    }
+
+    bake_project_cfg_t deps_cfg;
+    bake_project_cfg_init(&deps_cfg);
+    int rc = bake_project_cfg_load_fragment(path, &deps_cfg);
+    if (rc != 0) {
+        ecs_err("failed to load standalone dependency config '%s'", path);
+    } else {
+        bake_merge_standalone_lang(cfg, c_lang, &deps_cfg.c_lang);
+        bake_merge_standalone_lang(cfg, cpp_lang, &deps_cfg.cpp_lang);
+    }
+
+    bake_project_cfg_fini(&deps_cfg);
+    ecs_os_free(path);
+    return rc;
 }
 
 static void bake_fingerprint_append_list(
@@ -618,6 +775,10 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
         ecs_os_free(deps_dir);
 
         bake_apply_standalone_dep_defines(ctx, project_entity, &c_lang, &cpp_lang);
+
+        if (bake_apply_standalone_dependee_json(cfg, &c_lang, &cpp_lang) != 0) {
+            goto cleanup;
+        }
     }
 
     /* Link uses a single language config: fold the C++ link inputs into the C
@@ -731,6 +892,14 @@ static int bake_build_one(bake_context_t *ctx, ecs_entity_t project_entity, cons
     }
 
     if (flags_changed && bake_file_write(fingerprint_path, fingerprint) != 0) {
+        ecs_os_free(artefact);
+        goto cleanup;
+    }
+
+    if (artefact && bake_target_is_emscripten() &&
+        cfg->kind == BAKE_PROJECT_APPLICATION &&
+        bake_export_em_artefact(cfg, request->mode, artefact, linked) != 0)
+    {
         ecs_os_free(artefact);
         goto cleanup;
     }

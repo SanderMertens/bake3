@@ -137,6 +137,10 @@ static int bake_env_copy_artefact_to_path(const char *src_artefact, const char *
     return rc;
 }
 
+int bake_env_copy_artefact(const char *src_artefact, const char *dst_path) {
+    return bake_env_copy_artefact_to_path(src_artefact, dst_path);
+}
+
 static int bake_env_copy_file(const char *src_dir, const char *dst_dir, const char *name, bool required) {
     int rc = -1;
     char *src = bake_path_join(src_dir, name);

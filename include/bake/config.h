@@ -190,6 +190,8 @@ void bake_dependee_cfg_fini(bake_dependee_cfg_t *cfg);
 void bake_project_cfg_init(bake_project_cfg_t *cfg);
 void bake_project_cfg_fini(bake_project_cfg_t *cfg);
 int bake_project_cfg_load_file(const char *project_json_path, bake_project_cfg_t *cfg);
+int bake_project_cfg_load_fragment(const char *json_path, bake_project_cfg_t *cfg);
+char* bake_project_cfg_merge_standalone_json(const bake_strlist_t *project_json_paths);
 void bake_project_cfg_set_eval_context(const char *mode, const char *target);
 
 const char* bake_lint_action_str(bake_lint_action_t action);

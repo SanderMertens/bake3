@@ -19,6 +19,8 @@ int bake_env_sync_project(
     const BakeBuildRequest *req,
     bool rebuilt);
 
+int bake_env_copy_artefact(const char *src_artefact, const char *dst_path);
+
 char* bake_env_name(const bake_context_t *ctx);
 int bake_env_export_vars(const bake_context_t *ctx);
 

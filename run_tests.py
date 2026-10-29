@@ -1385,6 +1385,141 @@ class BakeTests(unittest.TestCase):
         self.assertTrue((deps_dir / f"{pkg_id}.h").exists())
         self.assertTrue((deps_dir / f"{pkg_id}.c").exists())
 
+    def test_standalone_keeps_transitive_deps_when_dependency_missing(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"standalone_transitive_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        base_id = f"transitive_base_{stamp}"
+        mid_id = f"transitive_mid_{stamp}"
+        app_id = f"transitive_app_{stamp}"
+
+        for name in ("base", "mid"):
+            (ws / name / "include").mkdir(parents=True)
+            (ws / name / "src").mkdir(parents=True)
+        (ws / "app" / "src").mkdir(parents=True)
+
+        (ws / "base" / "project.json").write_text(
+            f'{{"id": "{base_id}", "type": "package"}}\n'
+        )
+        (ws / "base" / "include" / f"{base_id}.h").write_text(
+            f"#ifndef {base_id.upper()}_H\n#define {base_id.upper()}_H\n"
+            "int base_value(void);\n#endif\n"
+        )
+        (ws / "base" / "src" / "main.c").write_text(
+            f"#include <{base_id}.h>\n"
+            "int base_value(void) {\n    return 40;\n}\n"
+        )
+
+        (ws / "mid" / "project.json").write_text(
+            f'{{"id": "{mid_id}", "type": "package", '
+            f'"value": {{"use": ["{base_id}"]}}}}\n'
+        )
+        (ws / "mid" / "include" / f"{mid_id}.h").write_text(
+            f"#ifndef {mid_id.upper()}_H\n#define {mid_id.upper()}_H\n"
+            f"#include <{base_id}.h>\n"
+            "int mid_value(void);\n#endif\n"
+        )
+        (ws / "mid" / "src" / "main.c").write_text(
+            f"#include <{mid_id}.h>\n"
+            "int mid_value(void) {\n    return base_value() + 2;\n}\n"
+        )
+
+        (ws / "app" / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            f'"value": {{"use": ["{mid_id}"], "standalone": true}}}}\n'
+        )
+        (ws / "app" / "src" / "main.c").write_text(
+            f"#include <{mid_id}.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("value=%d\\n", mid_value());\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("value=42", self.strip_ansi(output))
+
+        deps_dir = ws / "app" / "deps"
+        marker = deps_dir / ".bake_standalone_deps"
+        self.assertIn(f"{base_id}=", marker.read_text())
+        self.assertTrue((deps_dir / "dependee.json").exists())
+
+        shutil.rmtree(ws / "mid")
+        shutil.rmtree(ws / "base")
+        for name in (mid_id, base_id):
+            shutil.rmtree(self.bake_home / "meta" / name, ignore_errors=True)
+
+        self.bake(["rebuild", "app"], cwd=ws)
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("value=42", self.strip_ansi(output))
+
+        self.assertTrue((deps_dir / f"{base_id}.h").exists())
+        self.assertTrue((deps_dir / f"{base_id}.c").exists())
+        self.assertTrue((deps_dir / "dependee.json").exists())
+        marker_text = marker.read_text()
+        self.assertIn(f"{base_id}=", marker_text)
+        self.assertIn(f"{mid_id}=", marker_text)
+
+    def test_standalone_applies_dependee_json_when_dependency_missing(self) -> None:
+        stamp = int(time.time() * 1_000_000)
+        ws = self.repo_root / "test" / "tmp" / f"standalone_dependee_{stamp}"
+        self.addCleanup(shutil.rmtree, ws, ignore_errors=True)
+        pkg_id = f"dependee_pkg_{stamp}"
+        app_id = f"dependee_app_{stamp}"
+        flag = f"PKG_FLAG_{stamp}"
+        libdir = ws / f"extra_libdir_{stamp}"
+        libdir.mkdir(parents=True)
+
+        (ws / "pkg" / "include").mkdir(parents=True)
+        (ws / "pkg" / "src").mkdir(parents=True)
+        (ws / "app" / "src").mkdir(parents=True)
+
+        (ws / "pkg" / "project.json").write_text(
+            f'{{"id": "{pkg_id}", "type": "package", '
+            f'"lang.c": {{"defines": ["{flag}"], "ldflags": ["-L{libdir}"]}}}}\n'
+        )
+        (ws / "pkg" / "include" / f"{pkg_id}.h").write_text(
+            f"#ifndef {pkg_id.upper()}_H\n#define {pkg_id.upper()}_H\n"
+            "int dep_value(void);\n#endif\n"
+        )
+        (ws / "pkg" / "src" / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            f"#ifndef {flag}\n"
+            f'#error "{flag} not defined"\n'
+            "#endif\n"
+            "int dep_value(void) {\n    return 42;\n}\n"
+        )
+
+        (ws / "app" / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application", '
+            f'"value": {{"use": ["{pkg_id}"], "standalone": true}}}}\n'
+        )
+        (ws / "app" / "src" / "main.c").write_text(
+            f"#include <{pkg_id}.h>\n"
+            "#include <stdio.h>\n"
+            "int main(void) {\n"
+            '    printf("value=%d\\n", dep_value());\n'
+            "    return 0;\n"
+            "}\n"
+        )
+
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("value=42", self.strip_ansi(output))
+
+        dependee = json.loads((ws / "app" / "deps" / "dependee.json").read_text())
+        self.assertIn(flag, dependee["lang.c"]["defines"])
+        self.assertIn(f"-L{libdir}", dependee["lang.c"]["ldflags"])
+
+        shutil.rmtree(ws / "pkg")
+        shutil.rmtree(self.bake_home / "meta" / pkg_id, ignore_errors=True)
+
+        output = self.strip_ansi(self.bake(["--trace", "rebuild", "app"], cwd=ws))
+        self.assertIn(f"-D{flag}", output)
+        self.assertIn(f"-L{libdir}", output)
+        output = self.bake(["run", "app"], cwd=ws)
+        self.assertIn("value=42", self.strip_ansi(output))
+
     def test_standalone_build_fails_clearly_when_dependency_missing(self) -> None:
         ws, _, _ = self.write_standalone_workspace("standalone_missing")
         shutil.rmtree(ws / "pkg")
@@ -6571,6 +6706,43 @@ class BakeTests(unittest.TestCase):
         link_lines = [l for l in output.splitlines() if f"-o " in l and f"{app_id}.js" in l]
         self.assertTrue(link_lines, f"No link command found in:\n{output}")
         self.assertIn("-O3", link_lines[-1])
+
+    @unittest.skipIf(platform.system() == "Windows", "emscripten target is not supported on Windows")
+    def test_target_em_names_artefact_after_project_id(self) -> None:
+        if not self.emsdk_available():
+            self.skipTest("emscripten SDK not available")
+
+        stamp = int(time.time() * 1_000_000)
+        project_dir = self.repo_root / "test" / "tmp" / f"em_named_{stamp}"
+        self.addCleanup(shutil.rmtree, project_dir, ignore_errors=True)
+        (project_dir / "src").mkdir(parents=True)
+        app_id = f"em.named_{stamp}"
+        name = f"em_named_{stamp}"
+        (project_dir / "project.json").write_text(
+            f'{{"id": "{app_id}", "type": "application"}}\n'
+        )
+        (project_dir / "src" / "main.c").write_text(
+            "int main(void) {\n    return 0;\n}\n"
+        )
+
+        bin_dir = self.bake_home / "wasm32-Emscripten" / "release" / "bin"
+        self.addCleanup(shutil.rmtree, bin_dir / app_id, ignore_errors=True)
+        for ext in (".js", ".wasm"):
+            self.addCleanup((bin_dir / f"{name}{ext}").unlink, missing_ok=True)
+
+        output = self.strip_ansi(self.bake(
+            ["--target", "em", "--cfg", "release", "--trace", "build", str(project_dir)]))
+        self.assertIn(f'-s EXPORT_NAME="{name}"', output)
+
+        triplet_dir = project_dir / ".bake" / "wasm32-Emscripten-release"
+        self.assertTrue((triplet_dir / f"{name}.js").is_file())
+
+        out_dir = project_dir / "bin" / "Em-release"
+        js = out_dir / f"{name}.js"
+        wasm = out_dir / f"{name}.wasm"
+        self.assertTrue(js.is_file(), f"Expected .js artefact at {js}")
+        self.assertTrue(wasm.is_file(), f"Expected .wasm artefact at {wasm}")
+        self.assertIn(f"var {name}", js.read_text())
 
     def test_json_strlist_skips_nulls(self) -> None:
         stamp = int(time.time() * 1_000_000)

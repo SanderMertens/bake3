@@ -346,7 +346,7 @@ The following options are supported:
 - `amalgamate`: Specify whether the project should amalgamated the source files.
 - `amalgamate-path`: Destination path for the output of the amalgamation process.
 - `output`: Name of the build artefact. Defaults to the project id.
-- `standalone`: When true, this will copy all amalgamated sources from dependencies to a `deps` folder in the project, and include those in the project build rather than relying on linking with dependency binaries. This allows for the project to be easily shared, without having to also share the dependencies. The sources in `deps` are refreshed automatically when a dependency changes. When the dependency sources are not available (for example on a machine that only has the standalone project), the existing sources in `deps` are used as is.
+- `standalone`: When true, this will copy all amalgamated sources from dependencies to a `deps` folder in the project, and include those in the project build rather than relying on linking with dependency binaries. This allows for the project to be easily shared, without having to also share the dependencies. The sources in `deps` are refreshed automatically when a dependency changes. When the dependency sources are not available (for example on a machine that only has the standalone project), the existing sources in `deps` are used as is, and files of dependencies that can no longer be discovered (such as dependencies of an unavailable dependency) are kept. The build configuration of the dependencies (everything in their `project.json` except `id`, `type` and `value`) is merged into `deps/dependee.json`, which is applied to the standalone build so that flags such as `ldflags`, `lib`, `defines` and `embed` of dependencies are still used when the dependencies are not available.
 
 ### Dependencies with defines
 An entry in `use` or `use-private` can be an object instead of a name, to build
@@ -700,7 +700,7 @@ Use `${os Emscripten}` / `${target em}` conditionals in `project.json` to select
 }
 ```
 
-Bake adds `-s ALLOW_MEMORY_GROWTH=1`, `-s EXPORTED_RUNTIME_METHODS=cwrap`, `-s MODULARIZE=1` and `-s EXPORT_NAME="<output>"` to the link. These are emitted *before* the project's own `ldflags`, so a project that wants different values simply sets them (`"ldflags": ["-sMODULARIZE=0"]`). With `MODULARIZE=1` the `.js` file defines a factory function named after the project output rather than starting the module, so the page has to call it.
+Bake adds `-s ALLOW_MEMORY_GROWTH=1`, `-s EXPORTED_RUNTIME_METHODS=cwrap`, `-s MODULARIZE=1` and `-s EXPORT_NAME="<output>"` to the link. For the emscripten target the output name of an application defaults to the project id with dots replaced by underscores (`my.app` becomes `my_app.js` and `my_app.wasm`), and the artefacts of an application are also copied to `bin/Em-<cfg>` in the project directory. These are emitted *before* the project's own `ldflags`, so a project that wants different values simply sets them (`"ldflags": ["-sMODULARIZE=0"]`). With `MODULARIZE=1` the `.js` file defines a factory function named after the project output rather than starting the module, so the page has to call it.
 
 ### Embedding assets
 `embed` entries become `--embed-file` arguments, which place the bytes in the wasm data segment. Relative entries are resolved against the project directory, and are mounted in MEMFS under the path as written, so the same relative path works on both targets:
