@@ -23,6 +23,7 @@
 #define BAKE_TEST_QUARANTINED (3)
 #define BAKE_TEST_DEFAULT_TIMEOUT (60.0)
 #define BAKE_TEST_WAIT_SLICE_MS (200)
+#define BAKE_TEST_INTERRUPT_GRACE (5.0)
 #define BAKE_COLOR_GREEN "\033[32m"
 #define BAKE_COLOR_YELLOW "\033[33m"
 #define BAKE_COLOR_RED "\033[31m"
@@ -754,6 +755,36 @@ static double bake_case_timeout(const bake_test_suite *suite) {
 }
 
 #if !defined(_WIN32)
+static volatile sig_atomic_t g_interrupt_signal = 0;
+
+static void bake_on_interrupt(int sig) {
+    g_interrupt_signal = sig;
+}
+
+static void bake_interrupt_install(void) {
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = bake_on_interrupt;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGHUP, &sa, NULL);
+}
+
+static bool bake_interrupted(void) {
+    return g_interrupt_signal != 0;
+}
+
+static void bake_interrupt_exit(void) {
+    int sig = g_interrupt_signal;
+    if (!sig) {
+        return;
+    }
+    fflush(stdout);
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 static int bake_wait_for_child(
     pid_t pid,
     int wait_fd,
@@ -763,6 +794,7 @@ static int bake_wait_for_child(
     int *status_out)
 {
     double start = bake_time_now();
+    double interrupted_at = 0;
     bool killed = false;
 
     for (;;) {
@@ -774,6 +806,16 @@ static int bake_wait_for_child(
         }
         if (rc < 0 && errno != EINTR) {
             return -1;
+        }
+
+        if (g_interrupt_signal && !killed) {
+            if (!interrupted_at) {
+                interrupted_at = bake_time_now();
+                kill(group ? -pid : pid, g_interrupt_signal);
+            } else if ((bake_time_now() - interrupted_at) > BAKE_TEST_INTERRUPT_GRACE) {
+                killed = true;
+                kill(group ? -pid : pid, SIGKILL);
+            }
         }
 
         int wait_ms = BAKE_TEST_WAIT_SLICE_MS;
@@ -797,6 +839,9 @@ static int bake_wait_for_child(
         }
 
         struct pollfd pfd = { .fd = wait_fd, .events = POLLIN, .revents = 0 };
+        if (interrupted_at && wait_ms > 50) {
+            wait_ms = 50;
+        }
         int poll_rc = poll(&pfd, 1, wait_ms);
         if (poll_rc < 0) {
             if (errno == EINTR) {
@@ -829,6 +874,16 @@ static int bake_wait_for_child(
             return -1;
         }
     }
+}
+#else
+static bool bake_interrupted(void) {
+    return false;
+}
+
+static void bake_interrupt_install(void) {
+}
+
+static void bake_interrupt_exit(void) {
 }
 #endif
 
@@ -1000,6 +1055,9 @@ static int bake_run_subprocess_to_stream(
     }
 
     if (pid == 0) {
+        sigset_t none;
+        sigemptyset(&none);
+        sigprocmask(SIG_SETMASK, &none, NULL);
         close(wait_pipe[0]);
         setpgid(0, 0);
         fcntl(wait_pipe[1], F_SETFD, 0);
@@ -1370,9 +1428,29 @@ typedef struct bake_case_job_t {
     double elapsed;
 } bake_case_job_t;
 
+static FILE* bake_tmpfile(void) {
+#if defined(_WIN32)
+    return tmpfile();
+#else
+    const char *dir = getenv("TMPDIR");
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/bake_test_XXXXXX", dir && dir[0] ? dir : "/tmp");
+    int fd = mkstemp(path);
+    if (fd < 0) {
+        return NULL;
+    }
+    unlink(path);
+    FILE *f = fdopen(fd, "w+");
+    if (!f) {
+        close(fd);
+    }
+    return f;
+#endif
+}
+
 static void bake_case_job_execute(bake_case_job_t *job) {
     double start = bake_time_now();
-    FILE *stream = tmpfile();
+    FILE *stream = bake_tmpfile();
     if (!stream) {
         job->test_rc = bake_run_subprocess(
             job->cmd, job->timeout, &job->timed_out, &job->exit);
@@ -1559,7 +1637,7 @@ static int bake_run_suite(const char *test_id, const char *exec, bake_test_suite
     char param_str[512] = {0};
     bake_append_suite_params(param_str, sizeof(param_str), suite);
 
-    for (uint32_t i = 0; i < suite->testcase_count; i++) {
+    for (uint32_t i = 0; i < suite->testcase_count && !bake_interrupted(); i++) {
         if (g_trace) {
             bake_print_trace(suite->id, suite->testcases[i].id, param_str);
         }
@@ -1901,7 +1979,7 @@ static void bake_case_worker_run(bake_case_jobs_t *jobs) {
         }
 
         bake_case_job_t *job = &jobs->plan->jobs[job_index];
-        if (job->command_rc == 0) {
+        if (job->command_rc == 0 && !bake_interrupted()) {
             bake_case_job_execute(job);
         }
 
@@ -2075,6 +2153,9 @@ static int bake_run_cases_parallel(
         bake_suite_run_t *run = &plan.runs[jobs.ready[r]];
         bake_jobs_mutex_unlock(&jobs.lock);
 
+        if (bake_interrupted()) {
+            continue;
+        }
         if (bake_parallel_report_run(
             &plan, run, test_id, exec, pass, fail, empty) != 0)
         {
@@ -2309,6 +2390,7 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
     }
 
     printf("HOST: %s %s\n", bake_host_os(), bake_host_arch());
+    bake_interrupt_install();
 
     int pass = 0;
     int fail = 0;
@@ -2334,6 +2416,7 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
         } else if (parallel_rc != 0) {
             rc = -1;
         }
+        bake_interrupt_exit();
         bake_print_failed_tests();
     } else {
         int parallel_rc = bake_run_cases_parallel(
@@ -2349,6 +2432,7 @@ int bake_test_run(const char *test_id, int argc, char *argv[], bake_test_suite *
         } else if (parallel_rc != 0) {
             rc = -1;
         }
+        bake_interrupt_exit();
         printf("-----------------------------\n");
         bake_print_report(test_id, "all", "", pass, fail, empty);
         bake_print_failed_tests();
